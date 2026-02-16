@@ -11,8 +11,33 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import StandingOrderActions from "./standing-order-actions";
+// ===========================
+// Types
+// ===========================
 
+interface StandingOrder {
+  id: string;
+  customer_id: string;
+  delivery_days: string;
+  frequency: string;
+  active: boolean;
+  notes: string | null;
+  created_at: string;
+  customers: {
+    business_name: string;
+    email: string;
+  };
+  standing_order_items: Array<{
+    id: string;
+    product_id: string;
+    quantity: number;
+    products: {
+      name: string;
+      price: number;
+      unit_price: number;
+    };
+  }>;
+}
 // ===========================
 // Server-side Data Fetching
 // ===========================

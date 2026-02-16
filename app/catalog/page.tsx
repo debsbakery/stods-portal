@@ -10,7 +10,6 @@ import { ShoppingCart, Search, Loader2, Plus, Minus, ArrowLeft, Image as ImageIc
 interface ProductWithPricing extends Product {
   customerPrice?: number;
   isContractPrice?: boolean;
-  image_url?: string | null;
 }
 
 export default function CatalogPage() {
