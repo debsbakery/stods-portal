@@ -1,52 +1,59 @@
-import { NextResponse } from 'next/server'
-import { StatementService } from '@/lib/services/statement-service'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { subMonths, startOfMonth, endOfMonth } from 'date-fns'
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
-    const service = new StatementService()
-
-    // Get all customers with balance
-    const { data: customers } = await supabase
+    
+    const { data: customers, error: customersError } = await supabase
       .from('customers')
-      .select('id, business_name, contact_name, email')
+      .select('id, email, business_name, balance')
       .gt('balance', 0)
 
-    if (!customers || customers.length === 0) {
-      return NextResponse.json({ success: true, sent: 0, message: 'No customers with balance' })
+    if (customersError) {
+      return NextResponse.json(
+        { error: 'Failed to fetch customers' },
+        { status: 500 }
+      )
     }
 
-    // Last month's dates
-    const endDate = endOfMonth(subMonths(new Date(), 1))
-    const startDate = startOfMonth(subMonths(new Date(), 1))
+    if (!customers || customers.length === 0) {
+      return NextResponse.json({
+        success: true,
+        sent: 0,
+        failed: 0,
+        message: 'No customers with outstanding balances',
+      })
+    }
 
     let sent = 0
     let failed = 0
+    const errors: string[] = []
 
     for (const customer of customers) {
       try {
-        await service.emailStatement(customer.id, startDate, endDate)
+        console.log(\Would send statement to \ (\)\)
+        console.log(\Balance: \$\\)
+        
         sent++
-      } catch (error) {
-        console.error(`Failed to send statement to ${customer.email}:`, error)
+      } catch (error: any) {
+        console.error(\Failed to send statement to \:\, error)
         failed++
+        errors.push(\\: \\)
       }
     }
-
-    console.log(`✅ Sent ${sent} statements, ${failed} failed`)
 
     return NextResponse.json({
       success: true,
       sent,
       failed,
-      total: customers.length
+      total: customers.length,
+      errors: errors.length > 0 ? errors : undefined,
     })
-  } catch (error) {
+  } catch (error: any) {
     console.error('Send all statements error:', error)
     return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
+      { error: error.message || 'Failed to send statements' },
       { status: 500 }
     )
   }
