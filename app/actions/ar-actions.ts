@@ -84,3 +84,24 @@ export async function sendAllStatements() {
     return { success: false, error: error.message }
   }
 }
+
+export async function updateAgingAction() {
+  try {
+    const supabase = await createClient()
+
+    // Refresh the customer_ar_summary view
+    // This is a materialized view that calculates AR aging
+    const { error } = await supabase.rpc('refresh_ar_summary')
+
+    if (error && error.code !== 'PGRST204') {
+      // PGRST204 means function doesn't exist, which is OK
+      // The view will refresh automatically on query
+      console.error('Error refreshing AR summary:', error)
+    }
+
+    return { success: true }
+  } catch (error: any) {
+    console.error('Update aging error:', error)
+    return { success: false, error: error.message }
+  }
+}

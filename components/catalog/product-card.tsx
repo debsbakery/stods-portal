@@ -70,10 +70,10 @@ export async function ProductCard({ product, customerId, onAddToCart }: ProductC
 
           <Button
             onClick={() => onAddToCart(product, pricing.price)}
-            disabled={!product.is-available}
+            disabled={!product.available}
             size="sm"
           >
-            {product.is-available ? 'Add to Cart' : 'Out of Stock'}
+            {product.available ? 'Add to Cart' : 'Out of Stock'}
           </Button>
         </div>
       </CardContent>

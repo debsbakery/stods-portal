@@ -1,6 +1,6 @@
 // app/admin/direct-invoice/page.tsx
 "use client";
-
+export const dynamic = 'force-dynamic' 
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";

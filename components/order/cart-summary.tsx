@@ -44,15 +44,6 @@ export function CartSummary({ cart, onUpdateQuantity, onRemoveItem }: CartSummar
         {cart.map((item) => (
           <div key={item.product.id} className="flex items-center gap-3">
             <div className="flex items-center gap-1">
-              // In the cart item display
-<div className="flex items-center justify-between">
-  <div className="text-sm text-gray-600">
-    {item.quantity} × {formatCurrency(item.price)}
-  </div>
-  <div className="font-semibold">
-    {formatCurrency(item.quantity * item.price)}
-  </div>
-</div>
               <Button
                 variant="ghost"
                 size="icon"
@@ -77,9 +68,18 @@ export function CartSummary({ cart, onUpdateQuantity, onRemoveItem }: CartSummar
                 <Plus className="h-3 w-3" />
               </Button>
             </div>
+            
+            <div className="flex-1">
+              <p className="font-medium">{item.product.name}</p>
+              <div className="text-sm text-gray-600">
+                {item.quantity} × {formatCurrency(item.product.price)}
+              </div>
+            </div>
+            
             <p className="w-20 text-right font-medium">
               {formatCurrency(item.product.price * item.quantity)}
             </p>
+            
             <Button
               variant="ghost"
               size="icon"

@@ -11,6 +11,7 @@ interface Product {
   name: string
   description: string | null
   price: string
+  unit_price?: string
   image_url: string | null
   category: string | null
   available: boolean
@@ -115,6 +116,7 @@ export function ProductGrid({ initialProducts, customerId }: {
                 onClick={() => toggleFavorite(product.id)}
                 disabled={loading}
                 className="absolute top-2 right-2 z-10 p-2 bg-white rounded-full shadow-md hover:shadow-lg transition"
+                aria-label={favoriteIds.has(product.id) ? 'Remove from favorites' : 'Add to favorites'}
               >
                 <Star
                   className={`w-5 h-5 ${
@@ -124,8 +126,12 @@ export function ProductGrid({ initialProducts, customerId }: {
                   }`}
                 />
               </button>
+              
               <ProductCard
-                product={product}
+                product={{
+                  ...product,
+                  price: parseFloat(product.price?.toString() || '0'),
+                }}
                 customerId={customerId}
                 onAddToCart={() => {}}
               />

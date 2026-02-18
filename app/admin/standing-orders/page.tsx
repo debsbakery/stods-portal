@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic'
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { checkAdmin } from "@/lib/auth";
@@ -11,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import StandingOrderActions from "./components/standing-order-actions";
 // ===========================
 // Types
 // ===========================

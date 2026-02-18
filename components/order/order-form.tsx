@@ -94,8 +94,8 @@ export function OrderForm({
         product_id: item.product.id,
         product_name: item.product.name,
         quantity: item.quantity,
-        unit_price: item.price,
-        subtotal: item.price * item.quantity,
+ unit_price: item.product.price,
+subtotal: item.product.price * item.quantity,
       }));
 
       const { error: itemsError } = await supabase
