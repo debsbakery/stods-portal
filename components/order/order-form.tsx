@@ -163,7 +163,7 @@ subtotal: item.product.price * item.quantity,
 
               <div className="space-y-2">
                 <Label>Delivery Date *</Label>
-                <DatePicker date={deliveryDate} onSelect={setDeliveryDate} />
+              <DatePicker date={deliveryDate} onDateChange={setDeliveryDate} />
                 <p className="text-xs text-muted-foreground">
                   Orders must be placed at least 2 days in advance. No Sunday deliveries.
                 </p>
