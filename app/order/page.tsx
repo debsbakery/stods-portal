@@ -1,5 +1,7 @@
 "use client";
+
 export const dynamic = 'force-dynamic'
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -16,7 +18,7 @@ const GST_RATE = 0.10; // 10% Australian GST
 
 export default function OrderPage() {
   const router = useRouter();
-  const supabase = createClient();
+  const [supabase, setSupabase] = useState<any>(null);
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [deliveryDate, setDeliveryDate] = useState<Date>();
@@ -28,8 +30,15 @@ export default function OrderPage() {
   const [error, setError] = useState<string | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
 
-  // ── Load cart + customer on mount ──
+  // Initialize Supabase
   useEffect(() => {
+    setSupabase(createClient());
+  }, []);
+
+  // Load cart + customer on mount
+  useEffect(() => {
+    if (!supabase) return;
+
     const init = async () => {
       // Load cart
       const savedCart = localStorage.getItem("cart");
@@ -83,7 +92,7 @@ export default function OrderPage() {
     saveCart(newCart);
   };
 
-  // ── GST Calculation ──
+  // GST Calculation
   const orderTotals = cart.reduce(
     (acc, item) => {
       const lineTotal = Number(item.product.price) * item.quantity;
@@ -101,6 +110,8 @@ export default function OrderPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!supabase) return;  // ✅ Guard clause
 
     if (cart.length === 0) {
       setError("Your cart is empty");
@@ -130,7 +141,7 @@ export default function OrderPage() {
         business_name: businessName || null,
       });
 
-      // Create order — WITH source and customer details
+      // Create order
       const { data: order, error: orderError } = await supabase
         .from("orders")
         .insert({
@@ -143,14 +154,14 @@ export default function OrderPage() {
           notes: notes || null,
           total_amount: orderTotals.total,
           status: "pending",
-          source: "online",                        // ← FIX: mark as online order
+          source: "online",
         })
         .select()
         .single();
 
       if (orderError) throw orderError;
 
-      // Create order items — WITH gst_applicable
+      // Create order items
       const orderItems = cart.map((item) => {
         const lineTotal = Number(item.product.price) * item.quantity;
         const lineGST = item.product.gst_applicable
@@ -174,7 +185,7 @@ export default function OrderPage() {
 
       if (itemsError) throw itemsError;
 
-      // Send confirmation emails (don't fail order if email fails)
+      // Send confirmation emails
       try {
         await fetch("/api/send-email", {
           method: "POST",
@@ -197,7 +208,7 @@ export default function OrderPage() {
     }
   };
 
-  // ── Available delivery dates (2+ days out, no Sundays) ──
+  // Available delivery dates
   const getAvailableDates = () => {
     const dates = [];
     let currentDate = addDays(new Date(), 2);
@@ -211,6 +222,14 @@ export default function OrderPage() {
   };
 
   const availableDates = getAvailableDates();
+
+  if (!supabase) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Loader2 className="h-12 w-12 animate-spin" style={{ color: "#CE1126" }} />
+      </div>
+    );
+  }
 
   if (pageLoading) {
     return (
@@ -242,7 +261,7 @@ export default function OrderPage() {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid gap-6 lg:grid-cols-2">
-            {/* ── LEFT COLUMN: Delivery Details ── */}
+            {/* LEFT COLUMN: Delivery Details */}
             <div className="space-y-6">
               <div className="bg-white rounded-lg shadow-md p-6">
                 <h2 className="text-xl font-bold mb-4">📅 Delivery Details</h2>
@@ -264,15 +283,9 @@ export default function OrderPage() {
                 {/* Customer info display */}
                 {customer && (
                   <div className="mb-4 p-3 bg-gray-50 rounded-md text-sm text-gray-600">
-                    {customer.address && (
-                      <p>📍 {customer.address}</p>
-                    )}
-                    {customer.phone && (
-                      <p>📞 {customer.phone}</p>
-                    )}
-                    {customer.abn && (
-                      <p>🏢 ABN: {customer.abn}</p>
-                    )}
+                    {customer.address && <p>📍 {customer.address}</p>}
+                    {customer.phone && <p>📞 {customer.phone}</p>}
+                    {customer.abn && <p>🏢 ABN: {customer.abn}</p>}
                     {customer.payment_terms && (
                       <p>💳 Payment terms: {customer.payment_terms} days</p>
                     )}
@@ -350,7 +363,7 @@ export default function OrderPage() {
               </div>
             </div>
 
-            {/* ── RIGHT COLUMN: Order Summary ── */}
+            {/* RIGHT COLUMN: Order Summary */}
             <div className="space-y-6">
               <div className="bg-white rounded-lg shadow-md p-6">
                 <h2 className="text-xl font-bold mb-4">
@@ -453,7 +466,7 @@ export default function OrderPage() {
                       );
                     })}
 
-                    {/* ── Totals ── */}
+                    {/* Totals */}
                     <div className="pt-2 space-y-1">
                       <div className="flex justify-between text-sm text-gray-600">
                         <span>Subtotal</span>
