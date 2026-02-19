@@ -141,8 +141,30 @@ export default function CustomerPortalView({ data }: { data: PortalData }) {
         </div>
       </header>
 
-      {/* Content */}
+           {/* Content */}
       <main className="container mx-auto px-4 py-8">
+        
+        {/* Quick Actions - ADD THIS SECTION */}
+        {activeTab === 'overview' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+            <a href="/catalog">
+              <button className="w-full px-6 py-4 text-white font-semibold rounded-lg shadow-md hover:opacity-90 transition flex items-center justify-center gap-2"
+                style={{ backgroundColor: '#006A4E' }}>
+                <span className="text-2xl">🛒</span>
+                <span>Browse Products & Place Order</span>
+              </button>
+            </a>
+            
+            <a href="/order/shadow">
+              <button className="w-full px-6 py-4 bg-yellow-500 text-white font-semibold rounded-lg shadow-md hover:bg-yellow-600 transition flex items-center justify-center gap-2">
+                <span className="text-2xl">⭐</span>
+                <span>My Usual Items (Quick Order)</span>
+              </button>
+            </a>
+          </div>
+        )}
+
+        
         {activeTab === 'overview' && (
           <OverviewTab data={data} formatCurrency={formatCurrency} formatDate={formatDate} totalOverdue={totalOverdue} />
         )}
@@ -257,6 +279,7 @@ function OverviewTab({
       )}
 
       {/* Quick Actions Grid */}
+ 
       <div className="grid md:grid-cols-2 gap-6">
         <div className="bg-white rounded-lg shadow-md p-6">
           <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
