@@ -107,18 +107,22 @@ export default async function ArDashboard() {
       {agingData && agingData.length > 0 && (
         <div className="bg-white p-6 rounded-lg shadow mb-8">
           <h3 className="text-lg font-semibold mb-4">AR Aging Summary</h3>
-  <AgingTable 
-   data={agingData.map((row: any) => ({
-   id: row.customer_id,
+ <AgingTable 
+  data={agingData.map((row: any) => ({
+    id: row.customer_id,
     name: row.business_name || 'Unknown Customer',
     email: row.email || '',
     paymentTerms: row.payment_terms || 'Net 30',
-    days1To30: parseFloat(row.days_30 || '0'),
-    days31To60: parseFloat(row.days_60 || '0'),
-    days61To90: parseFloat(row.days_90 || '0'),
-    over90Days: parseFloat(row.over_90 || '0'),
-    totalBalance: parseFloat(row.total || '0')
-  }))}
+    current: parseFloat(row.current || '0'),
+    days1To30: parseFloat(row.days_1_30 || '0'),
+    days31To60: parseFloat(row.days_31_60 || '0'),
+    days61To90: parseFloat(row.days_61_90 || '0'),
+    over90Days: parseFloat(row.days_over_90 || '0'),
+    daysOver90: parseFloat(row.days_over_90 || '0'),
+    totalBalance: parseFloat(row.total_due || '0'),
+    totalDue: parseFloat(row.total_due || '0'),
+    updatedAt: new Date().toISOString()
+  })) as any}
 />
         </div>
       )}
