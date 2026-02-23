@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
+import { sendEmail } from '@/lib/email-sender';
 
 // ✅ Helper to create service client
 async function createServiceClient() {
@@ -120,7 +121,7 @@ export async function POST() {
             customer_abn: standingOrder.customer.abn,
             delivery_date: deliveryDateStr,
             total_amount: totalAmount,
-            status: 'pending',  // ✅ Pending until batch invoiced
+            status: 'pending',
             source: 'standing_order',
             notes: `Auto-generated from ${standingOrder.delivery_days || standingOrder.delivery_day} standing order`
           })
@@ -177,40 +178,35 @@ export async function POST() {
         ordersCreated++;
         console.log(`✅ Order complete for ${standingOrder.customer.business_name} - Delivery: ${deliveryDateStr}`);
 
-        // ✅ Send confirmation email for auto-generated standing order
+        // ✅ Send confirmation email using direct function
         try {
-          const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+          const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://debsbakery-portal.vercel.app';
           
-          await fetch(`${siteUrl}/api/send-email`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              to: standingOrder.customer.email,
-              subject: 'Your Standing Order Has Been Placed - Debs Bakery',
-              html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                  <h1 style="color: #006A4E;">Your Standing Order is Confirmed</h1>
-                  <p>Hi ${standingOrder.customer.business_name || standingOrder.customer.email}!</p>
-                  <p>Your weekly standing order has been automatically placed:</p>
-                  <p><strong>Order #${newOrder.id.slice(0, 8).toUpperCase()}</strong></p>
-                  <p><strong>Delivery Date:</strong> ${deliveryDate.toLocaleDateString('en-AU', { 
-                    weekday: 'long', 
-                    year: 'numeric', 
-                    month: 'long', 
-                    day: 'numeric' 
-                  })}</p>
-                  <p><strong>Total: $${totalAmount.toFixed(2)}</strong></p>
-                  <hr>
-                  <p>Need to make changes? Edit your order before the cutoff time in the <a href="${siteUrl}/portal">Customer Portal</a></p>
-                  <p><small>Want to pause this standing order? <a href="${siteUrl}/portal">Manage Standing Orders</a></small></p>
-                </div>
-              `,
-            }),
+          await sendEmail({
+            to: standingOrder.customer.email,
+            subject: 'Your Standing Order Has Been Placed - Debs Bakery',
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h1 style="color: #006A4E;">Your Standing Order is Confirmed</h1>
+                <p>Hi ${standingOrder.customer.business_name || standingOrder.customer.email}!</p>
+                <p>Your weekly standing order has been automatically placed:</p>
+                <p><strong>Order #${newOrder.id.slice(0, 8).toUpperCase()}</strong></p>
+                <p><strong>Delivery Date:</strong> ${deliveryDate.toLocaleDateString('en-AU', { 
+                  weekday: 'long', 
+                  year: 'numeric', 
+                  month: 'long', 
+                  day: 'numeric' 
+                })}</p>
+                <p><strong>Total: $${totalAmount.toFixed(2)}</strong></p>
+                <hr>
+                <p>Need to make changes? Edit your order before the cutoff time in the <a href="${siteUrl}/portal">Customer Portal</a></p>
+              </div>
+            `,
           });
           
-          console.log(`📧 Standing order confirmation sent to ${standingOrder.customer.email}`);
+          console.log(`✅ Standing order email sent to ${standingOrder.customer.email}`);
         } catch (emailError) {
-          console.error('⚠️ Email failed for standing order (order still created):', emailError);
+          console.error('⚠️ Standing order email failed:', emailError);
         }
 
       } catch (error: any) {
@@ -243,7 +239,6 @@ function calculateNextGenerationDate(deliveryDay: string): string {
   const targetDayIndex = days.indexOf(deliveryDay.toLowerCase());
   
   if (targetDayIndex === -1) {
-    // Invalid day, default to tomorrow
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     return tomorrow.toISOString().split('T')[0];
@@ -257,7 +252,6 @@ function calculateNextGenerationDate(deliveryDay: string): string {
     daysUntilDelivery += 7;
   }
   
-  // Generate 2 days before delivery
   const daysUntilGeneration = daysUntilDelivery - 2;
   const generationDate = new Date(today);
   generationDate.setDate(today.getDate() + daysUntilGeneration);

@@ -1,30 +1,26 @@
 'use client';
 
-export default function TestEmail() {
-  const sendTest = async () => {
-    const response = await fetch('/api/send-email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        to: 'debs_bakery@outlook.com',
-        subject: 'Test Email from Production',
-        html: '<h1>This is a test</h1><p>If you receive this, email is working!</p>',
-      }),
-    });
+import { useState } from 'react';
 
-    const result = await response.json();
-    alert(JSON.stringify(result, null, 2));
+export default function TestEmailPage() {
+  const [status, setStatus] = useState('');
+
+  const sendTestEmail = async () => {
+    try {
+      setStatus('Sending...');
+      const response = await fetch('/api/test-email'); // Uses the test route we created earlier
+      const data = await response.json();
+      setStatus(data.success ? '✅ Email sent!' : '❌ Failed');
+    } catch (error) {
+      setStatus('❌ Error');
+    }
   };
 
   return (
-    <div className="p-8">
-      <h1 className="text-2xl font-bold mb-4">Email Test</h1>
-      <button 
-        onClick={sendTest}
-        className="bg-blue-500 text-white px-4 py-2 rounded"
-      >
-        Send Test Email
-      </button>
+    <div style={{ padding: '2rem' }}>
+      <h1>Test Email</h1>
+      <button onClick={sendTestEmail}>Send Test Email</button>
+      <p>{status}</p>
     </div>
   );
 }

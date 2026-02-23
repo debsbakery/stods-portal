@@ -111,7 +111,7 @@ export default function OrderPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!supabase) return;  // ✅ Guard clause
+    if (!supabase) return;
 
     if (cart.length === 0) {
       setError("Your cart is empty");
@@ -185,15 +185,26 @@ export default function OrderPage() {
 
       if (itemsError) throw itemsError;
 
-      // Send confirmation emails
+      // ✅ Send confirmation emails via API route (server-side email sending)
       try {
-        await fetch("/api/send-email", {
+        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
+        
+        // Call a new API route that will handle email sending server-side
+        await fetch(`${siteUrl}/api/orders/send-confirmation`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ orderId: order.id }),
+          body: JSON.stringify({ 
+            orderId: order.id,
+            customerEmail: user.email,
+            businessName: businessName || null,
+            deliveryDate: deliveryDate.toISOString().split("T")[0],
+            total: orderTotals.total
+          }),
         });
+        
+        console.log('✅ Confirmation email request sent');
       } catch (emailErr) {
-        console.error("Email error (non-fatal):", emailErr);
+        console.error("⚠️ Email error (non-fatal):", emailErr);
       }
 
       // Clear cart and redirect
