@@ -16,6 +16,7 @@ export async function sendEmail({
       to,
       subject: subject.substring(0, 50),
       htmlLength: html.length,
+      htmlPreview: html.substring(0, 200) + '...', // ✅ ADD THIS
     });
 
     const { data, error } = await resend.emails.send({
@@ -23,6 +24,13 @@ export async function sendEmail({
       to,
       subject,
       html,
+      // ✅ ADD THESE:
+      headers: {
+        'X-Entity-Ref-ID': crypto.randomUUID(),
+      },
+      tags: [
+        { name: 'category', value: 'invoice' }
+      ]
     });
 
     if (error) {

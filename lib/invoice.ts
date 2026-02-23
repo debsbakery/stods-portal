@@ -12,6 +12,9 @@ interface InvoiceData {
     phone: string;
     address: string;
     abn?: string;
+    bankName?: string;      // ✅ ADD
+    bankBSB?: string;       // ✅ ADD
+    bankAccount?: string;   // ✅ ADD
   };
 }
 
@@ -110,6 +113,12 @@ export async function generateInvoice(data: InvoiceData): Promise<jsPDF> {
     doc.setFont('helvetica', 'normal');
   }
   
+  // ✅ ADD: Contact name if available
+  if ((order as any).customer_contact_name) {
+    doc.text(`Attn: ${(order as any).customer_contact_name}`, margin, yPos);
+    yPos += 5;
+  }
+  
   doc.text(order.customer_email, margin, yPos);
   yPos += 5;
   
@@ -117,10 +126,39 @@ export async function generateInvoice(data: InvoiceData): Promise<jsPDF> {
   doc.text(customerAddress, margin, yPos);
   yPos += 5;
   
+  // ✅ ADD: Phone if available
+  if ((order as any).customer_phone) {
+    doc.text(`Phone: ${(order as any).customer_phone}`, margin, yPos);
+    yPos += 5;
+  }
+  
   if (order.customer_abn) {
     doc.setFont('helvetica', 'bold');
     doc.text(`ABN: ${order.customer_abn}`, margin, yPos);
     yPos += 5;
+  }
+
+  // ✅ ADD: PO and Docket Numbers
+  yPos = 110;
+  if ((order as any).purchase_order_number || (order as any).docket_number) {
+    doc.setFillColor(248, 249, 250);
+    doc.rect(margin, yPos, 170, 15, 'F');
+    
+    yPos += 5;
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    
+    let poLine = '';
+    if ((order as any).purchase_order_number) {
+      poLine = `PO Number: ${(order as any).purchase_order_number}`;
+    }
+    if ((order as any).docket_number) {
+      if (poLine) poLine += '  |  ';
+      poLine += `Docket Number: ${(order as any).docket_number}`;
+    }
+    
+    doc.text(poLine, margin + 5, yPos + 5);
+    yPos += 15;
   }
   
   if (order.notes) {
@@ -131,16 +169,19 @@ export async function generateInvoice(data: InvoiceData): Promise<jsPDF> {
     yPos += 3;
     const splitNotes = doc.splitTextToSize(order.notes, 85);
     doc.text(splitNotes, margin, yPos);
+    yPos += (splitNotes.length * 3) + 3;
     doc.setTextColor(...textColor);
   }
 
-  // Items table
-  yPos = 120;
+  // Items table - START HERE
+  yPos = Math.max(yPos + 5, 125);
   
+  // ✅ UPDATED: Include product codes
   const tableData = order.order_items.map(item => {
     const hasGST = item.gst_applicable !== false;
     
     return [
+      (item as any).product_code || 'N/A',  // ✅ PRODUCT CODE
       item.product_name,
       item.quantity.toString(),
       formatCurrency(item.unit_price),
@@ -151,7 +192,7 @@ export async function generateInvoice(data: InvoiceData): Promise<jsPDF> {
 
   autoTable(doc, {
     startY: yPos,
-    head: [['Product', 'Qty', 'Unit Price', 'GST', 'Subtotal']],
+    head: [['Code', 'Product', 'Qty', 'Unit Price', 'GST', 'Subtotal']],  // ✅ ADD CODE COLUMN
     body: tableData,
     theme: 'striped',
     headStyles: {
@@ -165,11 +206,12 @@ export async function generateInvoice(data: InvoiceData): Promise<jsPDF> {
       textColor: [0, 0, 0],
     },
     columnStyles: {
-      0: { cellWidth: 75 },
-      1: { cellWidth: 20, halign: 'center' },
-      2: { cellWidth: 30, halign: 'right' },
-      3: { cellWidth: 20, halign: 'center' },
-      4: { cellWidth: 30, halign: 'right' },
+      0: { cellWidth: 20 },   // ✅ CODE
+      1: { cellWidth: 60 },   // Product
+      2: { cellWidth: 15, halign: 'center' },
+      3: { cellWidth: 25, halign: 'right' },
+      4: { cellWidth: 15, halign: 'center' },
+      5: { cellWidth: 30, halign: 'right' },
     },
     margin: { left: margin, right: margin },
   });
@@ -205,13 +247,48 @@ export async function generateInvoice(data: InvoiceData): Promise<jsPDF> {
   doc.text('TOTAL (inc GST):', summaryX, finalY + 19);
   doc.text(formatCurrency(total), 210 - margin, finalY + 19, { align: 'right' });
 
-  // Payment terms
+  // ✅ ADD: Bank Payment Details
   doc.setTextColor(...textColor);
+  const bankY = finalY + 35;
+  
+  if (bakeryInfo.bankName || bakeryInfo.bankBSB || bakeryInfo.bankAccount) {
+    doc.setFillColor(240, 253, 244);
+    doc.rect(margin, bankY, 170, 30, 'F');
+
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(22, 101, 52);
+    doc.text('Payment Information', margin + 5, bankY + 8);
+
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(0, 0, 0);
+    
+    let bankLineY = bankY + 15;
+    if (bakeryInfo.bankName) {
+      doc.text(`Bank: ${bakeryInfo.bankName}`, margin + 5, bankLineY);
+      bankLineY += 5;
+    }
+    if (bakeryInfo.bankBSB) {
+      doc.text(`BSB: ${bakeryInfo.bankBSB}`, margin + 5, bankLineY);
+      bankLineY += 5;
+    }
+    if (bakeryInfo.bankAccount) {
+      doc.text(`Account: ${bakeryInfo.bankAccount}`, margin + 5, bankLineY);
+      bankLineY += 5;
+    }
+    doc.text(`Reference: ${invoiceNum}`, margin + 5, bankLineY);
+  }
+
+  // Payment terms
+  const termsY = bakeryInfo.bankName ? bankY + 40 : finalY + 30;
   doc.setFontSize(8);
   doc.setFont('helvetica', 'normal');
-  const termsY = finalY + 30;
-  doc.text('Payment Terms: Due on delivery', margin, termsY);
-  doc.text('Payment Methods: Cash, EFT, Credit Card', margin, termsY + 5);
+  doc.setTextColor(...textColor);
+  
+  const paymentTerms = (order as any).payment_terms || 30;
+  doc.text(`Payment Terms: ${paymentTerms} days`, margin, termsY);
+  doc.text('Payment Methods: Bank Transfer, Cash, Cheque', margin, termsY + 5);
 
   // GST statement
   doc.setFontSize(7);
@@ -229,4 +306,3 @@ export async function generateInvoice(data: InvoiceData): Promise<jsPDF> {
   doc.text('Thank you for your business!', 105, footerY + 4, { align: 'center' });
   
   return doc;
-}
