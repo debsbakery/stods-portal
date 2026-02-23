@@ -85,14 +85,15 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ Created AR transactions')
 
-    // Update order statuses to 'invoiced'
-    const { error: updateError } = await supabase
+    // Update order statuses to 'invoiced' and get assigned invoice numbers
+    const { data: updatedOrders, error: updateError } = await supabase
       .from('orders')
       .update({ 
         status: 'invoiced',
         invoiced_at: new Date().toISOString()
       })
       .in('id', orders.map(o => o.id))
+      .select('id, invoice_number, customer_id')
 
     if (updateError) {
       console.error('❌ Error updating order statuses:', updateError)
@@ -100,6 +101,7 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('✅ Updated order statuses to invoiced')
+    console.log('✅ Invoice numbers assigned:', updatedOrders)
 
     const totalAmount = orders.reduce((sum, o) => sum + (o.total_amount || 0), 0)
 
@@ -119,7 +121,12 @@ export async function POST(request: NextRequest) {
             continue
           }
           
-          const invoiceNumber = `INV-${order.id.slice(0, 8).toUpperCase()}`
+          // Find the updated order with invoice number
+          const updatedOrder = updatedOrders?.find(u => u.id === order.id)
+          const invoiceNumber = updatedOrder?.invoice_number 
+            ? String(updatedOrder.invoice_number).padStart(6, '0')
+            : `TEMP-${order.id.slice(0, 8).toUpperCase()}`
+          
           const paymentTerms = customer.payment_terms || 30
           const dueDate = new Date(delivery_date)
           dueDate.setDate(dueDate.getDate() + paymentTerms)
@@ -184,7 +191,7 @@ export async function POST(request: NextRequest) {
           })
           
           emailsSent++
-          console.log(`  ✅ Invoice sent to ${customer.business_name || customer.email}`)
+          console.log(`  ✅ Invoice ${invoiceNumber} sent to ${customer.business_name || customer.email}`)
         } catch (emailError: any) {
           const custEmail = (order.customers as any)?.email || 'unknown'
           console.error(`  ⚠️ Failed to email ${custEmail}:`, emailError.message)

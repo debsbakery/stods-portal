@@ -1,9 +1,9 @@
-import { getInvoiceNumber } from './invoice-number';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { OrderWithItems } from './types';
-import { formatCurrency, formatDate } from './utils';
-import { LOGO_BASE64 } from './logo-base64';//
+import { formatCurrency } from './utils';
+import { LOGO_BASE64 } from './logo-base64';
+
 interface InvoiceData {
   order: OrderWithItems;
   bakeryInfo: {
@@ -19,36 +19,36 @@ export async function generateInvoice(data: InvoiceData): Promise<jsPDF> {
   const { order, bakeryInfo } = data;
   const doc = new jsPDF();
   
-  const logoColor: [number, number, number] = [206, 17, 38]; // Red logo only
-  const textColor: [number, number, number] = [0, 0, 0]; // Black for everything else
+  const logoColor: [number, number, number] = [206, 17, 38];
+  const textColor: [number, number, number] = [0, 0, 0];
   
   const margin = 20;
   let yPos = margin;
 
-  // Header background - white
+  // Header background
   doc.setFillColor(255, 255, 255);
   doc.rect(0, 0, 210, 50, 'F');
   
- // Your actual logo
-try {
-  doc.addImage(LOGO_BASE64, 'PNG', margin, yPos + 2, 25, 25);
-} catch (error) {
-  // Fallback to D logo if image fails
-  doc.setFillColor(...logoColor);
-  doc.circle(margin + 12, yPos + 12, 12, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(16);
-  doc.setFont('helvetica', 'bold');
-  doc.text('D', margin + 12, yPos + 15, { align: 'center' });
-}
+  // Logo
+  try {
+    doc.addImage(LOGO_BASE64, 'PNG', margin, yPos + 2, 25, 25);
+  } catch (error) {
+    // Fallback D logo
+    doc.setFillColor(...logoColor);
+    doc.circle(margin + 12, yPos + 12, 12, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.text('D', margin + 12, yPos + 15, { align: 'center' });
+  }
   
-  // Company name - BLACK
+  // Company name
   doc.setTextColor(...textColor);
   doc.setFontSize(24);
   doc.setFont('helvetica', 'bold');
   doc.text(bakeryInfo.name, margin + 30, yPos + 12);
   
-  // Company details - BLACK
+  // Company details
   doc.setFontSize(8);
   doc.setFont('helvetica', 'normal');
   doc.text(bakeryInfo.email, margin + 30, yPos + 20);
@@ -59,7 +59,7 @@ try {
     doc.text(`ABN: ${bakeryInfo.abn}`, margin + 30, yPos + 36);
   }
 
-  // TAX INVOICE - BLACK
+  // TAX INVOICE title
   doc.setTextColor(...textColor);
   doc.setFontSize(28);
   doc.setFont('helvetica', 'bold');
@@ -78,8 +78,12 @@ try {
   doc.text('Order ID:', 210 - 85, yPos + 32);
   
   doc.setFont('helvetica', 'normal');
-  const invoiceNumber = await getInvoiceNumber(order.id);
-const invoiceNum = invoiceNumber.toString().padStart(6, '0');
+  
+  // ✅ Get invoice number from order
+  const invoiceNum = order.invoice_number 
+    ? String(order.invoice_number).padStart(6, '0')
+    : `TEMP-${order.id.slice(0, 8).toUpperCase()}`;
+  
   const invoiceDate = new Date(order.delivery_date).toLocaleDateString('en-AU');
   const orderDate = new Date(order.created_at).toLocaleDateString('en-AU');
   const orderId = order.id.slice(0, 8).toUpperCase();
@@ -89,7 +93,7 @@ const invoiceNum = invoiceNumber.toString().padStart(6, '0');
   doc.text(orderDate, 210 - margin - 2, yPos + 24, { align: 'right' });
   doc.text(orderId, 210 - margin - 2, yPos + 32, { align: 'right' });
 
-  // Customer information - BILL TO
+  // Customer information
   yPos = 60;
   doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
@@ -99,7 +103,6 @@ const invoiceNum = invoiceNumber.toString().padStart(6, '0');
   doc.setFont('helvetica', 'normal');
   yPos += 8;
   
-  // Customer business name
   if (order.customer_business_name) {
     doc.setFont('helvetica', 'bold');
     doc.text(order.customer_business_name, margin, yPos);
@@ -107,25 +110,19 @@ const invoiceNum = invoiceNumber.toString().padStart(6, '0');
     doc.setFont('helvetica', 'normal');
   }
   
-  // Customer email
   doc.text(order.customer_email, margin, yPos);
   yPos += 5;
   
-  // Customer address (from order notes or placeholder)
-  // You'll need to add an address field to orders table
-  const customerAddress = (order as any).customer_address || 'Address on file';
+  const customerAddress = order.customer_address || 'Address on file';
   doc.text(customerAddress, margin, yPos);
   yPos += 5;
   
-  // Customer ABN (if provided)
-  const customerABN = (order as any).customer_abn;
-  if (customerABN) {
+  if (order.customer_abn) {
     doc.setFont('helvetica', 'bold');
-    doc.text(`ABN: ${customerABN}`, margin, yPos);
+    doc.text(`ABN: ${order.customer_abn}`, margin, yPos);
     yPos += 5;
   }
   
-  // Order notes
   if (order.notes) {
     yPos += 3;
     doc.setFontSize(7);
@@ -141,8 +138,7 @@ const invoiceNum = invoiceNumber.toString().padStart(6, '0');
   yPos = 120;
   
   const tableData = order.order_items.map(item => {
-    const product = item as any;
-    const hasGST = product.gst_applicable !== false;
+    const hasGST = item.gst_applicable !== false;
     
     return [
       item.product_name,
@@ -159,7 +155,7 @@ const invoiceNum = invoiceNumber.toString().padStart(6, '0');
     body: tableData,
     theme: 'striped',
     headStyles: {
-      fillColor: [0, 0, 0], // Black header
+      fillColor: [0, 0, 0],
       textColor: [255, 255, 255],
       fontStyle: 'bold',
       fontSize: 9,
@@ -181,8 +177,7 @@ const invoiceNum = invoiceNumber.toString().padStart(6, '0');
   // Calculate totals
   const subtotal = order.order_items.reduce((sum, item) => sum + item.subtotal, 0);
   const gstTotal = order.order_items.reduce((sum, item) => {
-    const product = item as any;
-    const hasGST = product.gst_applicable !== false;
+    const hasGST = item.gst_applicable !== false;
     return sum + (hasGST ? item.subtotal * 0.1 : 0);
   }, 0);
   const total = subtotal + gstTotal;
@@ -201,7 +196,7 @@ const invoiceNum = invoiceNumber.toString().padStart(6, '0');
   doc.text('GST (10%):', summaryX, finalY + 7);
   doc.text(formatCurrency(gstTotal), 210 - margin, finalY + 7, { align: 'right' });
   
-  // Total - Black background
+  // Total
   doc.setFillColor(0, 0, 0);
   doc.rect(summaryX - 5, finalY + 12, 70, 10, 'F');
   
@@ -210,7 +205,7 @@ const invoiceNum = invoiceNumber.toString().padStart(6, '0');
   doc.text('TOTAL (inc GST):', summaryX, finalY + 19);
   doc.text(formatCurrency(total), 210 - margin, finalY + 19, { align: 'right' });
 
-  // Payment terms - Black text
+  // Payment terms
   doc.setTextColor(...textColor);
   doc.setFontSize(8);
   doc.setFont('helvetica', 'normal');
