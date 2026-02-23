@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
 
     console.log('📊 Batch invoicing for date:', delivery_date)
 
-    // ✅ GET FULL ORDER DATA including items and products
+    // ✅ INCLUDES PO & DOCKET NUMBERS
     const { data: orders, error: ordersError } = await supabase
       .from('orders')
       .select(`
@@ -31,16 +31,17 @@ export async function POST(request: NextRequest) {
         invoice_number,
         created_at,
         notes,
+        purchase_order_number,
+        docket_number,
         customers (
+          id,
           business_name,
+          contact_name,
           email,
-          payment_terms,
-          delivery_address,
-          city,
-          province,
-          postal_code,
           phone,
-          abn
+          address,
+          abn,
+          payment_terms
         ),
         order_items (
           id,
@@ -107,7 +108,7 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ Created AR transactions')
 
-    // Update order statuses to 'invoiced' and get assigned invoice numbers
+    // Update order statuses to 'invoiced'
     const { data: updatedOrders, error: updateError } = await supabase
       .from('orders')
       .update({ 
@@ -142,7 +143,6 @@ export async function POST(request: NextRequest) {
             continue
           }
           
-          // Find the updated order with invoice number
           const updatedOrder = updatedOrders?.find(u => u.id === order.id)
           const invoiceNumber = updatedOrder?.invoice_number 
             ? String(updatedOrder.invoice_number).padStart(6, '0')
@@ -152,7 +152,7 @@ export async function POST(request: NextRequest) {
           const dueDate = new Date(delivery_date)
           dueDate.setDate(dueDate.getDate() + paymentTerms)
           
-          // ✅ Calculate totals
+          // Calculate totals
           const subtotal = (order.order_items as any[]).reduce((sum, item) => sum + item.subtotal, 0)
           const gstTotal = (order.order_items as any[]).reduce((sum, item) => {
             const hasGST = item.gst_applicable !== false
@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
           }, 0)
           const total = subtotal + gstTotal
           
-          // ✅ Build line items HTML
+          // Build line items HTML
           const lineItemsHtml = (order.order_items as any[])
             .map(item => {
               const product = item.products || {}
@@ -181,7 +181,7 @@ export async function POST(request: NextRequest) {
           
           const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://debsbakery-portal.vercel.app'
           
-          // ✅ ENHANCED EMAIL TEMPLATE WITH FULL DETAILS
+          // ✅ FIXED TEMPLATE LITERAL + ADDED PO/DOCKET
           await sendEmail({
             to: customer.email,
             subject: `Invoice ${invoiceNumber} - Deb's Bakery`,
@@ -205,6 +205,7 @@ export async function POST(request: NextRequest) {
                   .btn { display: inline-block; background: #006A4E; color: white; padding: 14px 28px; text-decoration: none; border-radius: 5px; font-weight: bold; margin: 8px; }
                   .btn-secondary { background: #CE1126; }
                   .footer { text-align: center; padding: 20px; color: #666; font-size: 13px; border-top: 1px solid #ddd; margin-top: 30px; }
+                  .reference-box { background: #f8f9fa; padding: 10px; border-left: 4px solid #006A4E; margin: 10px 0; }
                 </style>
               </head>
               <body>
@@ -215,15 +216,22 @@ export async function POST(request: NextRequest) {
                   </div>
                   
                   <div class="content">
-                    <!-- Invoice Header -->
                     <div class="card">
                       <h2 style="color: #006A4E; margin-top: 0;">Invoice #${invoiceNumber}</h2>
+                      
+                      ${order.purchase_order_number || order.docket_number ? `
+                      <div class="reference-box">
+                        ${order.purchase_order_number ? `<p style="margin: 5px 0;"><strong>📋 PO Number:</strong> ${order.purchase_order_number}</p>` : ''}
+                        ${order.docket_number ? `<p style="margin: 5px 0;"><strong>🧾 Docket Number:</strong> ${order.docket_number}</p>` : ''}
+                      </div>
+                      ` : ''}
+                      
                       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;">
                         <div>
                           <p style="margin: 5px 0;"><strong>Bill To:</strong></p>
                           <p style="margin: 5px 0; font-size: 15px; font-weight: bold;">${customer.business_name || 'N/A'}</p>
-                          ${customer.delivery_address ? `<p style="margin: 5px 0;">${customer.delivery_address}</p>` : ''}
-                          ${customer.city ? `<p style="margin: 5px 0;">${customer.city}, ${customer.province || ''} ${customer.postal_code || ''}</p>` : ''}
+                          ${customer.contact_name ? `<p style="margin: 5px 0;">Attn: ${customer.contact_name}</p>` : ''}
+                          ${customer.address ? `<p style="margin: 5px 0;">${customer.address}</p>` : ''}
                           ${customer.phone ? `<p style="margin: 5px 0;">📞 ${customer.phone}</p>` : ''}
                           ${customer.abn ? `<p style="margin: 5px 0;"><strong>ABN:</strong> ${customer.abn}</p>` : ''}
                         </div>
@@ -256,7 +264,6 @@ export async function POST(request: NextRequest) {
                     </div>
                     ` : ''}
 
-                    <!-- Line Items -->
                     <div class="card">
                       <h3 style="margin-top: 0;">Order Details</h3>
                       <table class="invoice-table">
@@ -275,7 +282,6 @@ export async function POST(request: NextRequest) {
                         </tbody>
                       </table>
 
-                      <!-- Totals -->
                       <div class="totals">
                         <div class="totals-row">
                           <strong>Subtotal:</strong>
@@ -292,7 +298,6 @@ export async function POST(request: NextRequest) {
                       </div>
                     </div>
 
-                    <!-- Actions -->
                     <div style="text-align: center; margin: 30px 0;">
                       <a href="${siteUrl}/api/invoice/${order.id}" 
                          target="_blank" 
@@ -307,7 +312,6 @@ export async function POST(request: NextRequest) {
                       </a>
                     </div>
 
-                    <!-- Payment Info -->
                     <div class="card" style="background: #f0fdf4;">
                       <h3 style="margin-top: 0; color: #166534;">💳 Payment Information</h3>
                       <ul style="line-height: 2;">
@@ -325,7 +329,6 @@ export async function POST(request: NextRequest) {
                       </p>
                     </div>
 
-                    <!-- Footer -->
                     <div class="footer">
                       <p style="margin: 5px 0;"><strong>Deb's Bakery</strong></p>
                       <p style="margin: 5px 0;">📧 ${process.env.BAKERY_EMAIL || 'debs_bakery@outlook.com'}</p>
@@ -374,7 +377,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET: Get pending orders summary by date
 export async function GET(request: NextRequest) {
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -403,7 +405,6 @@ export async function GET(request: NextRequest) {
 
     if (error) throw error
 
-    // Group by delivery date
     const grouped = (orders || []).reduce((acc: any, order) => {
       const date = order.delivery_date
       if (!acc[date]) {
