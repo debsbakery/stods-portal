@@ -12,7 +12,14 @@ const PAYMENT_METHODS = [
   { value: 'eft', label: '🔄 EFT' },
 ];
 
-export default function RecordPaymentView({ customers }: any) {
+interface Customer {
+  id: string;
+  business_name: string | null;
+  contact_name: string | null;
+  balance: number | null;
+}
+
+export default function RecordPaymentView({ customers }: { customers: Customer[] }) {
   const router = useRouter();
   const [formData, setFormData] = useState({
     customer_id: '',
@@ -26,17 +33,21 @@ export default function RecordPaymentView({ customers }: any) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const filteredCustomers = customers.filter((c: any) =>
-    (c.business_name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-    (c.contact_name?.toLowerCase() || '').includes(searchTerm.toLowerCase())
-  );
+  // ✅ Safe filtering
+  const filteredCustomers = (customers || []).filter((c) => {
+    const searchLower = searchTerm.toLowerCase();
+    const businessName = c.business_name?.toLowerCase() || '';
+    const contactName = c.contact_name?.toLowerCase() || '';
+    return businessName.includes(searchLower) || contactName.includes(searchLower);
+  });
 
-  const selectedCustomer = customers.find((c: any) => c.id === formData.customer_id);
-
-  // ✅ FIXED: Safe calculation with null/undefined handling
-  const newBalance = selectedCustomer 
-    ? (selectedCustomer.balance || 0) - (parseFloat(formData.amount) || 0)
-    : 0;
+  // ✅ Safe customer lookup
+  const selectedCustomer = (customers || []).find((c) => c.id === formData.customer_id);
+  
+  // ✅ Safe balance calculation
+  const currentBalance = selectedCustomer?.balance ?? 0;
+  const paymentAmount = parseFloat(formData.amount) || 0;
+  const newBalance = currentBalance - paymentAmount;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -47,9 +58,7 @@ export default function RecordPaymentView({ customers }: any) {
       return;
     }
 
-    // ✅ Prevent double-submit
     if (saving) return;
-    
     setSaving(true);
 
     try {
@@ -65,13 +74,14 @@ export default function RecordPaymentView({ customers }: any) {
       const data = await response.json();
 
       if (response.ok) {
-        alert(`✅ Payment Recorded Successfully!\n\nCustomer: ${data.payment.customer}\nAmount: $${data.payment.amount.toFixed(2)}\nNew Balance: $${data.payment.new_balance.toFixed(2)}`);
+        alert(`✅ Payment Recorded!\n\nCustomer: ${data.payment.customer}\nAmount: $${data.payment.amount.toFixed(2)}\nNew Balance: $${data.payment.new_balance.toFixed(2)}`);
         router.push('/admin/ar');
+        router.refresh();
       } else {
         setError(data.error || 'Failed to record payment');
       }
     } catch (error) {
-      setError('❌ Error recording payment. Please try again.');
+      setError('❌ Error recording payment');
       console.error(error);
     } finally {
       setSaving(false);
@@ -93,7 +103,6 @@ export default function RecordPaymentView({ customers }: any) {
           Record Payment
         </h1>
 
-        {/* Error Message */}
         {error && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">
             {error}
@@ -124,10 +133,10 @@ export default function RecordPaymentView({ customers }: any) {
               className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
             >
               <option value="">Select a customer</option>
-              {filteredCustomers.map((customer: any) => (
+              {filteredCustomers.map((customer) => (
                 <option key={customer.id} value={customer.id}>
                   {customer.business_name || customer.contact_name} - Balance: $
-                  {(customer.balance || 0).toFixed(2)}
+                  {(customer.balance ?? 0).toFixed(2)}
                 </option>
               ))}
             </select>
@@ -137,7 +146,7 @@ export default function RecordPaymentView({ customers }: any) {
                 <div className="p-3 bg-blue-50 rounded border border-blue-200">
                   <p className="text-xs text-blue-600 mb-1">Current Balance</p>
                   <p className="text-xl font-bold text-blue-800">
-                    ${(selectedCustomer.balance || 0).toFixed(2)}
+                    ${currentBalance.toFixed(2)}
                   </p>
                 </div>
                 {formData.amount && (
@@ -216,7 +225,7 @@ export default function RecordPaymentView({ customers }: any) {
               type="text"
               value={formData.reference_number}
               onChange={(e) => setFormData({ ...formData, reference_number: e.target.value })}
-              placeholder="Check #, Transaction ID, etc. (Optional)"
+              placeholder="Check #, Transaction ID, etc."
               className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
             />
           </div>
@@ -228,7 +237,7 @@ export default function RecordPaymentView({ customers }: any) {
               value={formData.notes}
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
               rows={3}
-              placeholder="Optional notes about this payment"
+              placeholder="Optional notes"
               className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
             />
           </div>
@@ -238,10 +247,10 @@ export default function RecordPaymentView({ customers }: any) {
             <button
               type="submit"
               disabled={saving}
-              className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+              className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
               <Save className="h-4 w-4" />
-              {saving ? 'Recording Payment...' : 'Record Payment'}
+              {saving ? 'Recording...' : 'Record Payment'}
             </button>
             <button
               type="button"
