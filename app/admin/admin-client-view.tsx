@@ -12,6 +12,7 @@ import {
   ChefHat,
   Receipt,
   Copy,
+  Play,  // ✅ ADD
 } from 'lucide-react';
 
 // Import views
@@ -23,6 +24,59 @@ import ProductsView from './products-view';
 export default function AdminClientView() {
   const [activeTab, setActiveTab] = useState<'orders' | 'standing-orders' | 'pricing' | 'products'>('orders');
   const supabase = createClient();
+  
+  // ✅ ADD: Test standing orders state
+  const [testingStandingOrders, setTestingStandingOrders] = useState(false);
+
+  // ✅ ADD: Test standing order generation function
+  async function testStandingOrderGeneration() {
+    if (!confirm('⚠️ This will generate standing orders for the upcoming week.\n\nContinue?')) {
+      return;
+    }
+
+    setTestingStandingOrders(true);
+    
+    try {
+      const response = await fetch('/api/standing-orders/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        console.log('✅ Standing Order Generation Result:', data);
+        
+        let message = `✅ SUCCESS!\n\n${data.ordersCreated} orders created\n\n`;
+        
+        if (data.orders && data.orders.length > 0) {
+          message += 'Orders:\n';
+          data.orders.forEach((order: any) => {
+            message += `• ${order.customer} - ${order.deliveryDay} (${order.deliveryDate}) - $${order.total.toFixed(2)}\n`;
+          });
+        }
+        
+        if (data.errors && data.errors.length > 0) {
+          message += `\n⚠️ ${data.errors.length} error(s) - check console`;
+          console.error('Errors:', data.errors);
+        }
+        
+        alert(message);
+        
+        // Refresh the page to show new orders
+        if (data.ordersCreated > 0) {
+          window.location.reload();
+        }
+      } else {
+        throw new Error(data.error || 'Generation failed');
+      }
+    } catch (error: any) {
+      console.error('❌ Standing order generation error:', error);
+      alert(`❌ Error: ${error.message}\n\nCheck console for details.`);
+    } finally {
+      setTestingStandingOrders(false);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -42,6 +96,26 @@ export default function AdminClientView() {
 
             {/* Action Buttons */}
             <div className="flex gap-2 flex-wrap">
+              {/* ✅ ADD: Test Standing Orders Button */}
+              <button
+                onClick={testStandingOrderGeneration}
+                disabled={testingStandingOrders}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 shadow-md transition-all disabled:bg-gray-400 disabled:cursor-not-allowed"
+                title="Manually trigger standing order generation for testing"
+              >
+                {testingStandingOrders ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-4 w-4" />
+                    Test Standing Orders
+                  </>
+                )}
+              </button>
+
               {/* Production Button */}
               <a
                 href="/admin/production"
