@@ -51,32 +51,42 @@ export default function RecordPaymentWithAllocation({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const filteredCustomers = (customers || []).filter((c) => {
-    if (!c) return false;
-    const searchLower = searchTerm.toLowerCase();
-    const businessName = (c.business_name || '').toLowerCase();
-    const contactName = (c.contact_name || '').toLowerCase();
-    return businessName.includes(searchLower) || contactName.includes(searchLower);
-  });
+  // ✅ ULTRA SAFE filtering
+  const filteredCustomers = Array.isArray(customers) 
+    ? customers.filter((c) => {
+        if (!c || typeof c !== 'object') return false;
+        const searchLower = String(searchTerm || '').toLowerCase();
+        const businessName = String(c.business_name || '').toLowerCase();
+        const contactName = String(c.contact_name || '').toLowerCase();
+        return businessName.includes(searchLower) || contactName.includes(searchLower);
+      })
+    : [];
 
-  const selectedCustomer = (customers || []).find((c) => c?.id === formData.customer_id);
+  const selectedCustomer = Array.isArray(customers) 
+    ? customers.find((c) => c?.id === formData.customer_id)
+    : null;
   
-  const customerInvoices = (invoices || []).filter(
-    (inv) => inv.customer_id === formData.customer_id
-  );
+  const customerInvoices = Array.isArray(invoices)
+    ? invoices.filter((inv) => inv?.customer_id === formData.customer_id)
+    : [];
 
-  const currentBalance = typeof selectedCustomer?.balance === 'number' ? selectedCustomer.balance : 0;
+  // ✅ ULTRA SAFE calculations
+  const currentBalance = (selectedCustomer && typeof selectedCustomer.balance === 'number') 
+    ? selectedCustomer.balance 
+    : 0;
+  
   const paymentAmount = parseFloat(formData.amount) || 0;
-  const allocatedAmount = allocations.reduce((sum, a) => sum + a.amount, 0);
+  const allocatedAmount = Array.isArray(allocations) 
+    ? allocations.reduce((sum, a) => sum + (parseFloat(String(a?.amount)) || 0), 0)
+    : 0;
   const unallocatedAmount = paymentAmount - allocatedAmount;
 
   function handleAutoAllocate() {
-    if (paymentAmount <= 0) return;
+    if (paymentAmount <= 0 || !Array.isArray(customerInvoices)) return;
 
     const newAllocations: { invoice_id: string; amount: number }[] = [];
     let remaining = paymentAmount;
 
-    // Allocate to oldest invoices first
     const sortedInvoices = [...customerInvoices].sort(
       (a, b) => new Date(a.delivery_date).getTime() - new Date(b.delivery_date).getTime()
     );
@@ -84,10 +94,12 @@ export default function RecordPaymentWithAllocation({
     for (const invoice of sortedInvoices) {
       if (remaining <= 0) break;
 
-      const due = invoice.total_amount - (invoice.amount_paid || 0);
+      const total = parseFloat(String(invoice?.total_amount)) || 0;
+      const paid = parseFloat(String(invoice?.amount_paid)) || 0;
+      const due = total - paid;
       const allocate = Math.min(remaining, due);
 
-      if (allocate > 0) {
+      if (allocate > 0 && invoice?.id) {
         newAllocations.push({ invoice_id: invoice.id, amount: allocate });
         remaining -= allocate;
       }
@@ -97,20 +109,32 @@ export default function RecordPaymentWithAllocation({
   }
 
   function handleManualAllocate(invoiceId: string, amount: number) {
-    const invoice = customerInvoices.find((i) => i.id === invoiceId);
+    if (!invoiceId || !Array.isArray(customerInvoices)) return;
+    
+    const invoice = customerInvoices.find((i) => i?.id === invoiceId);
     if (!invoice) return;
 
-    const due = invoice.total_amount - (invoice.amount_paid || 0);
-    const validAmount = Math.max(0, Math.min(amount, due, paymentAmount - allocatedAmount + (allocations.find(a => a.invoice_id === invoiceId)?.amount || 0)));
+    const total = parseFloat(String(invoice.total_amount)) || 0;
+    const paid = parseFloat(String(invoice.amount_paid)) || 0;
+    const due = total - paid;
+    
+    const currentAllocation = Array.isArray(allocations)
+      ? allocations.find(a => a?.invoice_id === invoiceId)?.amount || 0
+      : 0;
+    
+    const maxAllowable = paymentAmount - allocatedAmount + currentAllocation;
+    const validAmount = Math.max(0, Math.min(amount, due, maxAllowable));
 
     setAllocations((prev) => {
-      const existing = prev.find((a) => a.invoice_id === invoiceId);
+      if (!Array.isArray(prev)) return [];
+      
+      const existing = prev.find((a) => a?.invoice_id === invoiceId);
       if (existing) {
         if (validAmount === 0) {
-          return prev.filter((a) => a.invoice_id !== invoiceId);
+          return prev.filter((a) => a?.invoice_id !== invoiceId);
         }
         return prev.map((a) =>
-          a.invoice_id === invoiceId ? { ...a, amount: validAmount } : a
+          a?.invoice_id === invoiceId ? { invoice_id: invoiceId, amount: validAmount } : a
         );
       } else if (validAmount > 0) {
         return [...prev, { invoice_id: invoiceId, amount: validAmount }];
@@ -138,18 +162,26 @@ export default function RecordPaymentWithAllocation({
         body: JSON.stringify({
           ...formData,
           amount: parseFloat(formData.amount),
-          allocations, // ✅ Send allocations
+          allocations: Array.isArray(allocations) ? allocations : [],
         }),
       });
 
       const data = await response.json();
 
       if (response.ok) {
-        alert(`✅ Payment Recorded!\n\nCustomer: ${data.payment.customer}\nAmount: $${data.payment.amount.toFixed(2)}\nAllocated: $${allocatedAmount.toFixed(2)}\nNew Balance: $${data.payment.new_balance.toFixed(2)}`);
+        const customerName = data?.payment?.customer || 'Customer';
+        const amount = parseFloat(String(data?.payment?.amount)) || 0;
+        const newBalance = parseFloat(String(data?.payment?.new_balance)) || 0;
+        
+        const allocatedMsg = Array.isArray(allocations) && allocations.length > 0
+          ? `\nAllocated to ${allocations.length} invoice(s): $${allocatedAmount.toFixed(2)}`
+          : '';
+        
+        alert(`✅ Payment Recorded!\n\nCustomer: ${customerName}\nAmount: $${amount.toFixed(2)}${allocatedMsg}\nNew Balance: $${newBalance.toFixed(2)}`);
         router.push('/admin/ar');
         router.refresh();
       } else {
-        setError(data.error || 'Failed to record payment');
+        setError(data?.error || 'Failed to record payment');
       }
     } catch (error) {
       setError('❌ Error recording payment');
@@ -162,10 +194,10 @@ export default function RecordPaymentWithAllocation({
   return (
     <div className="max-w-5xl mx-auto p-6">
       <button
-        onClick={() => router.push('/admin')}
+        onClick={() => router.push('/admin/ar')}
         className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4"
       >
-        <ArrowLeft className="h-4 w-4" /> Back to Admin
+        <ArrowLeft className="h-4 w-4" /> Back to AR
       </button>
 
       <div className="bg-white rounded-lg shadow p-6">
@@ -207,12 +239,18 @@ export default function RecordPaymentWithAllocation({
               className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
             >
               <option value="">Select a customer</option>
-              {filteredCustomers.map((customer) => (
-                <option key={customer.id} value={customer.id}>
-                  {customer.business_name || customer.contact_name} - Balance: $
-                  {(customer.balance ?? 0).toFixed(2)}
-                </option>
-              ))}
+              {filteredCustomers.map((customer) => {
+                const balance = (customer && typeof customer.balance === 'number') 
+                  ? customer.balance 
+                  : 0;
+                const name = customer?.business_name || customer?.contact_name || 'Unknown';
+                
+                return (
+                  <option key={customer.id} value={customer.id}>
+                    {name} - Balance: ${balance.toFixed(2)}
+                  </option>
+                );
+              })}
             </select>
 
             {selectedCustomer && (
@@ -226,7 +264,7 @@ export default function RecordPaymentWithAllocation({
                 {formData.amount && paymentAmount > 0 && (
                   <>
                     <div className="p-3 bg-purple-50 rounded border border-purple-200">
-                      <p className="text-xs text-purple-600 mb-1">Allocated</p>
+                      <p className="text-xs text-purple-600 mb-1">Allocated to Invoices</p>
                       <p className="text-xl font-bold text-purple-800">
                         ${allocatedAmount.toFixed(2)}
                       </p>
@@ -274,7 +312,7 @@ export default function RecordPaymentWithAllocation({
               <div className="flex justify-between items-center mb-3">
                 <h3 className="font-semibold flex items-center gap-2">
                   <FileText className="h-4 w-4" />
-                  Allocate to Invoices
+                  Allocate to Invoices (Optional)
                 </h3>
                 <button
                   type="button"
@@ -287,14 +325,18 @@ export default function RecordPaymentWithAllocation({
 
               <div className="space-y-2 max-h-60 overflow-y-auto">
                 {customerInvoices.map((invoice) => {
-                  const due = invoice.total_amount - (invoice.amount_paid || 0);
-                  const allocated = allocations.find((a) => a.invoice_id === invoice.id)?.amount || 0;
+                  const total = parseFloat(String(invoice?.total_amount)) || 0;
+                  const paid = parseFloat(String(invoice?.amount_paid)) || 0;
+                  const due = total - paid;
+                  const allocated = Array.isArray(allocations)
+                    ? allocations.find((a) => a?.invoice_id === invoice.id)?.amount || 0
+                    : 0;
 
                   return (
                     <div key={invoice.id} className="flex items-center gap-3 bg-white p-3 rounded border">
                       <div className="flex-1">
                         <p className="font-mono text-sm font-semibold">
-                          #{invoice.order_number}
+                          #{invoice.order_number || 'N/A'}
                         </p>
                         <p className="text-xs text-gray-600">
                           {new Date(invoice.delivery_date).toLocaleDateString()} • Due: ${due.toFixed(2)}
@@ -324,14 +366,9 @@ export default function RecordPaymentWithAllocation({
                 })}
               </div>
 
-              {unallocatedAmount !== 0 && (
-                <div className={`mt-3 p-2 rounded text-sm ${
-                  unallocatedAmount > 0 ? 'bg-yellow-50 text-yellow-800' : 'bg-red-50 text-red-800'
-                }`}>
-                  {unallocatedAmount > 0 
-                    ? `💡 Unallocated: $${unallocatedAmount.toFixed(2)} (will reduce overall balance)`
-                    : `⚠️ Over-allocated by $${Math.abs(unallocatedAmount).toFixed(2)}`
-                  }
+              {unallocatedAmount > 0 && (
+                <div className="mt-3 p-2 rounded text-sm bg-yellow-50 text-yellow-800">
+                  💡 Unallocated: ${unallocatedAmount.toFixed(2)} (will reduce overall balance)
                 </div>
               )}
             </div>
