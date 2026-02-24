@@ -30,52 +30,12 @@ async function getARSummary() {
 
   return arSummary || []
 }
-async function getRecentPayments() {
-  const supabase = await createClient()
-
-  const { data: payments, error } = await supabase
-    .from('payments')
-    .select(`
-      id,
-      amount,
-      payment_date,
-      payment_method,
-      reference_number,
-      customer_id
-    `)
-    .order('payment_date', { ascending: false })
-    .limit(20)
-
-  if (error) {
-    console.error('Error fetching payments:', error)
-    return []
-  }
-
-  // Get customer names separately
-  const paymentsWithCustomers = await Promise.all(
-    (payments || []).map(async (payment) => {
-      const { data: customer } = await supabase
-        .from('customers')
-        .select('business_name, contact_name')
-        .eq('id', payment.customer_id)
-        .single()
-
-      return {
-        ...payment,
-        customer_name: customer?.business_name || customer?.contact_name || 'Unknown',
-      }
-    })
-  )
-
-  return paymentsWithCustomers
-}
 
 export default async function ARSummaryPage() {
   const isAdmin = await checkAdmin()
   if (!isAdmin) redirect("/")
 
   const arSummary = await getARSummary()
-  const recentPayments = await getRecentPayments()
 
   const totals = arSummary.reduce(
     (acc, customer) => ({
@@ -153,51 +113,6 @@ export default async function ARSummaryPage() {
           </p>
         </div>
       </div>
-
-      {/* Recent Payments Section */}
-      {recentPayments.length > 0 && (
-        <div className="mb-8 bg-white rounded-lg shadow-md overflow-hidden">
-          <div className="p-6 border-b bg-green-50">
-            <h2 className="text-xl font-bold text-green-800">Recent Payments</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Method</TableHead>
-                  <TableHead>Reference</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {recentPayments.map((payment) => (
-                  <TableRow key={payment.id}>
-                    <TableCell>
-                      {new Date(payment.payment_date).toLocaleDateString()}
-                    </TableCell>
-                    <TableCell className="font-medium">
-              <TableCell className="font-medium">
-  {payment.customer_name}
-</TableCell>
-                    </TableCell>
-                    <TableCell className="capitalize">
-                      {payment.payment_method?.replace('_', ' ')}
-                    </TableCell>
-                    <TableCell className="font-mono text-sm">
-                      {payment.reference_number || '—'}
-                    </TableCell>
-                    <TableCell className="text-right font-bold text-green-600">
-                      {formatCurrency(payment.amount)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </div>
-      )}
 
       {/* Customer Table */}
       <div className="bg-white rounded-lg shadow-md overflow-hidden">
