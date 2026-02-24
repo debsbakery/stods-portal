@@ -6,7 +6,19 @@ import { formatCurrency } from "@/lib/utils"
 import { checkAdmin } from "@/lib/auth"
 import { ArrowLeft, DollarSign, FileText } from "lucide-react"
 import Link from "next/link"
-
+// ✅ Australian date format helper
+function formatAusDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return '—'
+  try {
+    const date = new Date(dateStr)
+    const day = date.getDate().toString().padStart(2, '0')
+    const month = (date.getMonth() + 1).toString().padStart(2, '0')
+    const year = date.getFullYear()
+    return `${day}/${month}/${year}`
+  } catch {
+    return dateStr
+  }
+}
 async function getCustomerLedger(customerId: string) {
   const supabase = await createClient()
 
@@ -122,10 +134,21 @@ export default async function CustomerLedgerPage({
               {formatCurrency(Math.abs(runningBalance))}
             </p>
             {Math.abs(customer.balance - calculatedBalance) > 0.01 && (
-              <p className="text-xs text-orange-600 mt-1">
-                ⚠️ Stored: {formatCurrency(customer.balance)} (out of sync)
-              </p>
-            )}
+  <div className="mt-2 p-2 bg-orange-50 rounded border border-orange-200">
+    <p className="text-xs text-orange-700 mb-1">
+      ⚠️ Stored balance ({formatCurrency(customer.balance)}) differs from calculated ({formatCurrency(calculatedBalance)})
+    </p>
+    <form action={`/api/admin/ar/sync-balance`} method="POST" className="inline">
+      <input type="hidden" name="customer_id" value={customer.id} />
+      <button
+        type="submit"
+        className="text-xs px-2 py-1 bg-orange-600 text-white rounded hover:bg-orange-700"
+      >
+        Sync Balance Now
+      </button>
+    </form>
+  </div>
+)}
           </div>
         </div>
 
@@ -182,7 +205,7 @@ export default async function CustomerLedgerPage({
                 ledgerEntries.map((entry, index) => (
                   <tr key={index} className={entry.type === 'payment' ? 'bg-green-50' : ''}>
                     <td className="px-4 py-3 text-sm">
-                      {new Date(entry.date).toLocaleDateString()}
+                     {formatAusDate(entry.date)}
                     </td>
                     <td className="px-4 py-3">
                       {entry.type === 'invoice' ? (
