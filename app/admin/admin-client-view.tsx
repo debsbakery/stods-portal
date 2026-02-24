@@ -146,15 +146,23 @@ export default function AdminClientView() {
                 Direct Invoice
               </a>
 
-              {/* Repeat Order Button */}
-              <a
-                href="/admin/customers/repeat-order-search"
-                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 shadow-md transition-all"
-              >
-                <Copy className="h-4 w-4" />
-                Repeat Order
-              </a>
+            {/* Repeat Order Button */}
+<a
+  href="/admin/customers/repeat-order-search"
+  className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 shadow-md transition-all"
+>
+  <Copy className="h-4 w-4" />
+  Repeat Order
+</a>
 
+{/* ✅ Product Management Button */}
+<a
+  href="/admin/products"
+  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 shadow-md transition-all"
+>
+  <Package className="h-4 w-4" />
+  Products
+</a>
               {/* Routes Button */}
               <a
                 href="/admin/routes"

@@ -21,8 +21,7 @@ interface Customer {
 
 interface Invoice {
   id: string;
-  order_number: string;
-  delivery_date: string;
+   delivery_date: string;
   total_amount: number;
   amount_paid: number | null;
   customer_id: string;
@@ -61,7 +60,8 @@ export default function RecordPaymentWithAllocation({
         return businessName.includes(searchLower) || contactName.includes(searchLower);
       })
     : [];
-
+// ✅ ADD THIS DEBUG LOG
+console.log('Customers:', customers?.length, 'Filtered:', filteredCustomers.length, 'Search:', searchTerm);
   const selectedCustomer = Array.isArray(customers) 
     ? customers.find((c) => c?.id === formData.customer_id)
     : null;
@@ -335,9 +335,9 @@ export default function RecordPaymentWithAllocation({
                   return (
                     <div key={invoice.id} className="flex items-center gap-3 bg-white p-3 rounded border">
                       <div className="flex-1">
-                        <p className="font-mono text-sm font-semibold">
-                          #{invoice.order_number || 'N/A'}
-                        </p>
+        <p className="font-mono text-sm font-semibold">
+  {new Date(invoice.delivery_date).toLocaleDateString()}
+</p>
                         <p className="text-xs text-gray-600">
                           {new Date(invoice.delivery_date).toLocaleDateString()} • Due: ${due.toFixed(2)}
                         </p>
