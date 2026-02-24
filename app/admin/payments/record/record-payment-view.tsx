@@ -5,10 +5,11 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, Save, DollarSign, Search } from 'lucide-react';
 
 const PAYMENT_METHODS = [
-  { value: 'cash', label: 'Cash' },
-  { value: 'check', label: 'Check' },
-  { value: 'bank_transfer', label: 'Bank Transfer' },
-  { value: 'card', label: 'Card' },
+  { value: 'cash', label: '💵 Cash' },
+  { value: 'check', label: '📝 Check' },
+  { value: 'bank_transfer', label: '🏦 Bank Transfer' },
+  { value: 'card', label: '💳 Card' },
+  { value: 'eft', label: '🔄 EFT' },
 ];
 
 export default function RecordPaymentView({ customers }: any) {
@@ -17,12 +18,13 @@ export default function RecordPaymentView({ customers }: any) {
     customer_id: '',
     amount: '',
     payment_date: new Date().toISOString().split('T')[0],
-    payment_method: 'cash',
+    payment_method: 'bank_transfer',
     reference_number: '',
     notes: '',
   });
   const [searchTerm, setSearchTerm] = useState('');
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const filteredCustomers = customers.filter((c: any) =>
     (c.business_name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
@@ -33,12 +35,16 @@ export default function RecordPaymentView({ customers }: any) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setError(null);
 
     if (!formData.customer_id || !formData.amount || parseFloat(formData.amount) <= 0) {
-      alert('⚠️ Please select a customer and enter a valid amount');
+      setError('⚠️ Please select a customer and enter a valid amount');
       return;
     }
 
+    // ✅ Prevent double-submit
+    if (saving) return;
+    
     setSaving(true);
 
     try {
@@ -51,20 +57,25 @@ export default function RecordPaymentView({ customers }: any) {
         }),
       });
 
+      const data = await response.json();
+
       if (response.ok) {
-        alert('✅ Payment recorded successfully!');
+        alert(`✅ Payment Recorded Successfully!\n\nCustomer: ${data.payment.customer}\nAmount: $${data.payment.amount.toFixed(2)}\nNew Balance: $${data.payment.new_balance.toFixed(2)}`);
         router.push('/admin/ar');
       } else {
-        const error = await response.json();
-        alert(`❌ Failed: ${error.error}`);
+        setError(data.error || 'Failed to record payment');
       }
     } catch (error) {
-      alert('❌ Error recording payment');
+      setError('❌ Error recording payment. Please try again.');
       console.error(error);
     } finally {
       setSaving(false);
     }
   }
+
+  const newBalance = selectedCustomer 
+    ? selectedCustomer.balance - (parseFloat(formData.amount) || 0)
+    : 0;
 
   return (
     <div className="max-w-3xl mx-auto p-6">
@@ -81,6 +92,13 @@ export default function RecordPaymentView({ customers }: any) {
           Record Payment
         </h1>
 
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">
+            {error}
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Customer Selection */}
           <div>
@@ -94,7 +112,7 @@ export default function RecordPaymentView({ customers }: any) {
                 placeholder="Search customers..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
               />
             </div>
 
@@ -102,7 +120,7 @@ export default function RecordPaymentView({ customers }: any) {
               value={formData.customer_id}
               onChange={(e) => setFormData({ ...formData, customer_id: e.target.value })}
               required
-              className="w-full px-4 py-2 border border-gray-300 rounded-md"
+              className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
             >
               <option value="">Select a customer</option>
               {filteredCustomers.map((customer: any) => (
@@ -114,10 +132,21 @@ export default function RecordPaymentView({ customers }: any) {
             </select>
 
             {selectedCustomer && (
-              <div className="mt-2 p-3 bg-blue-50 rounded border border-blue-200">
-                <p className="text-sm text-blue-800">
-                  <strong>Current Balance:</strong> ${selectedCustomer.balance.toFixed(2)}
-                </p>
+              <div className="mt-3 grid grid-cols-2 gap-4">
+                <div className="p-3 bg-blue-50 rounded border border-blue-200">
+                  <p className="text-xs text-blue-600 mb-1">Current Balance</p>
+                  <p className="text-xl font-bold text-blue-800">
+                    ${selectedCustomer.balance.toFixed(2)}
+                  </p>
+                </div>
+                {formData.amount && (
+                  <div className="p-3 bg-green-50 rounded border border-green-200">
+                    <p className="text-xs text-green-600 mb-1">New Balance</p>
+                    <p className="text-xl font-bold text-green-800">
+                      ${newBalance.toFixed(2)}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -128,7 +157,7 @@ export default function RecordPaymentView({ customers }: any) {
               Payment Amount *
             </label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">
+              <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-semibold">
                 $
               </span>
               <input
@@ -139,7 +168,7 @@ export default function RecordPaymentView({ customers }: any) {
                 onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                 required
                 placeholder="0.00"
-                className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-md"
+                className="w-full pl-8 pr-4 py-3 text-lg border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
               />
             </div>
           </div>
@@ -154,7 +183,7 @@ export default function RecordPaymentView({ customers }: any) {
               value={formData.payment_date}
               onChange={(e) => setFormData({ ...formData, payment_date: e.target.value })}
               required
-              className="w-full px-4 py-2 border border-gray-300 rounded-md"
+              className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
             />
           </div>
 
@@ -167,7 +196,7 @@ export default function RecordPaymentView({ customers }: any) {
               value={formData.payment_method}
               onChange={(e) => setFormData({ ...formData, payment_method: e.target.value })}
               required
-              className="w-full px-4 py-2 border border-gray-300 rounded-md"
+              className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
             >
               {PAYMENT_METHODS.map((method) => (
                 <option key={method.value} value={method.value}>
@@ -180,14 +209,14 @@ export default function RecordPaymentView({ customers }: any) {
           {/* Reference Number */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Reference Number (Check #, Transaction ID, etc.)
+              Reference Number
             </label>
             <input
               type="text"
               value={formData.reference_number}
               onChange={(e) => setFormData({ ...formData, reference_number: e.target.value })}
-              placeholder="Optional"
-              className="w-full px-4 py-2 border border-gray-300 rounded-md"
+              placeholder="Check #, Transaction ID, etc. (Optional)"
+              className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
             />
           </div>
 
@@ -199,7 +228,7 @@ export default function RecordPaymentView({ customers }: any) {
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
               rows={3}
               placeholder="Optional notes about this payment"
-              className="w-full px-4 py-2 border border-gray-300 rounded-md"
+              className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
             />
           </div>
 
@@ -208,14 +237,14 @@ export default function RecordPaymentView({ customers }: any) {
             <button
               type="submit"
               disabled={saving}
-              className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:bg-gray-300"
+              className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
             >
               <Save className="h-4 w-4" />
-              {saving ? 'Recording...' : 'Record Payment'}
+              {saving ? 'Recording Payment...' : 'Record Payment'}
             </button>
             <button
               type="button"
-              onClick={() => router.push('/admin')}
+              onClick={() => router.push('/admin/ar')}
               className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
             >
               Cancel
