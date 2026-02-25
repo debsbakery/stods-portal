@@ -226,51 +226,62 @@ export default function DirectInvoicePage() {
         .update({ balance: (customer.balance || 0) + grandTotal })
         .eq('id', formData.customerId)
 
-      // Record credit memo if credit lines exist
-      if (hasCredits) {
-        const creditItems    = lineItems.filter(i => i.isCredit)
-        const creditSubtotal = creditItems.reduce((s, i) => s + lineSubtotal(i), 0)
-        const creditGst      = creditItems.reduce((s, i) => s + lineGst(i), 0)
-        const creditTotal    = creditSubtotal + creditGst
-        const allStale       = creditItems.every(i => i.creditType === 'stale_return')
+   
 
-        const { data: memo } = await supabase
-          .from('credit_memos')
-          .insert({
-            customer_id:        formData.customerId,
-            reference_order_id: newOrder.id,
-            credit_type:        allStale ? 'stale_return' : 'product_credit',
-            credit_number:      `CM-${Date.now().toString().slice(-6)}`,
-            credit_date:        formData.deliveryDate,
-            status:             'issued',
-            notes:              formData.notes || null,
-            reason:             'Included in direct invoice',
-            applied_amount:     0,
-            subtotal:           creditSubtotal,
-            gst_amount:         creditGst,
-            total_amount:       creditTotal,amount:             Math.abs(creditTotal),
-          })
-          .select()
-          .single()
+// Record credit memo if credit lines exist
+if (hasCredits) {
+  try {
+    const creditItems    = lineItems.filter(i => i.isCredit)
+    const creditSubtotal = creditItems.reduce((s, i) => s + lineSubtotal(i), 0)
+    const creditGst      = creditItems.reduce((s, i) => s + lineGst(i), 0)
+    const creditTotal    = creditSubtotal + creditGst
+    const allStale       = creditItems.every(i => i.creditType === 'stale_return')
 
-        if (memo) {
-          await supabase.from('credit_memo_items').insert(
-            creditItems.map(i => ({
-              credit_memo_id:     memo.id,
-              product_id:         i.productId,
-              product_name:       i.productName,
-              product_code:       i.productCode,
-              custom_description: i.productName,
-              quantity:           i.quantity,
-              unit_price:         i.unitPrice,
-              total:              lineSubtotal(i),
-              credit_percent:     i.creditPercent,
-              line_total:         lineTotal(i),
-              gst_applicable:     i.gstApplicable,gst_amount:         lineGst(i),
-              credit_type:        i.creditType,}))
-          )
-        }
-      }
+    const { data: memo, error: memoError } = await supabase
+      .from('credit_memos')
+      .insert({
+        customer_id:        formData.customerId,
+        reference_order_id: newOrder.id,
+        credit_type:        allStale ? 'stale_return' : 'product_credit',
+        credit_number:      `CM-${Date.now().toString().slice(-6)}`,
+        credit_date:        formData.deliveryDate,
+        status:             'issued',
+        notes:              formData.notes || null,
+        reason:             'Included in direct invoice',
+        applied_amount:     0,
+        subtotal:           creditSubtotal,
+        gst_amount:         creditGst,
+        total_amount:       creditTotal,
+        amount:             Math.abs(creditTotal),
+      })
+      .select()
+      .single()
+
+    if (memoError) {
+      // Log but don't block — invoice is already saved
+      console.error('Credit memo failed:', memoError.code, memoError.message, memoError.details)
+    } else if (memo) {
+      await supabase.from('credit_memo_items').insert(
+        creditItems.map(i => ({
+          credit_memo_id:     memo.id,
+          product_id:         i.productId,
+          product_name:       i.productName,
+          product_code:       i.productCode,
+          custom_description: i.productName,
+          quantity:           i.quantity,
+          unit_price:         i.unitPrice,
+          total:              lineSubtotal(i),
+          credit_percent:     i.creditPercent,
+          line_total:         lineTotal(i),
+          gst_applicable:     i.gstApplicable,
+          gst_amount:         lineGst(i),
+          credit_type:        i.creditType,}))
+      )
+    }
+  } catch (memoErr) {
+    console.error('Credit memo exception:', memoErr)
+  }
+}
 
       alert(
         `Invoice Created!\n\n` +
