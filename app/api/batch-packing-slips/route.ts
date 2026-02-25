@@ -1,48 +1,65 @@
 export const dynamic = 'force-dynamic'
 
-import { createClient } from "@/lib/supabase/server";
-import { generateBatchPackingSlips } from "@/lib/batch-packing-slip";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+import { generateBatchPackingSlips } from '@/lib/batch-packing-slip'
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    const { date } = await request.json();
-    
-    const supabase = await createClient();
+    const supabase = await createClient()
+    const { date, orderIds } = await request.json()
 
-    const { data: orders } = await supabase
-      .from("orders")
+    // Fetch orders
+    let query = supabase
+      .from('orders')
       .select(`
-        id,
-        customer_business_name,
-        customer_email,
-        delivery_date,
-        order_items (
-          product_name,
-          quantity
+        *,
+        customer:customers(*),
+        order_items(
+          *,
+          product:products(*)
         )
       `)
-      .eq("delivery_date", date)
-      .order("customer_business_name");
 
-    if (!orders || orders.length === 0) {
-      return NextResponse.json({ error: "No orders found" }, { status: 404 });
+    if (date) {
+      query = query.eq('delivery_date', date)
+    } else if (orderIds && orderIds.length > 0) {
+      query = query.in('id', orderIds)
+    } else {
+      return NextResponse.json(
+        { error: 'Either date or orderIds must be provided' },
+        { status: 400 }
+      )
     }
 
-    const pdf = await generateBatchPackingSlips(orders, {
-      name: process.env.BAKERY_NAME || "Deb's Bakery",
-      phone: process.env.BAKERY_PHONE || "(04) 1234-5678",
-    });
+    const { data: orders, error } = await query
 
-    const pdfBuffer = Buffer.from(pdf.output('arraybuffer'));
+    if (error) throw error
 
-    return new NextResponse(pdfBuffer, {
+    if (!orders || orders.length === 0) {
+      return NextResponse.json(
+        { error: 'No orders found' },
+        { status: 404 }
+      )
+    }
+
+    // Generate PDF
+    const pdfBuffer = await generateBatchPackingSlips(orders)
+
+    // ✅ FIXED: Cast Buffer to Uint8Array for Response
+    return new Response(new Uint8Array(pdfBuffer), {
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="packing-slips-${date}.pdf"`,
+        'Content-Disposition': `attachment; filename="packing-slips-${date || 'batch'}.pdf"`,
       },
-    });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    })
+
+  } catch (error: unknown) {
+    console.error('Error generating batch packing slips:', error)
+    const errorMessage = error instanceof Error ? error.message : 'Failed to generate packing slips'
+    return NextResponse.json(
+      { error: errorMessage },
+      { status: 500 }
+    )
   }
 }

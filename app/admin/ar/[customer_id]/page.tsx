@@ -6,6 +6,8 @@ import { formatCurrency } from "@/lib/utils"
 import { checkAdmin } from "@/lib/auth"
 import { ArrowLeft, DollarSign, FileText } from "lucide-react"
 import Link from "next/link"
+import StatementActions from "@/components/ar/StatementActions" // 🆕 Import new component
+
 // ✅ Australian date format helper
 function formatAusDate(dateStr: string | null | undefined): string {
   if (!dateStr) return '—'
@@ -19,6 +21,7 @@ function formatAusDate(dateStr: string | null | undefined): string {
     return dateStr
   }
 }
+
 async function getCustomerLedger(customerId: string) {
   const supabase = await createClient()
 
@@ -38,7 +41,7 @@ async function getCustomerLedger(customerId: string) {
     .eq('customer_id', customerId)
     .order('delivery_date', { ascending: false })
 
-  // ✅ Get payments from payments table (NOT ar_transactions!)
+  // ✅ Get payments from payments table
   const { data: payments } = await supabase
     .from('payments')
     .select('*')
@@ -134,21 +137,21 @@ export default async function CustomerLedgerPage({
               {formatCurrency(Math.abs(runningBalance))}
             </p>
             {Math.abs(customer.balance - calculatedBalance) > 0.01 && (
-  <div className="mt-2 p-2 bg-orange-50 rounded border border-orange-200">
-    <p className="text-xs text-orange-700 mb-1">
-      ⚠️ Stored balance ({formatCurrency(customer.balance)}) differs from calculated ({formatCurrency(calculatedBalance)})
-    </p>
-    <form action={`/api/admin/ar/sync-balance`} method="POST" className="inline">
-      <input type="hidden" name="customer_id" value={customer.id} />
-      <button
-        type="submit"
-        className="text-xs px-2 py-1 bg-orange-600 text-white rounded hover:bg-orange-700"
-      >
-        Sync Balance Now
-      </button>
-    </form>
-  </div>
-)}
+              <div className="mt-2 p-2 bg-orange-50 rounded border border-orange-200">
+                <p className="text-xs text-orange-700 mb-1">
+                  ⚠️ Stored balance ({formatCurrency(customer.balance)}) differs from calculated ({formatCurrency(calculatedBalance)})
+                </p>
+                <form action={`/api/admin/ar/sync-balance`} method="POST" className="inline">
+                  <input type="hidden" name="customer_id" value={customer.id} />
+                  <button
+                    type="submit"
+                    className="text-xs px-2 py-1 bg-orange-600 text-white rounded hover:bg-orange-700"
+                  >
+                    Sync Balance Now
+                  </button>
+                </form>
+              </div>
+            )}
           </div>
         </div>
 
@@ -173,6 +176,11 @@ export default async function CustomerLedgerPage({
             </p>
           </div>
         </div>
+      </div>
+
+      {/* 🆕 Statement Actions Component */}
+      <div className="mb-6">
+        <StatementActions customer={customer} />
       </div>
 
       {/* Ledger Table */}
@@ -205,7 +213,7 @@ export default async function CustomerLedgerPage({
                 ledgerEntries.map((entry, index) => (
                   <tr key={index} className={entry.type === 'payment' ? 'bg-green-50' : ''}>
                     <td className="px-4 py-3 text-sm">
-                     {formatAusDate(entry.date)}
+                      {formatAusDate(entry.date)}
                     </td>
                     <td className="px-4 py-3">
                       {entry.type === 'invoice' ? (

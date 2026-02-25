@@ -14,6 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import BatchStatementSender from '@/components/ar/BatchStatementSender'
 
 async function getARSummary() {
   const supabase = await createClient()
@@ -67,6 +68,11 @@ export default async function ARSummaryPage() {
         <p className="text-gray-600 mt-2">
           Aging summary for all customers
         </p>
+      </div>
+
+      {/* 🆕 Batch Statement Sender - MOVED INSIDE COMPONENT */}
+      <div className="mb-6">
+        <BatchStatementSender />
       </div>
 
       {/* Summary Cards */}
