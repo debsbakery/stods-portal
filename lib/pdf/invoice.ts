@@ -8,7 +8,8 @@ interface InvoiceData {
   customer: {
     id: string
     business_name?: string
-    contact_name?: stringemail?: string
+    contact_name?: string
+email?: string
     address?: string
   }
   order_items: Array<{
