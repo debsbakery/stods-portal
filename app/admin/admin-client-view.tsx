@@ -172,7 +172,19 @@ export default function AdminClientView() {
   <Copy className="h-4 w-4" />
   Repeat Order
 </a>
-
+// Find the navigation buttons section and add this:
+<button
+  onClick={() => setActiveTab('customers')}
+  className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+    activeTab === 'customers'
+      ? 'text-white'
+      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+  }`}
+  style={activeTab === 'customers' ? { backgroundColor: '#006A4E' } : {}}
+>
+  <Users className="h-4 w-4" />
+  Customers
+</button>
 {/* ✅ Product Management Button */}
 <a
   href="/admin/products"

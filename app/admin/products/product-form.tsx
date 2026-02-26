@@ -180,34 +180,33 @@ export default function ProductForm({ product, isEditing = false }: ProductFormP
         />
         <div className="mt-2 p-3 bg-gray-50 rounded-md border border-gray-200">
           <p className="text-xs font-semibold text-gray-700 mb-2">💡 Code Range Guide:</p>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
-            <div className="flex items-center gap-1">
-              <span className="font-mono font-bold text-amber-700">1000-1999</span>
-              <span className="text-gray-600">🍞 Breads</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="font-mono font-bold text-pink-700">2000-2999</span>
-              <span className="text-gray-600">🎂 Cakes</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="font-mono font-bold text-orange-700">3000-3999</span>
-              <span className="text-gray-600">🥐 Pastries</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="font-mono font-bold text-purple-700">4000-4999</span>
-              <span className="text-gray-600">✨ Specialty</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="font-mono font-bold text-gray-700">5000-5999</span>
-              <span className="text-gray-600">📦 Other</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="font-mono font-bold text-blue-700">900</span>
-              <span className="text-gray-600">⚙️ Admin</span>
-            </div>
-          </div>
-        </div>
-      </div>
+          // ✅ Replace the guide grid with:
+<div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+  <div className="flex items-center gap-1">
+    <span className="font-mono font-bold text-pink-700">1000-1999</span>
+    <span className="text-gray-600">🎂 Cakes</span>
+  </div>
+  <div className="flex items-center gap-1">
+    <span className="font-mono font-bold text-amber-700">2000-2750</span>
+    <span className="text-gray-600">🍞 Bread</span>
+  </div>
+  <div className="flex items-center gap-1">
+    <span className="font-mono font-bold text-orange-700">2751-3750</span>
+    <span className="text-gray-600">🥖 Rolls</span>
+  </div>
+  <div className="flex items-center gap-1">
+    <span className="font-mono font-bold text-yellow-700">3751-4000</span>
+    <span className="text-gray-600">🥧 Pies</span>
+  </div>
+  <div className="flex items-center gap-1">
+    <span className="font-mono font-bold text-gray-700">4001+</span>
+    <span className="text-gray-600">🧁 Other</span>
+  </div>
+  <div className="flex items-center gap-1">
+    <span className="font-mono font-bold text-blue-700">900</span>
+    <span className="text-gray-600">⚙️ Admin</span>
+  </div>
+</div>
 
       {/* ✅ Special Notice for Code 900 */}
       {formData.code === '900' && (

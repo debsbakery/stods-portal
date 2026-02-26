@@ -16,13 +16,14 @@ interface Product {
   allow_custom_price?: boolean;
 }
 
+// ✅ REPLACE WITH THIS
 const CODE_RANGES = [
-  { min: 1000, max: 1999, label: '🍞 Breads', color: 'bg-amber-50 border-amber-200' },
-  { min: 2000, max: 2999, label: '🎂 Cakes', color: 'bg-pink-50 border-pink-200' },
-  { min: 3000, max: 3999, label: '🥐 Pastries', color: 'bg-orange-50 border-orange-200' },
-  { min: 4000, max: 4999, label: '✨ Specialty', color: 'bg-purple-50 border-purple-200' },
-  { min: 5000, max: 5999, label: '📦 Other', color: 'bg-gray-50 border-gray-200' },
-];
+  { min: 1000, max: 1999, label: '🎂 Cakes',  color: 'bg-pink-50 border-pink-200' },
+  { min: 2000, max: 2750, label: '🍞 Bread',  color: 'bg-amber-50 border-amber-200' },
+  { min: 2751, max: 3750, label: '🥖 Rolls',  color: 'bg-orange-50 border-orange-200' },
+  { min: 3751, max: 4000, label: '🥧 Pies',   color: 'bg-yellow-50 border-yellow-200' },
+  { min: 4001, max: 9999, label: '🧁 Other',  color: 'bg-gray-50 border-gray-200' },
+]
 
 function getCodeRangeInfo(code: string | null) {
   if (!code) return { label: '❓ No Code', color: 'bg-gray-100 border-gray-300', range: 'none' };
