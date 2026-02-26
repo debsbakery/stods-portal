@@ -45,7 +45,7 @@ export default function ContractPricingPage() {
     effectiveTo: ''
   })
 
-  const supabase = await createClient()
+  const supabase = createClient()
 
   useEffect(() => {
     loadCustomers()
