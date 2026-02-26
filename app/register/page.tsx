@@ -46,9 +46,10 @@ export default function RegisterPage() {
       }
 
       const { error: insertError } = await supabase
-        .from('customers')
-        .insert({
-          business_name:  form.business_name.trim(),
+  .from('customers')
+  .insert({
+    id:             crypto.randomUUID(),
+    business_name:  form.business_name.trim(),
           contact_name:   form.contact_name.trim(),
           email:          form.email.trim().toLowerCase(),
           phone:          form.phone.trim()          || null,
