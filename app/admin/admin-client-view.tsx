@@ -8,17 +8,12 @@ import {
   Copy, Play, FileMinus,
 } from 'lucide-react';
 
-// Import views
 import OrdersView from './orders-view';
 import StandingOrdersView from './standing-orders-view';
 import ContractPricingPage from './pricing/page';
 import ProductsView from './products-view';
 
-// ✅ Import the customers page component
-import CustomersPage from '../customers/page';
-
-// ✅ Add 'customers' to the type
-type Tab = 'orders' | 'standing-orders' | 'pricing' | 'products' | 'customers';
+type Tab = 'orders' | 'standing-orders' | 'pricing' | 'products';
 
 export default function AdminClientView() {
   const [activeTab, setActiveTab] = useState<Tab>('orders');
@@ -31,7 +26,7 @@ export default function AdminClientView() {
     try {
       const response = await fetch('/api/standing-orders/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
       });
       const data = await response.json();
       if (data.success) {
@@ -58,146 +53,144 @@ export default function AdminClientView() {
     }
   }
 
+  // Nav button style helpers
+  const linkBtn = (color: string) =>
+    `flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md transition-all text-sm font-medium`
+
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
+
+      {/* ── Sticky Header ─────────────────────────────────────────── */}
       <div className="bg-white shadow-sm border-b sticky top-0 z-10">
         <div className="container mx-auto px-4">
-          <div className="flex justify-between items-center py-4">
-            <div>
+
+          {/* Top bar */}
+          <div className="flex justify-between items-start py-4 gap-4">
+            <div className="shrink-0">
               <h1 className="text-2xl font-bold" style={{ color: '#006A4E' }}>
-                Admin Dashboard
+                🍞 Admin Dashboard
               </h1>
-              <p className="text-sm text-gray-600 mt-1">
-                Manage your wholesale bakery operations
+              <p className="text-sm text-gray-500 mt-0.5">
+                Deb's Bakery — wholesale operations
               </p>
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex gap-2 flex-wrap">
-              <button
-                onClick={testStandingOrderGeneration}
-                disabled={testingStandingOrders}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 shadow-md transition-all disabled:bg-gray-400 disabled:cursor-not-allowed"
-              >
-                {testingStandingOrders ? (
-                  <><RefreshCw className="h-4 w-4 animate-spin" />Generating...</>
-                ) : (
-                  <><Play className="h-4 w-4" />Test Standing Orders</>
-                )}
-              </button>
+            {/* Action buttons — scrollable on mobile */}
+            <div className="flex gap-2 flex-wrap justify-end">
 
-              <a href="/admin/production"
-                className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md"
-                style={{ backgroundColor: '#006A4E' }}>
-                <ChefHat className="h-4 w-4" />Production
-              </a>
-
+              {/* ── Orders & Invoices ── */}
               <a href="/admin/batch-invoice"
-                className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md"
+                className={linkBtn('#CE1126')}
                 style={{ backgroundColor: '#CE1126' }}>
                 <FileText className="h-4 w-4" />Batch Invoice
               </a>
 
               <a href="/admin/direct-invoice"
-                className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md"
+                className={linkBtn('#CE1126')}
                 style={{ backgroundColor: '#CE1126' }}>
                 <Receipt className="h-4 w-4" />Direct Invoice
               </a>
 
-              <a href="/admin/gst-report"
-                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 shadow-md">
-                <BarChart3 className="h-4 w-4" />GST Report
+              {/* ── Production ── */}
+              <a href="/admin/production"
+                className={linkBtn('#006A4E')}
+                style={{ backgroundColor: '#006A4E' }}>
+                <ChefHat className="h-4 w-4" />Production
+              </a>
+
+              {/* ── Customers ── */}
+              <a href="/admin/customers"
+                className={linkBtn('#006A4E')}
+                style={{ backgroundColor: '#0284c7' }}>
+                <Users className="h-4 w-4" />Customers
               </a>
 
               <a href="/admin/customers/pending"
-                className="flex items-center gap-2 px-4 py-2 text-white text-sm rounded-md hover:opacity-90 shadow-md"
+                className={linkBtn('#ea580c')}
                 style={{ backgroundColor: '#ea580c' }}>
-                <Clock className="h-4 w-4" />Pending Approvals
+                <Clock className="h-4 w-4" />Pending
               </a>
 
               <a href="/admin/customers/repeat-order-search"
-                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 shadow-md">
+                className={linkBtn('#7c3aed')}
+                style={{ backgroundColor: '#7c3aed' }}>
                 <Copy className="h-4 w-4" />Repeat Order
               </a>
 
-              {/* ✅ Customers button now switches tab */}
-              <button
-                onClick={() => setActiveTab('customers')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium shadow-md transition-colors ${
-                  activeTab === 'customers'
-                    ? 'text-white'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-                style={activeTab === 'customers' ? { backgroundColor: '#006A4E' } : {}}
-              >
-                <Users className="h-4 w-4" />
-                Customers
-              </button>
-
-              <a href="/admin/products"
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 shadow-md">
-                <Package className="h-4 w-4" />Products
-              </a>
-
-              <a href="/admin/routes"
-                className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md"
-                style={{ backgroundColor: '#CE1126' }}>
-                <Truck className="h-4 w-4" />Routes
-              </a>
-
+              {/* ── Finance ── */}
               <a href="/admin/ar"
-                className="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-md hover:bg-gray-700 shadow-md">
+                className={linkBtn('#1f2937')}
+                style={{ backgroundColor: '#1f2937' }}>
                 <DollarSign className="h-4 w-4" />AR Dashboard
               </a>
 
               <a href="/admin/payments/record"
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 shadow-md">
+                className={linkBtn('#16a34a')}
+                style={{ backgroundColor: '#16a34a' }}>
                 <DollarSign className="h-4 w-4" />Record Payment
               </a>
+
+              <a href="/admin/gst-report"
+                className={linkBtn('#7c3aed')}
+                style={{ backgroundColor: '#7c3aed' }}>
+                <BarChart3 className="h-4 w-4" />GST Report
+              </a>
+
+              {/* ── Logistics ── */}
+              <a href="/admin/routes"
+                className={linkBtn('#CE1126')}
+                style={{ backgroundColor: '#CE1126' }}>
+                <Truck className="h-4 w-4" />Routes
+              </a>
+
+              {/* ── Standing Orders Test ── */}
+              <button
+                onClick={testStandingOrderGeneration}
+                disabled={testingStandingOrders}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+              >
+                {testingStandingOrders
+                  ? <><RefreshCw className="h-4 w-4 animate-spin" />Generating...</>
+                  : <><Play className="h-4 w-4" />Test S/O</>
+                }
+              </button>
+
             </div>
           </div>
 
-          {/* Tab Navigation */}
-          <div className="flex gap-2 overflow-x-auto pb-0">
-            {[
-              { id: 'orders',          icon: <Package className="h-4 w-4" />,   label: 'Orders' },
-              { id: 'standing-orders', icon: <RefreshCw className="h-4 w-4" />, label: 'Standing Orders' },
+          {/* ── Tab Navigation ─────────────────────────────────────── */}
+          <div className="flex gap-0 overflow-x-auto">
+            {([
+              { id: 'orders',          icon: <Package className="h-4 w-4" />,      label: 'Orders' },
+              { id: 'standing-orders', icon: <RefreshCw className="h-4 w-4" />,    label: 'Standing Orders' },
               { id: 'products',        icon: <ShoppingCart className="h-4 w-4" />, label: 'Products' },
-              { id: 'pricing',         icon: <DollarSign className="h-4 w-4" />, label: 'Contract Pricing' },
-              { id: 'customers',       icon: <Users className="h-4 w-4" />,     label: 'Customers' },
-            ].map(tab => (
+              { id: 'pricing',         icon: <DollarSign className="h-4 w-4" />,   label: 'Contract Pricing' },
+            ] as { id: Tab; icon: React.ReactNode; label: string }[]).map(tab => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as Tab)}
+                onClick={() => setActiveTab(tab.id)}
                 className={`flex items-center gap-2 px-6 py-3 font-semibold text-sm whitespace-nowrap transition-all border-b-2 ${
                   activeTab === tab.id
                     ? 'border-green-600 text-green-700 bg-green-50'
-                    : 'border-transparent text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                    : 'border-transparent text-gray-500 hover:text-gray-900 hover:bg-gray-50'
                 }`}
               >
                 {tab.icon}{tab.label}
               </button>
             ))}
           </div>
+
         </div>
       </div>
 
-      {/* Tab Content */}
+      {/* ── Tab Content ───────────────────────────────────────────── */}
       <div className="container mx-auto px-4 py-6">
         {activeTab === 'orders'          && <OrdersView supabase={supabase} />}
         {activeTab === 'standing-orders' && <StandingOrdersView supabase={supabase} />}
         {activeTab === 'products'        && <ProductsView />}
         {activeTab === 'pricing'         && <ContractPricingPage />}
-        {/* ✅ Customers tab content */}
-        {activeTab === 'customers'       && (
-          <iframe
-            src="/admin/customers"
-            className="w-full border-0 rounded-lg"
-            style={{ height: 'calc(100vh - 200px)' }}
-          />
-        )}
       </div>
+
     </div>
   );
 }
