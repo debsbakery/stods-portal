@@ -177,7 +177,7 @@ export async function generateInvoice(data: InvoiceData): Promise<jsPDF> {
     const hasGST = item.gst_applicable !== false;
     
     return [
-      (item as any).product_code || '—'
+      (item as any).product_code || '—',
       item.product_name,
       item.quantity.toString(),
       formatCurrency(item.unit_price),
