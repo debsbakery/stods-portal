@@ -1,5 +1,5 @@
 'use client';
-import { BarChart3 } from 'lucide-react'  // add to imports
+import { BarChart3,clock } from 'lucide-react'  // add to imports
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { 
