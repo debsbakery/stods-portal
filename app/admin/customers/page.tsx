@@ -1,7 +1,8 @@
+// force-rebuild-v2
 export const dynamic = 'force-dynamic'
 import { redirect } from 'next/navigation'
 import { checkAdmin } from '@/lib/auth'
-import { createServiceClient } from '@/lib/supabase/server'  // ✅ use service client
+import { createServiceClient } from '@/lib/supabase/server'
 import { ArrowLeft, Plus, Edit, Users } from 'lucide-react'
 import Link from 'next/link'
 
@@ -9,7 +10,7 @@ export default async function CustomersPage() {
   const isAdmin = await checkAdmin()
   if (!isAdmin) redirect('/')
 
-  const supabase = await createServiceClient()  // ✅ must await!
+  const supabase = await createServiceClient()
 
   const { data: customers, error } = await supabase
     .from('customers')
@@ -18,7 +19,6 @@ export default async function CustomersPage() {
 
   if (error) console.error('Customers fetch error:', error)
 
-  // ... rest of the file stays exactly the same
   const statusColor = (status: string) => {
     if (status === 'active')   return 'bg-green-100 text-green-800'
     if (status === 'pending')  return 'bg-yellow-100 text-yellow-800'
@@ -28,7 +28,6 @@ export default async function CustomersPage() {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      {/* Header */}
       <div className="mb-8">
         <Link
           href="/admin"
@@ -93,10 +92,7 @@ export default async function CustomersPage() {
                   <td colSpan={8} className="px-4 py-12 text-center text-gray-400">
                     <Users className="h-10 w-10 mx-auto mb-2 text-gray-300" />
                     <p className="mb-2">No customers yet</p>
-                    <Link
-                      href="/admin/customers/create"
-                      className="text-green-700 underline"
-                    >
+                    <Link href="/admin/customers/create" className="text-green-700 underline">
                       Add your first customer
                     </Link>
                   </td>
@@ -107,7 +103,7 @@ export default async function CustomersPage() {
                     <td className="px-4 py-3 font-medium">{c.business_name}</td>
                     <td className="px-4 py-3 text-gray-600">{c.contact_name}</td>
                     <td className="px-4 py-3 text-gray-600">{c.email}</td>
-                    <td className="px-4 py-3 text-gray-600">{c.phone ?? '—'}</td>
+                    <td className="px-4 py-3 text-gray-600">{c.phone ?? '-'}</td>
                     <td className="px-4 py-3 text-gray-600">{c.payment_terms ?? 30} days</td>
                     <td className={`px-4 py-3 text-right font-mono font-semibold ${
                       (c.balance ?? 0) > 0 ? 'text-red-600' : 'text-gray-700'
