@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 
 interface Customer {
@@ -45,12 +45,17 @@ export default function CustomerForm({ customer, isEditing = false }: Props) {
   const set = (field: string, value: any) =>
     setForm(prev => ({ ...prev, [field]: value }))
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
+  // ✅ Auto-resubmit when duplicate is confirmed
+  useEffect(() => {
+    if (allowDuplicate) {
+      submitForm()
+    }
+  }, [allowDuplicate])
+
+  async function submitForm() {
     setLoading(true)
     setError('')
     setSuccess('')
-    setDuplicateWarning(null)
 
     try {
       const url    = isEditing ? `/api/admin/customers/${customer?.id}` : '/api/customers'
@@ -66,7 +71,6 @@ export default function CustomerForm({ customer, isEditing = false }: Props) {
       })
       const data = await res.json()
 
-      // Soft duplicate email warning
       if (data.duplicate_email) {
         setDuplicateWarning(data.existing_business)
         setLoading(false)
@@ -76,12 +80,18 @@ export default function CustomerForm({ customer, isEditing = false }: Props) {
       if (data.error) throw new Error(data.error)
 
       setSuccess(isEditing ? '✅ Customer updated!' : '✅ Customer created!')
-      setTimeout(() => router.push('/admin/customers'), 1000)
+      setTimeout(() => router.push('/admin/customers'), 1200)
     } catch (err: any) {
       setError(err.message)
     } finally {
       setLoading(false)
     }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setAllowDuplicate(false)  // reset on fresh submit
+    await submitForm()
   }
 
   const inputClass = "w-full px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
@@ -101,27 +111,23 @@ export default function CustomerForm({ customer, isEditing = false }: Props) {
         </div>
       )}
 
-     {duplicateWarning && (
+ {duplicateWarning && (
   <div className="bg-amber-50 border border-amber-300 rounded-lg p-4">
     <p className="text-amber-800 font-semibold text-sm">
       ⚠️ Email already used by &ldquo;{duplicateWarning}&rdquo;
     </p>
     <p className="text-amber-700 text-xs mt-1">
-      This is fine for invoicing — both customers will receive emails at this address.
+      Fine for invoicing — both customers will receive emails at this address.
     </p>
     <p className="text-amber-700 text-xs mt-1 font-semibold">
       ⚠️ Note: Shared email customers cannot use the online portal separately.
-      Portal login will only show one account.
     </p>
     <div className="flex gap-2 mt-3">
       <button
         type="button"
         onClick={() => {
-          setAllowDuplicate(true)
           setDuplicateWarning(null)
-          setTimeout(() => {
-            document.getElementById('customer-submit-btn')?.click()
-          }, 100)
+          setAllowDuplicate(true)  // triggers useEffect → resubmits
         }}
         className="px-4 py-2 bg-amber-600 text-white text-sm rounded-md hover:bg-amber-700"
       >
@@ -135,7 +141,7 @@ export default function CustomerForm({ customer, isEditing = false }: Props) {
         }}
         className="px-4 py-2 border border-amber-400 text-amber-700 text-sm rounded-md hover:bg-amber-50"
       >
-        Cancel — use different email
+        Cancel
       </button>
     </div>
   </div>
