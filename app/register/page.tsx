@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { ShoppingBag, CheckCircle } from 'lucide-react'
 
 export default function RegisterPage() {
@@ -18,8 +17,6 @@ export default function RegisterPage() {
     delivery_notes: '',
   })
 
-  const supabase = createClient()
-
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
     setForm(f => ({ ...f, [e.target.name]: e.target.value }))
   }
@@ -28,40 +25,22 @@ export default function RegisterPage() {
     e.preventDefault()
     setLoading(true)
     setError(null)
+
     try {
       if (!form.business_name.trim()) throw new Error('Business name is required')
       if (!form.contact_name.trim())  throw new Error('Contact name is required')
       if (!form.email.trim())         throw new Error('Email is required')
 
-      const { data: existing } = await supabase
-        .from('customers')
-        .select('id, status')
-        .eq('email', form.email.trim().toLowerCase())
-        .maybeSingle()
+      const res = await fetch('/api/register', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(form),
+      })
 
-      if (existing) {
-        if (existing.status === 'pending')
-          throw new Error('This email is already registered and awaiting approval.')
-        throw new Error('This email is already registered. Please contact us if you need help.')
-      }
+      const data = await res.json()
 
-      const { error: insertError } = await supabase
-  .from('customers')
-  .insert({
-    id:             crypto.randomUUID(),
-    business_name:  form.business_name.trim(),
-          contact_name:   form.contact_name.trim(),
-          email:          form.email.trim().toLowerCase(),
-          phone:          form.phone.trim()          || null,
-          address:        form.address.trim()        || null,
-          abn:            form.abn.trim()            || null,
-          delivery_notes: form.delivery_notes.trim() || null,
-          status:         'pending',
-          balance:        0,
-          payment_terms:  30,
-        })
+      if (!res.ok) throw new Error(data.error || 'Registration failed')
 
-      if (insertError) throw new Error(insertError.message)
       setSubmitted(true)
     } catch (err: any) {
       setError(err.message)
@@ -97,19 +76,25 @@ export default function RegisterPage() {
   return (
     <div className="min-h-screen bg-gray-50 py-10 px-4">
       <div className="max-w-lg mx-auto">
+
         <div className="text-center mb-8">
           <div className="flex justify-center mb-3">
-            <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ backgroundColor: '#006A4E' }}>
+            <div
+              className="w-14 h-14 rounded-full flex items-center justify-center"
+              style={{ backgroundColor: '#006A4E' }}
+            >
               <ShoppingBag className="h-7 w-7 text-white" />
             </div>
           </div>
-          <h1 className="text-3xl font-bold" style={{ color: '#006A4E' }}>Deb&apos;s Bakery</h1>
+          <h1 className="text-3xl font-bold" style={{ color: '#006A4E' }}>
+            Deb&apos;s Bakery
+          </h1>
           <p className="text-gray-500 mt-1">Wholesale Account Application</p>
         </div>
 
         {error && (
           <div className="mb-5 p-4 bg-red-50 border border-red-200 text-red-800 rounded-lg text-sm">
-            {error}
+            ⚠️ {error}
           </div>
         )}
 
@@ -120,78 +105,123 @@ export default function RegisterPage() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Business Name <span className="text-red-500">*</span>
             </label>
-            <input type="text" name="business_name" required
-              value={form.business_name} onChange={handleChange}
+            <input
+              type="text"
+              name="business_name"
+              required
+              value={form.business_name}
+              onChange={handleChange}
               placeholder="e.g. Sunrise Cafe"
-              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm" />
+              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+            />
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Contact Name <span className="text-red-500">*</span>
             </label>
-            <input type="text" name="contact_name" required
-              value={form.contact_name} onChange={handleChange}
+            <input
+              type="text"
+              name="contact_name"
+              required
+              value={form.contact_name}
+              onChange={handleChange}
               placeholder="e.g. Jane Smith"
-              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm" />
+              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+            />
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Email Address <span className="text-red-500">*</span>
             </label>
-            <input type="email" name="email" required
-              value={form.email} onChange={handleChange}
+            <input
+              type="email"
+              name="email"
+              required
+              value={form.email}
+              onChange={handleChange}
               placeholder="jane@sunrise.com.au"
-              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm" />
+              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+            />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-            <input type="tel" name="phone"
-              value={form.phone} onChange={handleChange}
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Phone
+            </label>
+            <input
+              type="tel"
+              name="phone"
+              value={form.phone}
+              onChange={handleChange}
               placeholder="(07) 1234 5678"
-              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm" />
+              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+            />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Delivery Address</label>
-            <input type="text" name="address"
-              value={form.address} onChange={handleChange}
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Delivery Address
+            </label>
+            <input
+              type="text"
+              name="address"
+              value={form.address}
+              onChange={handleChange}
               placeholder="123 Main St, Toowoomba QLD 4350"
-              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm" />
+              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+            />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">ABN</label>
-            <input type="text" name="abn"
-              value={form.abn} onChange={handleChange}
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              ABN
+            </label>
+            <input
+              type="text"
+              name="abn"
+              value={form.abn}
+              onChange={handleChange}
               placeholder="12 345 678 901"
-              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm" />
+              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+            />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Delivery Notes</label>
-            <textarea name="delivery_notes"
-              value={form.delivery_notes} onChange={handleChange}
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Delivery Notes
+            </label>
+            <textarea
+              name="delivery_notes"
+              value={form.delivery_notes}
+              onChange={handleChange}
               rows={3}
               placeholder="Any special delivery instructions..."
-              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm" />
+              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+            />
           </div>
 
-          <button type="submit" disabled={loading}
+          <button
+            type="submit"
+            disabled={loading}
             className="w-full py-3 rounded-lg text-white font-semibold text-sm hover:opacity-90 disabled:opacity-50 transition-opacity"
-            style={{ backgroundColor: '#CE1126' }}>
+            style={{ backgroundColor: '#CE1126' }}
+          >
             {loading ? 'Submitting...' : 'Submit Application'}
           </button>
 
-          <p className="text-xs text-gray-400 text-center">
+          <p className="text-xs text-gray-400 text-center pt-1">
             Already a customer?{' '}
             <a href="/portal" className="underline" style={{ color: '#006A4E' }}>
               Sign in to the portal
             </a>
           </p>
         </form>
+
+        <p className="text-center text-xs text-gray-400 mt-6">
+          Questions? Call us on (07) 4632 9475
+        </p>
       </div>
     </div>
   )
