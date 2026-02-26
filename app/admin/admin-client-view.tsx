@@ -146,14 +146,7 @@ export default function AdminClientView() {
                 <Receipt className="h-4 w-4" />
                 Direct Invoice
               </a>
-{/* Credit Invoices Button */}
-<a
-  href="/admin/credit-invoices"
-  className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 shadow-md transition-all"
->
-  <FileMinus className="h-4 w-4" />
-  Credit Invoices
-</a>
+
             {/* Repeat Order Button */}
 <a
   href="/admin/customers/repeat-order-search"
