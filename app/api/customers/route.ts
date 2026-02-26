@@ -37,12 +37,12 @@ export async function POST(request: NextRequest) {
       address,
       abn,
       delivery_notes,
-      status            = 'active',
-      payment_terms     = 30,
+      status                = 'active',
+      payment_terms         = 30,
       allow_duplicate_email = false,
     } = body
 
-    // Validate required fields
+    // Validate
     if (!business_name?.trim())
       return NextResponse.json({ error: 'Business name is required' }, { status: 400 })
     if (!contact_name?.trim())
@@ -50,14 +50,13 @@ export async function POST(request: NextRequest) {
     if (!email?.trim())
       return NextResponse.json({ error: 'Email is required' }, { status: 400 })
 
-    // Check for duplicate email
+    // Check duplicate email
     const { data: existing } = await supabaseAdmin
       .from('customers')
       .select('id, business_name')
       .eq('email', email.trim().toLowerCase())
       .maybeSingle()
 
-    // Soft warning — allow if admin confirmed
     if (existing && !allow_duplicate_email) {
       return NextResponse.json(
         {
@@ -69,15 +68,21 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Try to create auth user — may fail if email already exists in auth
-    const { data: authUser } = await supabaseAdmin.auth.admin.createUser({
-      email:         email.trim().toLowerCase(),
-      email_confirm: false,
-      user_metadata: { business_name, contact_name, role: 'customer' },
-    })
+    // ✅ Safely try to create auth user
+    let customerId: string
 
-    // If auth user already exists (shared email), use a new UUID for this customer
-    const customerId = authUser?.user?.id || crypto.randomUUID()
+    try {
+      const { data: authUser } = await supabaseAdmin.auth.admin.createUser({
+        email:         email.trim().toLowerCase(),
+        email_confirm: false,
+        user_metadata: { business_name, contact_name, role: 'customer' },
+      })
+
+      customerId = authUser?.user?.id || crypto.randomUUID()
+    } catch {
+      // Auth user already exists (shared email) — use new UUID for customer record
+      customerId = crypto.randomUUID()
+    }
 
     // Insert customer record
     const { error: insertError } = await supabaseAdmin
