@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic'
 
-import { createClient } from "@/lib/supabase/server"
+import { createServiceClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import { checkAdmin } from "@/lib/auth"
 import { ArrowLeft, FileText, Download } from "lucide-react"
@@ -11,8 +11,7 @@ export default async function BatchInvoicePage() {
   const isAdmin = await checkAdmin()
   if (!isAdmin) redirect("/")
 
-  const supabase = await createClient()
-
+const supabase = await createServiceClient()
   // Get recent orders for date selection
   const { data: recentOrders } = await supabase
     .from('orders')
