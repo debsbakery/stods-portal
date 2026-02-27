@@ -12,7 +12,7 @@ export async function PUT(
 ) {
   try {
     const body = await request.json()
-    const { business_name, contact_name, phone, address, abn,
+    const { business_name, contact_name, phone, address, email, abn,
             delivery_notes, status, payment_terms } = body
 
     if (!business_name?.trim()) return NextResponse.json({ error: 'Business name required' }, { status: 400 })

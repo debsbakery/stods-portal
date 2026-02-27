@@ -1,4 +1,4 @@
-// force-rebuild-v2
+﻿// force-rebuild-v2
 export const dynamic = 'force-dynamic'
 import { redirect } from 'next/navigation'
 import { checkAdmin } from '@/lib/auth'
