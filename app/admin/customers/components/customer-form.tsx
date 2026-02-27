@@ -59,10 +59,10 @@ export default function CustomerForm({ customer, isEditing = false }: Props) {
       const res  = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...form,
-          allow_duplicate_email: allowDuplicate,
-        }),
+     body: JSON.stringify({
+  ...form,  // email is already in here ✅
+  allow_duplicate_email: allowDuplicate,
+}),
       })
       const data = await res.json()
 
@@ -173,19 +173,12 @@ export default function CustomerForm({ customer, isEditing = false }: Props) {
         <label className={labelClass}>
           Email <span className="text-red-500">*</span>
         </label>
-        <input
-          type="email" required value={form.email}
-          onChange={e => set('email', e.target.value)}
-          className={inputClass} placeholder="deb@cafe.com.au"
-          disabled={isEditing}
-        />
-        {isEditing && (
-          <p className="text-xs text-gray-400 mt-1">
-            Email cannot be changed after creation
-          </p>
-        )}
-      </div>
-
+       // ✅ REPLACE WITH - always editable
+<input
+  type="email" required value={form.email}
+  onChange={e => set('email', e.target.value)}
+  className={inputClass} placeholder="deb@cafe.com.au"
+/>
       {/* Phone */}
       <div>
         <label className={labelClass}>Phone</label>

@@ -23,6 +23,7 @@ export async function PUT(
       .update({
         business_name:  business_name.trim(),
         contact_name:   contact_name.trim(),
+        email:          email?.trim().toLowerCase() || undefined,  // ✅ add this
         phone:          phone?.trim()          || null,
         address:        address?.trim()        || null,
         abn:            abn?.trim()            || null,
