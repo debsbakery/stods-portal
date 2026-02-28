@@ -1,613 +1,442 @@
-'use client';
+'use client'
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { Trash2, Plus } from 'lucide-react';
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { Plus, Trash2, AlertCircle, CheckCircle } from 'lucide-react'
+import { SearchableSelect, SelectOption } from '@/components/ui/searchable-select'
 
 interface Customer {
-  id: string;
-  business_name: string;
-  email: string;
-  contact_name: string;
+  id: string
+  business_name: string
+  email: string
+  contact_name: string | null
 }
 
 interface Product {
-  id: string;
-  name: string;
-  price: number;
-  unit: string;
-  product_number: number;
-  is_available: boolean;
+  id: string
+  code: string | null
+  name: string
+  price: number
+  category: string | null
+  is_available: boolean
 }
 
-interface StandingOrderItem {
-  id?: string;
-  product_id: string;
-  quantity: number;
+interface ContractPrice {
+  product_id: string
+  contract_price: number
 }
 
-interface StandingOrder {
-  id: string;
-  customer_id: string;
-  delivery_day: string;
-  active: boolean;
-  notes: string | null;
-  items: StandingOrderItem[];
+interface OrderItem {
+  product_id: string
+  quantity: number
+  // resolved at display time
+  product?: Product
+  contract_price?: number | null
 }
 
 interface Props {
-  customers: Customer[];
-  products: Product[];
-  standingOrder?: StandingOrder;
-  mode: 'create' | 'edit';
+  customers: Customer[]
+  products: Product[]
 }
 
-const DAYS_OF_WEEK = [
-  { value: 'monday', label: 'Monday' },
-  { value: 'tuesday', label: 'Tuesday' },
-  { value: 'wednesday', label: 'Wednesday' },
-  { value: 'thursday', label: 'Thursday' },
-  { value: 'friday', label: 'Friday' },
-  { value: 'saturday', label: 'Saturday' },
-  { value: 'sunday', label: 'Sunday' },
-];
+const WEEKDAYS = [
+  'monday', 'tuesday', 'wednesday', 'thursday',
+  'friday', 'saturday', 'sunday'
+]
 
-export default function StandingOrderForm({
-  customers,
-  products,
-  standingOrder,
-  mode,
-}: Props) {
-  const router = useRouter();
+export default function StandingOrderForm({ customers, products }: Props) {
+  const router = useRouter()
 
-  const [customerId, setCustomerId] = useState(standingOrder?.customer_id || '');
-  const [deliveryDay, setDeliveryDay] = useState(
-    mode === 'edit' 
-      ? standingOrder?.delivery_day || 'monday' 
-      : '' // Empty for multi-select in create mode
-  );
-  const [active, setActive] = useState(standingOrder?.active ?? true);
-  const [notes, setNotes] = useState(standingOrder?.notes || '');
-  const [items, setItems] = useState<StandingOrderItem[]>(
-    standingOrder?.items || []
-  );
-  const [existingDays, setExistingDays] = useState<string[]>([]);
+  const [customerId, setCustomerId] = useState('')
+  const [deliveryDay, setDeliveryDay] = useState('')
+  const [notes, setNotes] = useState('')
+  const [items, setItems] = useState<OrderItem[]>([])
+  const [contractPrices, setContractPrices] = useState<ContractPrice[]>([])
+  const [loadingContracts, setLoadingContracts] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState(false)
 
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Build customer options
+  const customerOptions: SelectOption[] = customers.map((c) => ({
+    value: c.id,
+    label: c.business_name || c.email,
+    sublabel: c.contact_name || c.email,
+  }))
 
-  // Add item to order
-  const addItem = () => {
-    setItems([...items, { product_id: '', quantity: 1 }]);
-  };
+  // Build product options — badge = code
+  const productOptions: SelectOption[] = products.map((p) => ({
+    value: p.id,
+    label: p.name,
+    badge: p.code || '—',
+    sublabel: formatCurrency(getEffectivePrice(p.id, p.price)),
+  }))
 
-  // Remove item from order
-  const removeItem = (index: number) => {
-    setItems(items.filter((_, i) => i !== index));
-  };
+  // When customer changes — load their contract prices
+  async function handleCustomerChange(id: string) {
+    setCustomerId(id)
+    setItems([]) // clear items when customer changes
+    setContractPrices([])
 
-  // Update item
-  const updateItem = (index: number, field: 'product_id' | 'quantity', value: string | number) => {
-    const newItems = [...items];
-    newItems[index] = { ...newItems[index], [field]: value };
-    setItems(newItems);
-  };
+    if (!id) return
 
-  // Load customer's shadow orders (favorites)
-  const loadCustomerFavorites = async () => {
-    if (!customerId) return;
-
+    setLoadingContracts(true)
     try {
-      const response = await fetch(`/api/shadow-orders?customerId=${customerId}`);
-      const data = await response.json();
-
-      console.log('📦 Shadow orders response:', data);
-
-      if (data.shadowOrders && data.shadowOrders.length > 0) {
-        const favoriteItems = data.shadowOrders.map((shadow: any) => ({
-          product_id: shadow.product_id,
-          quantity: shadow.default_quantity || 1,
-        }));
-        
-        console.log('✅ Loaded favorites:', favoriteItems);
-        setItems(favoriteItems);
-      } else {
-        console.log('⚠️ No favorites found for customer');
-        alert('This customer has no favorite items yet.');
+      const res = await fetch(`/api/admin/contract-pricing?customerId=${id}`)
+      const data = await res.json()
+      if (data.success && data.contracts) {
+        setContractPrices(
+          data.contracts.map((c: any) => ({
+            product_id: c.product_id,
+            contract_price: c.contract_price,
+          }))
+        )
       }
-    } catch (error) {
-      console.error('❌ Failed to load favorites:', error);
-      alert('Failed to load customer favorites');
+    } catch (err) {
+      console.error('Failed to load contract prices:', err)
+    } finally {
+      setLoadingContracts(false)
     }
-  };
+  }
 
-  // Check which days already have standing orders for this customer
-  const checkExistingDays = async (customerId: string) => {
-    try {
-      const response = await fetch(`/api/standing-orders/customer/${customerId}`);
-      const data = await response.json();
-      
-      if (data.standingOrders) {
-        const days = data.standingOrders
-          .filter((so: any) => so.active) // Only show active ones
-          .map((so: any) => so.delivery_day);
-        setExistingDays(days);
-        console.log('📅 Existing standing order days:', days);
-      }
-    } catch (error) {
-      console.error('Failed to check existing days:', error);
-    }
-  };
+  // Get effective price — contract price if exists, else standard
+  function getEffectivePrice(productId: string, standardPrice: number): number {
+    const contract = contractPrices.find((c) => c.product_id === productId)
+    return contract ? contract.contract_price : standardPrice
+  }
 
-  // Calculate estimated total
-  const calculateTotal = () => {
+  function getContractPrice(productId: string): number | null {
+    const contract = contractPrices.find((c) => c.product_id === productId)
+    return contract ? contract.contract_price : null
+  }
+
+  // Add a product line item
+  function addItem(productId: string) {
+    if (!productId) return
+    // Don't add duplicates
+    if (items.find((i) => i.product_id === productId)) return
+
+    const product = products.find((p) => p.id === productId)
+    const contractPrice = getContractPrice(productId)
+
+    setItems((prev) => [
+      ...prev,
+      {
+        product_id: productId,
+        quantity: 1,
+        product,
+        contract_price: contractPrice,
+      },
+    ])
+  }
+
+  function updateQuantity(productId: string, qty: number) {
+    if (qty < 1) return
+    setItems((prev) =>
+      prev.map((i) => (i.product_id === productId ? { ...i, quantity: qty } : i))
+    )
+  }
+
+  function removeItem(productId: string) {
+    setItems((prev) => prev.filter((i) => i.product_id !== productId))
+  }
+
+  function calculateTotal(): number {
     return items.reduce((sum, item) => {
-      const product = products.find((p) => p.id === item.product_id);
-      return sum + (product ? product.price * item.quantity : 0);
-    }, 0);
-  };
+      const product = products.find((p) => p.id === item.product_id)
+      if (!product) return sum
+      const price = getEffectivePrice(item.product_id, product.price)
+      return sum + price * item.quantity
+    }, 0)
+  }
 
-  // Submit form
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
 
-    // Validation
-    if (!customerId) {
-      setError('Please select a customer');
-      setLoading(false);
-      return;
-    }
+    if (!customerId) { setError('Please select a customer'); return }
+    if (!deliveryDay) { setError('Please select a delivery day'); return }
+    if (items.length === 0) { setError('Please add at least one product'); return }
 
-    const selectedDays = deliveryDay.split(',').filter(d => d);
-    if (selectedDays.length === 0) {
-      setError('Please select at least one delivery day');
-      setLoading(false);
-      return;
-    }
-
-    if (items.length === 0) {
-      setError('Please add at least one item');
-      setLoading(false);
-      return;
-    }
-
-    if (items.some((item) => !item.product_id || item.quantity < 1)) {
-      setError('Please complete all item details');
-      setLoading(false);
-      return;
-    }
-
+    setSubmitting(true)
     try {
-      if (mode === 'edit') {
-        // Edit mode - single day only
-        const response = await fetch(`/api/standing-orders/${standingOrder?.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            delivery_day: deliveryDay,
-            active,
-            notes: notes || null,
-            items: items.map((item) => ({
-              product_id: item.product_id,
-              quantity: parseInt(item.quantity.toString()),
-            })),
-          }),
-        });
+      const res = await fetch('/api/admin/standing-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_id: customerId,
+          delivery_days: deliveryDay,
+          active: true,
+          notes: notes || null,
+          items: items.map((i) => ({
+            product_id: i.product_id,
+            quantity: i.quantity,
+          })),
+        }),
+      })
 
-        const data = await response.json();
+      const data = await res.json()
 
-        if (!response.ok) {
-          throw new Error(data.error || 'Failed to update standing order');
+      if (!res.ok) {
+        // Already exists — offer to go edit it
+        if (res.status === 409) {
+          setError(`A standing order for ${deliveryDay} already exists for this customer.`)
+          return
         }
-
-        router.push('/admin/standing-orders');
-        router.refresh();
-      } else {
-        // Create mode - potentially multiple days
-        const createdOrders: string[] = [];
-        const skippedOrders: string[] = [];
-        const errors: string[] = [];
-
-        for (const day of selectedDays) {
-          try {
-            const response = await fetch('/api/standing-orders', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                customer_id: customerId,
-                delivery_day: day,
-                active,
-                notes: notes || null,
-                items: items.map((item) => ({
-                  product_id: item.product_id,
-                  quantity: parseInt(item.quantity.toString()),
-                })),
-              }),
-            });
-
-            const data = await response.json();
-
-            if (response.status === 409 && data.skipped) {
-              // Day already exists - skip gracefully
-              skippedOrders.push(day);
-              console.log(`⏭️ Skipped ${day} (already exists)`);
-            } else if (!response.ok) {
-              errors.push(`${day}: ${data.error}`);
-            } else {
-              createdOrders.push(day);
-              console.log(`✅ Created standing order for ${day}`);
-            }
-          } catch (error: any) {
-            errors.push(`${day}: ${error.message}`);
-          }
-        }
-
-        // Build success message
-        let successMessage = '';
-        if (createdOrders.length > 0) {
-          successMessage = `✅ Created ${createdOrders.length} standing order(s) for: ${createdOrders.join(', ')}`;
-        }
-        if (skippedOrders.length > 0) {
-          successMessage += `\n⏭️ Skipped ${skippedOrders.length} day(s) (already exists): ${skippedOrders.join(', ')}`;
-        }
-        if (errors.length > 0) {
-          successMessage += `\n❌ Errors: ${errors.join(', ')}`;
-        }
-
-        if (errors.length > 0 && createdOrders.length === 0) {
-          // Only errors, no success
-          setError(successMessage);
-          setLoading(false);
-        } else {
-          // At least some success
-          if (skippedOrders.length > 0 || errors.length > 0) {
-            // Show message but still redirect
-            alert(successMessage);
-          }
-          router.push('/admin/standing-orders');
-          router.refresh();
-        }
-      }
-    } catch (error: any) {
-      setError(error.message || 'An error occurred');
-      setLoading(false);
-    }
-  };
-
-  // Delete standing order
-  const handleDelete = async () => {
-    if (!confirm('Are you sure you want to delete this standing order?')) {
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch(`/api/standing-orders/${standingOrder?.id}`, {
-        method: 'DELETE',
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to delete standing order');
+        throw new Error(data.error || 'Failed to create standing order')
       }
 
-      router.push('/admin/standing-orders');
-      router.refresh();
-    } catch (error: any) {
-      setError(error.message || 'An error occurred');
-      setLoading(false);
+      setSuccess(true)
+      setTimeout(() => router.push('/admin/standing-orders'), 1500)
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setSubmitting(false)
     }
-  };
+  }
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-AU', {
-      style: 'currency',
-      currency: 'AUD',
-    }).format(amount);
-  };
+  // Products already in items — exclude from picker
+  const availableProductOptions = productOptions.filter(
+    (o) => !items.find((i) => i.product_id === o.value)
+  )
 
   return (
-    <form onSubmit={handleSubmit} className="max-w-4xl">
-      {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md">
-          <p className="text-red-700 font-semibold whitespace-pre-line">❌ {error}</p>
+    <form onSubmit={handleSubmit} className="space-y-6">
+
+      {/* Success */}
+      {success && (
+        <div className="flex items-center gap-3 p-4 bg-green-50 border border-green-200 rounded-lg text-green-800">
+          <CheckCircle className="h-5 w-5 flex-shrink-0" />
+          <p className="font-medium">Standing order created! Redirecting...</p>
         </div>
       )}
 
-      {/* Customer Selection */}
-      <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-        <h2 className="text-xl font-bold mb-4">Customer Details</h2>
-
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Customer *
-            </label>
-            <select
-              value={customerId}
-              onChange={(e) => {
-                const newCustomerId = e.target.value;
-                setCustomerId(newCustomerId);
-                setItems([]); // Clear items when customer changes
-                setExistingDays([]); // Clear existing days
-                if (newCustomerId && mode === 'create') {
-                  checkExistingDays(newCustomerId);
-                }
-              }}
-              disabled={mode === 'edit'}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
-              required
-            >
-              <option value="">Select a customer...</option>
-              {customers.map((customer) => (
-                <option key={customer.id} value={customer.id}>
-                  {customer.business_name} ({customer.contact_name})
-                </option>
-              ))}
-            </select>
-            {mode === 'edit' && (
-              <p className="text-xs text-gray-500 mt-1">
-                Customer cannot be changed after creation
-              </p>
-            )}
-          </div>
-
-          {customerId && items.length === 0 && (
-            <button
-              type="button"
-              onClick={loadCustomerFavorites}
-              className="text-sm text-blue-600 hover:underline"
-            >
-              ⭐ Load customer's favorite items
-            </button>
-          )}
+      {/* Error */}
+      {error && (
+        <div className="flex items-center gap-3 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+          <AlertCircle className="h-5 w-5 flex-shrink-0" />
+          <p className="text-sm">{error}</p>
         </div>
-      </div>
+      )}
 
-      {/* Delivery Schedule */}
-      <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-        <h2 className="text-xl font-bold mb-4">Delivery Schedule</h2>
-
-        <div className="space-y-4">
-          {/* Multi-day selection */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-3">
-              Delivery Days * <span className="text-gray-500 text-xs">(Select one or more)</span>
-            </label>
-            
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {DAYS_OF_WEEK.map((day) => {
-                const isSelected = mode === 'edit' 
-                  ? deliveryDay === day.value 
-                  : deliveryDay.split(',').includes(day.value);
-                
-                const alreadyExists = existingDays.includes(day.value);
-
-                return (
-                  <label
-                    key={day.value}
-                    className={`flex items-center gap-3 p-3 border-2 rounded-md cursor-pointer transition-colors ${
-                      alreadyExists
-                        ? 'border-yellow-400 bg-yellow-50 opacity-60'
-                        : isSelected
-                        ? 'border-green-500 bg-green-50'
-                        : 'border-gray-300 hover:border-gray-400'
-                    }`}
-                    title={alreadyExists ? 'Standing order already exists for this day' : ''}
-                  >
-                    <input
-                      type={mode === 'edit' ? 'radio' : 'checkbox'}
-                      name={mode === 'edit' ? 'delivery_day' : undefined}
-                      value={day.value}
-                      checked={isSelected}
-                      disabled={alreadyExists && mode === 'create'}
-                      onChange={(e) => {
-                        if (mode === 'edit') {
-                          setDeliveryDay(day.value);
-                        } else {
-                          const currentDays = deliveryDay.split(',').filter(d => d);
-                          if (e.target.checked) {
-                            setDeliveryDay([...currentDays, day.value].join(','));
-                          } else {
-                            setDeliveryDay(currentDays.filter(d => d !== day.value).join(','));
-                          }
-                        }
-                      }}
-                      className="h-4 w-4 text-green-600 disabled:opacity-50"
-                    />
-                    <span className="text-sm font-medium">
-                      {day.label}
-                      {alreadyExists && ' ⚠️'}
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-
-            {mode === 'create' && (
-              <p className="text-xs text-gray-500 mt-2">
-                💡 Selecting multiple days will create a separate standing order for each day
-              </p>
-            )}
-            {mode === 'edit' && (
-              <p className="text-xs text-gray-500 mt-2">
-                ℹ️ To change delivery day, you must create a new standing order
-              </p>
-            )}
-          </div>
-
-          {/* Active/Paused toggle */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Status
-            </label>
-            <label className="flex items-center gap-3 p-3 border border-gray-300 rounded-md cursor-pointer hover:bg-gray-50">
-              <input
-                type="checkbox"
-                checked={active}
-                onChange={(e) => setActive(e.target.checked)}
-                className="h-5 w-5 text-green-600"
-              />
-              <span className="text-sm font-medium">
-                {active ? '✅ Active' : '⏸️ Paused'}
-              </span>
-            </label>
-            <p className="text-xs text-gray-500 mt-1">
-              {active ? 'Orders will be generated automatically' : 'No orders will be generated'}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Order Items */}
-      <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold">Order Items</h2>
-          <button
-            type="button"
-            onClick={addItem}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-md text-white hover:opacity-90"
-            style={{ backgroundColor: '#006A4E' }}
-          >
-            <Plus className="h-4 w-4" />
-            Add Item
-          </button>
-        </div>
-
-        {items.length === 0 ? (
-          <p className="text-center py-8 text-gray-500">
-            No items added yet. Click "Add Item" to get started.
+      {/* Customer */}
+      <div className="bg-white rounded-lg shadow-sm border p-6">
+        <h2 className="text-lg font-semibold mb-4">Customer</h2>
+        <SearchableSelect
+          label="Select Customer"
+          options={customerOptions}
+          value={customerId}
+          onChange={handleCustomerChange}
+          placeholder="Search by business name..."
+          required
+        />
+        {loadingContracts && (
+          <p className="text-xs text-blue-600 mt-2">Loading contract prices...</p>
+        )}
+        {customerId && !loadingContracts && contractPrices.length > 0 && (
+          <p className="text-xs text-green-600 mt-2">
+            {contractPrices.length} contract price{contractPrices.length !== 1 ? 's' : ''} loaded — prices adjusted automatically
           </p>
+        )}
+        {customerId && !loadingContracts && contractPrices.length === 0 && (
+          <p className="text-xs text-gray-400 mt-2">
+            No contract prices set — standard prices will apply
+          </p>
+        )}
+      </div>
+
+      {/* Delivery Day */}
+      <div className="bg-white rounded-lg shadow-sm border p-6">
+        <h2 className="text-lg font-semibold mb-4">Delivery Day</h2>
+        <div className="grid grid-cols-4 md:grid-cols-7 gap-2">
+          {WEEKDAYS.map((day) => (
+            <button
+              key={day}
+              type="button"
+              onClick={() => setDeliveryDay(day)}
+              className={`py-2 px-3 rounded-lg text-sm font-medium border-2 transition-colors capitalize ${
+                deliveryDay === day
+                  ? 'border-green-600 bg-green-50 text-green-800'
+                  : 'border-gray-200 hover:border-gray-400 text-gray-600'
+              }`}
+            >
+              {day.slice(0, 3).charAt(0).toUpperCase() + day.slice(1, 3)}
+            </button>
+          ))}
+        </div>
+        {deliveryDay && (
+          <p className="text-sm text-gray-500 mt-3">
+            Delivery every <span className="font-semibold capitalize">{deliveryDay}</span>
+          </p>
+        )}
+      </div>
+
+      {/* Products */}
+      <div className="bg-white rounded-lg shadow-sm border p-6">
+        <h2 className="text-lg font-semibold mb-4">Products</h2>
+
+        {!customerId && (
+          <p className="text-sm text-gray-400 mb-4">Select a customer first to see contract prices</p>
+        )}
+
+        {/* Add product picker */}
+        <div className="mb-4">
+          <SearchableSelect
+            label="Add Product"
+            options={availableProductOptions}
+            value=""
+            onChange={(productId) => {
+              if (productId) addItem(productId)
+            }}
+            placeholder="Search by code or name..."
+            grouped={true}
+          />
+        </div>
+
+        {/* Items table */}
+        {items.length > 0 ? (
+          <div className="border rounded-lg overflow-hidden">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="text-left px-4 py-2 text-xs font-semibold text-gray-600">Code</th>
+                  <th className="text-left px-4 py-2 text-xs font-semibold text-gray-600">Product</th>
+                  <th className="text-right px-4 py-2 text-xs font-semibold text-gray-600">Std Price</th>
+                  <th className="text-right px-4 py-2 text-xs font-semibold text-gray-600">Contract</th>
+                  <th className="text-center px-4 py-2 text-xs font-semibold text-gray-600">Qty</th>
+                  <th className="text-right px-4 py-2 text-xs font-semibold text-gray-600">Subtotal</th>
+                  <th className="px-4 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item) => {
+                  const product = products.find((p) => p.id === item.product_id)
+                  if (!product) return null
+                  const contractPrice = getContractPrice(item.product_id)
+                  const effectivePrice = contractPrice ?? product.price
+                  const subtotal = effectivePrice * item.quantity
+
+                  return (
+                    <tr key={item.product_id} className="border-b last:border-0 hover:bg-gray-50">
+                      <td className="px-4 py-3">
+                        <span className="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-600">
+                          {product.code || '—'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm font-medium">{product.name}</td>
+                      <td className="px-4 py-3 text-right text-sm text-gray-400">
+                        {formatCurrency(product.price)}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm">
+                        {contractPrice !== null ? (
+                          <span className="font-semibold text-green-700">
+                            {formatCurrency(contractPrice)}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400 text-xs">Standard</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => updateQuantity(item.product_id, item.quantity - 1)}
+                            className="w-7 h-7 rounded border border-gray-300 flex items-center justify-center hover:bg-gray-100 font-bold text-gray-600"
+                          >
+                            -
+                          </button>
+                          <input
+                            type="number"
+                            min="1"
+                            value={item.quantity}
+                            onChange={(e) =>
+                              updateQuantity(item.product_id, parseInt(e.target.value) || 1)
+                            }
+                            className="w-14 text-center border rounded py-1 text-sm font-semibold"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => updateQuantity(item.product_id, item.quantity + 1)}
+                            className="w-7 h-7 rounded border border-gray-300 flex items-center justify-center hover:bg-gray-100 font-bold text-gray-600"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm font-semibold">
+                        {formatCurrency(subtotal)}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => removeItem(item.product_id)}
+                          className="text-red-400 hover:text-red-600"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+              <tfoot className="bg-gray-50 border-t">
+                <tr>
+                  <td colSpan={5} className="px-4 py-3 text-sm font-semibold text-right text-gray-600">
+                    Weekly Total
+                  </td>
+                  <td className="px-4 py-3 text-right font-bold text-lg" style={{ color: '#006A4E' }}>
+                    {formatCurrency(calculateTotal())}
+                  </td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         ) : (
-          <div className="space-y-3">
-            {items.map((item, index) => {
-              const product = products.find((p) => p.id === item.product_id);
-              const itemTotal = product ? product.price * item.quantity : 0;
-
-              return (
-                <div
-                  key={index}
-                  className="flex gap-3 items-start p-4 border border-gray-200 rounded-md"
-                >
-                  <div className="flex-1">
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                      Product
-                    </label>
-                    <select
-                      value={item.product_id}
-                      onChange={(e) => updateItem(index, 'product_id', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500"
-                      required
-                    >
-                      <option value="">Select product...</option>
-                      {products.map((product) => (
-                        <option key={product.id} value={product.id}>
-                          #{product.product_number} - {product.name} ({formatCurrency(product.price)}/{product.unit})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="w-32">
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                      Quantity
-                    </label>
-                    <input
-                      type="number"
-                      value={item.quantity}
-                      onChange={(e) => updateItem(index, 'quantity', parseInt(e.target.value) || 1)}
-                      min="1"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500"
-                      required
-                    />
-                  </div>
-
-                  <div className="w-32 text-right">
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                      Subtotal
-                    </label>
-                    <p className="font-semibold text-sm py-2">
-                      {formatCurrency(itemTotal)}
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => removeItem(index)}
-                    className="mt-6 p-2 text-red-600 hover:bg-red-50 rounded-md"
-                    title="Remove item"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              );
-            })}
-
-            {/* Total */}
-            <div className="flex justify-end pt-4 border-t border-gray-200">
-              <div className="text-right">
-                <p className="text-sm text-gray-600">Estimated Weekly Total</p>
-                <p className="text-2xl font-bold" style={{ color: '#006A4E' }}>
-                  {formatCurrency(calculateTotal())}
-                </p>
-              </div>
-            </div>
+          <div className="text-center py-8 border-2 border-dashed border-gray-200 rounded-lg text-gray-400 text-sm">
+            No products added yet — search above to add products
           </div>
         )}
       </div>
 
       {/* Notes */}
-      <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-        <h2 className="text-xl font-bold mb-4">Notes (Optional)</h2>
+      <div className="bg-white rounded-lg shadow-sm border p-6">
+        <h2 className="text-lg font-semibold mb-4">Notes</h2>
         <textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={3}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-          placeholder="Add any special instructions or notes..."
+          className="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-green-500 text-sm"
+          placeholder="Delivery instructions, special requests..."
         />
       </div>
 
-      {/* Action Buttons */}
-      <div className="flex gap-4 justify-between">
-        <div>
-          {mode === 'edit' && (
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={loading}
-              className="px-6 py-3 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              🗑️ Delete Standing Order
-            </button>
-          )}
-        </div>
-
-        <div className="flex gap-4">
-          <button
-            type="button"
-            onClick={() => router.push('/admin/standing-orders')}
-            className="px-6 py-3 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
-            disabled={loading}
-          >
-            Cancel
-          </button>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="px-6 py-3 text-white rounded-md hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ backgroundColor: '#006A4E' }}
-          >
-            {loading ? '⏳ Saving...' : mode === 'create' ? '✅ Create Standing Order' : '✅ Update Standing Order'}
-          </button>
-        </div>
+      {/* Submit */}
+      <div className="flex gap-4">
+        <button
+          type="submit"
+          disabled={submitting || success}
+          className="flex-1 py-3 rounded-lg text-white font-semibold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+          style={{ backgroundColor: '#006A4E' }}
+        >
+          {submitting ? 'Creating...' : 'Create Standing Order'}
+        </button>
+        <button
+          type="button"
+          onClick={() => router.back()}
+          disabled={submitting}
+          className="px-6 py-3 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
+        >
+          Cancel
+        </button>
       </div>
     </form>
-  );
+  )
+}
+
+function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat('en-AU', {
+    style: 'currency',
+    currency: 'AUD',
+  }).format(amount)
 }

@@ -54,23 +54,23 @@ export async function POST(request: NextRequest) {
   try {
     const supabase = await createServiceClient();
     const body = await request.json();
-    const { customer_id, delivery_day, active = true, notes, items } = body;
+    const { customer_id, delivery_days, active = true, notes, items } = body;
 
     console.log('📝 Creating standing order:', { customer_id, delivery_day, active, itemCount: items?.length });
 
     // Validate required fields
-    if (!customer_id || !delivery_day) {
+    if (!customer_id || !delivery_days) {
       return NextResponse.json(
-        { error: 'customer_id and delivery_day are required' },
+        { error: 'customer_id and delivery_days are required' },
         { status: 400 }
       );
     }
 
     // Validate delivery_day
     const validDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-    if (!validDays.includes(delivery_day.toLowerCase())) {
+    if (!validDays.includes(delivery_days.toLowerCase())) {
       return NextResponse.json(
-        { error: 'Invalid delivery_day. Must be monday-sunday' },
+        { error: 'Invalid delivery_days. Must be monday-sunday' },
         { status: 400 }
       );
     }
@@ -78,9 +78,9 @@ export async function POST(request: NextRequest) {
     // ✅ Check if customer already has a standing order for this day
     const { data: existing } = await supabase
       .from('standing_orders')
-      .select('id, delivery_day')
+      .select('id, delivery_days')
       .eq('customer_id', customer_id)
-      .eq('delivery_day', delivery_day.toLowerCase())
+      .eq('delivery_day', delivery_days.toLowerCase())
       .maybeSingle(); // Use maybeSingle instead of single
 
     if (existing) {
@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
       .from('standing_orders')
       .insert({
         customer_id,
-        delivery_day: delivery_day.toLowerCase(),
+        delivery_days: delivery_days.toLowerCase(),
         active,
         notes,
         next_generation_date,
