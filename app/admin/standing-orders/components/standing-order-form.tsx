@@ -160,8 +160,7 @@ export default function StandingOrderForm({ customers, products }: Props) {
 
     setSubmitting(true)
     try {
-      const res = await fetch('/api/admin/standing-orders', {
-        method: 'POST',
+const res = await fetch('/api/standing-orders', {        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           customer_id: customerId,
