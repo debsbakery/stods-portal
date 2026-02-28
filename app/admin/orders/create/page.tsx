@@ -1,8 +1,11 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Trash2, ArrowLeft, Search, ChevronDown, X, ClipboardList } from 'lucide-react'
+import { Plus, Trash2, ArrowLeft, ClipboardList } from 'lucide-react'
+import { SearchableSelect, SelectOption } from '@/components/ui/searchable-select'
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Customer {
   id: string
@@ -17,260 +20,186 @@ interface Customer {
 interface Product {
   id: string
   name: string
-  code: string
+  product_number: number   // ← correct DB column name
   price: number
   unit_price: number
   gst_applicable: boolean
+  is_available: boolean
 }
 
 interface LineItem {
   id: string
   productId: string
   productName: string
-  productCode: string
+  productNumber: string
   quantity: number
   unitPrice: number
   gstApplicable: boolean
 }
 
-interface SelectOption {
-  value: string
-  label: string
-  badge?: string
-  sublabel?: string
-}
-
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(n)
-
-// ── Searchable Select ─────────────────────────────────────────────────────────
-
-function SearchableSelect({
-  options, value, onChange, placeholder = 'Search...', disabled = false,
-}: {
-  options: SelectOption[]
-  value: string
-  onChange: (val: string) => void
-  placeholder?: string
-  disabled?: boolean
-}) {
-  const [open, setOpen]   = useState(false)
-  const [query, setQuery] = useState('')
-  const containerRef      = useRef<HTMLDivElement>(null)
-  const inputRef          = useRef<HTMLInputElement>(null)
-  const selected          = options.find(o => o.value === value)
-
-  const filtered = query.trim() === '' ? options : options.filter(o => {
-    const q = query.toLowerCase()
-    return (
-      String(o.label    ?? '').toLowerCase().includes(q) ||
-      String(o.badge    ?? '').toLowerCase().includes(q) ||
-      String(o.sublabel ?? '').toLowerCase().includes(q)
-    )
-  })
-
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false); setQuery('')
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [])
-
-  useEffect(() => { if (open) inputRef.current?.focus() }, [open])
-
-  return (
-    <div className="relative w-full" ref={containerRef}>
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => !disabled && setOpen(o => !o)}
-        className={[
-          'w-full flex items-center justify-between gap-2 border rounded-md px-3 py-2 text-sm text-left bg-white transition-colors focus:outline-none',
-          disabled ? 'bg-gray-50 cursor-not-allowed text-gray-400' : 'cursor-pointer hover:border-gray-400',
-          open ? 'border-green-700 ring-2 ring-green-100' : 'border-gray-300',
-        ].join(' ')}
-      >
-        <span className="flex-1 truncate flex items-center gap-2">
-          {selected ? (
-            <>
-              {selected.badge && (
-                <span className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-600 shrink-0">
-                  {selected.badge}
-                </span>
-              )}
-              <span className="truncate">{selected.label}</span>
-            </>
-          ) : (
-            <span className="text-gray-400">{placeholder}</span>
-          )}
-        </span>
-        <span className="flex items-center gap-1 shrink-0">
-          {selected && (
-            <span
-              onMouseDown={e => { e.stopPropagation(); onChange('') }}
-              className="p-0.5 rounded hover:bg-gray-100 text-gray-400"
-            >
-              <X className="h-3 w-3" />
-            </span>
-          )}
-          <ChevronDown className={['h-4 w-4 text-gray-400 transition-transform', open ? 'rotate-180' : ''].join(' ')} />
-        </span>
-      </button>
-
-      {open && (
-        <div className="absolute z-50 mt-1 w-full min-w-[260px] bg-white border border-gray-200 rounded-md shadow-xl flex flex-col max-h-72">
-          <div className="p-2 border-b">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
-              <input
-                ref={inputRef}
-                type="text"
-                value={query}
-                onChange={e => setQuery(e.target.value)}
-                placeholder="Type to search..."
-                className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded focus:outline-none focus:border-green-600"
-              />
-            </div>
-          </div>
-          <div className="overflow-y-auto flex-1">
-            {filtered.length === 0 ? (
-              <div className="px-3 py-4 text-sm text-gray-400 text-center">No results</div>
-            ) : filtered.map(opt => (
-              <button
-                key={opt.value}
-                type="button"
-                onMouseDown={() => { onChange(opt.value); setOpen(false); setQuery('') }}
-                className={[
-                  'w-full text-left px-3 py-2.5 text-sm flex items-center gap-2 border-b border-gray-50 hover:bg-green-50 transition-colors',
-                  opt.value === value ? 'bg-green-50 font-semibold' : '',
-                ].join(' ')}
-              >
-                {opt.badge && (
-                  <span className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-700 shrink-0 min-w-[2.5rem] text-center">
-                    {opt.badge}
-                  </span>
-                )}
-                <span className="flex flex-col min-w-0">
-                  <span className="truncate">{opt.label}</span>
-                  {opt.sublabel && <span className="text-xs text-gray-400 truncate">{opt.sublabel}</span>}
-                </span>
-              </button>
-            ))}
-          </div>
-          {query && (
-            <div className="px-3 py-1 text-xs text-gray-400 border-t bg-gray-50">
-              {filtered.length} result{filtered.length !== 1 ? 's' : ''}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function AdminCreateOrderPage() {
   const supabase = createClient()
 
-  const [customers,        setCustomers]        = useState<Customer[]>([])
-  const [products,         setProducts]         = useState<Product[]>([])
-  const [lineItems,        setLineItems]         = useState<LineItem[]>([])
-  const [loading,          setLoading]           = useState(false)
-  const [error,            setError]             = useState<string | null>(null)
-  const [success,          setSuccess]           = useState<string | null>(null)
-  const [selectedCustomer, setSelectedCustomer]  = useState<Customer | null>(null)
+  const [customers,        setCustomers]       = useState<Customer[]>([])
+  const [products,         setProducts]        = useState<Product[]>([])
+  const [lineItems,        setLineItems]       = useState<LineItem[]>([])
+  const [loading,          setLoading]         = useState(false)
+  const [error,            setError]           = useState<string | null>(null)
+  const [success,          setSuccess]         = useState<string | null>(null)
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
+  const [contractPrices,   setContractPrices]  = useState<Record<string, number>>({})
 
   const [form, setForm] = useState({
     customerId:          '',
-    deliveryDate:        new Date().toISOString().split('T')[0],
+    deliveryDate:        '',
     purchaseOrderNumber: '',
     docketNumber:        '',
     notes:               '',
-    source:              'phone',  // phone | email | fax | walkin
+    source:              'phone',
   })
 
+  // ── Load customers + products ────────────────────────────────────────────
   useEffect(() => {
-    supabase.from('customers').select('*').eq('status', 'active').order('business_name')
+    // Customers — try both status columns
+    supabase
+      .from('customers')
+      .select('*')
+      .order('business_name')
       .then(({ data }) => { if (data) setCustomers(data) })
-    supabase.from('products').select('*').order('code')
+
+    // Products — use correct column name
+    supabase
+      .from('products')
+      .select('id, name, product_number, price, unit_price, gst_applicable, is_available')
+      .eq('is_available', true)
+      .order('product_number')
       .then(({ data }) => { if (data) setProducts(data) })
   }, [])
 
-  // ── Options ────────────────────────────────────────────────────────────────
-
-  const customerOptions: SelectOption[] = customers.map(c => ({
-    value:    c.id,
-    label:    c.business_name || c.email,
-    sublabel: `Balance: ${fmt(c.balance || 0)}`,
-  }))
-
-  const productOptions: SelectOption[] = products.map(p => {
-    const code  = p.code || ''
-    const price = p.unit_price || p.price || 0
-    return {
-      value:    p.id,
-      label:    p.name,
-      badge:    code,
-      sublabel: `${fmt(price)} | ${p.gst_applicable ? 'GST' : 'No GST'}`,
+  // ── Load contract pricing when customer changes ──────────────────────────
+  useEffect(() => {
+    if (!form.customerId) {
+      setContractPrices({})
+      return
     }
-  })
+    fetch(`/api/customers/${form.customerId}/pricing`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.pricing) {
+          const map: Record<string, number> = {}
+          data.pricing.forEach((p: any) => { map[p.product_id] = p.price })
+          setContractPrices(map)
+        }
+      })
+      .catch(() => setContractPrices({}))
+  }, [form.customerId])
 
-  // ── Handlers ───────────────────────────────────────────────────────────────
-
-  function handleCustomerChange(id: string) {
-    const c = customers.find(c => c.id === id) || null
-    setSelectedCustomer(c)
-    setForm(f => ({ ...f, customerId: id }))
+  function priceFor(product: Product): number {
+    return contractPrices[product.id] ?? product.unit_price ?? product.price ?? 0
   }
 
+  // ── Select options ───────────────────────────────────────────────────────
+  const customerOptions: SelectOption[] = customers.map((c) => ({
+    value:    c.id,
+    label:    c.business_name || c.email,
+    sublabel: `Balance: ${fmt(c.balance || 0)} | ${c.payment_terms || 30} day terms`,
+  }))
+
+  // ✅ badge = product_number (numeric string) so grouping works
+  const productOptions: SelectOption[] = products.map((p) => ({
+    value:    p.id,
+    label:    p.name,
+    badge:    String(p.product_number ?? ''),
+    sublabel: `${fmt(priceFor(p))}${p.gst_applicable ? ' + GST' : ' no GST'}`,
+  }))
+
+  // ── Customer change ──────────────────────────────────────────────────────
+  function handleCustomerChange(id: string) {
+    const c = customers.find((c) => c.id === id) || null
+    setSelectedCustomer(c)
+    setForm((f) => ({ ...f, customerId: id }))
+
+    // Update prices on existing line items when customer changes
+    if (c) {
+      setLineItems((prev) =>
+        prev.map((item) => {
+          const product = products.find((p) => p.id === item.productId)
+          if (!product) return item
+          return {
+            ...item,
+            unitPrice: contractPrices[item.productId] ?? product.unit_price ?? product.price ?? 0,
+          }
+        })
+      )
+    }
+  }
+
+  // ── Line item management ─────────────────────────────────────────────────
   function addLineItem() {
-    setLineItems(prev => [...prev, {
-      id:           Math.random().toString(36).slice(2),
-      productId:    '',
-      productName:  '',
-      productCode:  '',
-      quantity:     1,
-      unitPrice:    0,
-      gstApplicable: false,
-    }])
+    setLineItems((prev) => [
+      ...prev,
+      {
+        id:            Math.random().toString(36).slice(2),
+        productId:     '',
+        productName:   '',
+        productNumber: '',
+        quantity:      1,
+        unitPrice:     0,
+        gstApplicable: false,
+      },
+    ])
   }
 
   function updateLineItem(id: string, field: string, value: any) {
-    setLineItems(prev => prev.map(item => {
-      if (item.id !== id) return item
-      if (field === 'productId') {
-        if (!value) return { ...item, productId: '', productName: '', productCode: '', unitPrice: 0 }
-        const p = products.find(p => p.id === value)
-        if (!p) return item
-        return {
-          ...item,
-          productId:    p.id,
-          productName:  p.name,
-          productCode:  p.code || '',
-          unitPrice:    p.unit_price || p.price || 0,
-          gstApplicable: p.gst_applicable ?? false,
+    setLineItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item
+
+        if (field === 'productId') {
+          if (!value) {
+            return {
+              ...item,
+              productId:     '',
+              productName:   '',
+              productNumber: '',
+              unitPrice:     0,
+              gstApplicable: false,
+            }
+          }
+          const p = products.find((p) => p.id === value)
+          if (!p) return item
+          return {
+            ...item,
+            productId:     p.id,
+            productName:   p.name,
+            productNumber: String(p.product_number ?? ''),
+            unitPrice:     priceFor(p),
+            gstApplicable: p.gst_applicable ?? false,
+          }
         }
-      }
-      return { ...item, [field]: value }
-    }))
+
+        return { ...item, [field]: value }
+      })
+    )
   }
 
   function removeLineItem(id: string) {
-    setLineItems(prev => prev.filter(item => item.id !== id))
+    setLineItems((prev) => prev.filter((item) => item.id !== id))
   }
 
-  // ── Calculations ───────────────────────────────────────────────────────────
-
+  // ── Totals ───────────────────────────────────────────────────────────────
   const subtotal   = lineItems.reduce((s, i) => s + i.quantity * i.unitPrice, 0)
-  const gstTotal   = lineItems.reduce((s, i) => i.gstApplicable ? s + i.quantity * i.unitPrice * 0.1 : s, 0)
+  const gstTotal   = lineItems.reduce(
+    (s, i) => s + (i.gstApplicable ? i.quantity * i.unitPrice * 0.1 : 0), 0
+  )
   const grandTotal = subtotal + gstTotal
 
-  // ── Submit ─────────────────────────────────────────────────────────────────
-
+  // ── Submit ───────────────────────────────────────────────────────────────
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
@@ -278,14 +207,14 @@ export default function AdminCreateOrderPage() {
     setSuccess(null)
 
     try {
-      if (!form.customerId)   throw new Error('Please select a customer')
-      if (!lineItems.length)  throw new Error('Please add at least one product')
-      if (lineItems.some(i => !i.productId || i.quantity <= 0))
-        throw new Error('Please complete all line items')
+      if (!form.customerId)  throw new Error('Please select a customer')
+      if (!form.deliveryDate) throw new Error('Please select a delivery date')
+      if (!lineItems.length) throw new Error('Please add at least one product')
+      if (lineItems.some((i) => !i.productId || i.quantity <= 0))
+        throw new Error('Please complete all line items — every row needs a product and quantity')
 
       const customer = selectedCustomer!
 
-      // Create order
       const { data: newOrder, error: orderError } = await supabase
         .from('orders')
         .insert({
@@ -296,7 +225,7 @@ export default function AdminCreateOrderPage() {
           customer_abn:           customer.abn     || null,
           delivery_date:          form.deliveryDate,
           total_amount:           grandTotal,
-          status:                 'confirmed',   // goes to production queue
+          status:                 'pending',
           source:                 form.source,
           notes:                  form.notes               || null,
           purchase_order_number:  form.purchaseOrderNumber || null,
@@ -307,33 +236,43 @@ export default function AdminCreateOrderPage() {
 
       if (orderError) throw new Error(`Order failed: ${orderError.message}`)
 
-      // Create order items
       const { error: itemsError } = await supabase
         .from('order_items')
-        .insert(lineItems.map(item => ({
-          order_id:      newOrder.id,
-          product_id:    item.productId,
-          product_name:  item.productName,
-          quantity:      item.quantity,
-          unit_price:    item.unitPrice,
-          subtotal:      item.quantity * item.unitPrice * (item.gstApplicable ? 1.1 : 1),
-          gst_applicable: item.gstApplicable,
-        })))
+        .insert(
+          lineItems.map((item) => ({
+            order_id:      newOrder.id,
+            product_id:    item.productId,
+            product_name:  item.productName,
+            quantity:      item.quantity,
+            unit_price:    item.unitPrice,
+            subtotal:      item.quantity * item.unitPrice,
+            gst_applicable: item.gstApplicable,
+          }))
+        )
 
       if (itemsError) {
         await supabase.from('orders').delete().eq('id', newOrder.id)
         throw new Error(`Items failed: ${itemsError.message}`)
       }
 
-      setSuccess(`Order created for ${customer.business_name} — delivery ${form.deliveryDate}. Total: ${fmt(grandTotal)}`)
+      setSuccess(
+        `Order created for ${customer.business_name} — delivery ${
+          new Date(form.deliveryDate + 'T00:00:00').toLocaleDateString('en-AU', {
+            weekday: 'long', day: 'numeric', month: 'long',
+          })
+        }. Total: ${fmt(grandTotal)}`
+      )
+
+      // Reset form
       setLineItems([])
       setSelectedCustomer(null)
-      setForm(f => ({
+      setForm((f) => ({
         ...f,
         customerId:          '',
         purchaseOrderNumber: '',
         docketNumber:        '',
         notes:               '',
+        deliveryDate:        '',
       }))
 
     } catch (err: any) {
@@ -343,7 +282,7 @@ export default function AdminCreateOrderPage() {
     }
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -362,28 +301,34 @@ export default function AdminCreateOrderPage() {
             <ClipboardList className="h-8 w-8" /> Create Order
           </h1>
           <p className="text-gray-600 mt-1">
-            Enter phone, email or walk-in orders — they go to production then batch invoicing
+            Enter phone, email or walk-in orders
           </p>
         </div>
 
-        {error   && <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
+        {error && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+            {error}
+          </div>
+        )}
+
         {success && (
           <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
             {success}
-            <div className="mt-2 flex gap-3">
-              <a href="/admin/production" className="text-green-700 underline font-medium">Go to Production</a>
-              <a href="/admin/orders/create" className="text-green-700 underline font-medium">Create Another Order</a>
+            <div className="mt-2 flex gap-4">
+              <a href="/admin/production" className="underline font-medium">Go to Production</a>
+              <a href="/admin/orders/create" className="underline font-medium">Create Another Order</a>
             </div>
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
 
-          {/* Customer + Delivery Details */}
+          {/* Order details */}
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="font-bold text-lg mb-4">Order Details</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
+              {/* Customer — full width */}
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Customer <span className="text-red-500">*</span>
@@ -392,16 +337,25 @@ export default function AdminCreateOrderPage() {
                   options={customerOptions}
                   value={form.customerId}
                   onChange={handleCustomerChange}
-                  placeholder="Search customer..."
+                  placeholder="Search customer name..."
                 />
                 {selectedCustomer && (
                   <p className="text-xs text-gray-500 mt-1">
-                    Balance: <span className={selectedCustomer.balance > 0 ? 'text-red-600 font-semibold' : 'text-green-600'}>{fmt(selectedCustomer.balance || 0)}</span>
+                    Balance:{' '}
+                    <span className={selectedCustomer.balance > 0 ? 'text-red-600 font-semibold' : 'text-green-600'}>
+                      {fmt(selectedCustomer.balance || 0)}
+                    </span>
                     {' | '}{selectedCustomer.payment_terms || 30} day terms
+                    {Object.keys(contractPrices).length > 0 && (
+                      <span className="ml-2 text-blue-600 font-medium">
+                        Contract pricing active ({Object.keys(contractPrices).length} products)
+                      </span>
+                    )}
                   </p>
                 )}
               </div>
 
+              {/* Delivery date */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Delivery Date <span className="text-red-500">*</span>
@@ -410,16 +364,17 @@ export default function AdminCreateOrderPage() {
                   type="date"
                   value={form.deliveryDate}
                   required
-                  onChange={e => setForm(f => ({ ...f, deliveryDate: e.target.value }))}
+                  onChange={(e) => setForm((f) => ({ ...f, deliveryDate: e.target.value }))}
                   className="w-full px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-green-500"
                 />
               </div>
 
+              {/* Order source */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Order Source</label>
                 <select
                   value={form.source}
-                  onChange={e => setForm(f => ({ ...f, source: e.target.value }))}
+                  onChange={(e) => setForm((f) => ({ ...f, source: e.target.value }))}
                   className="w-full px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-green-500"
                 >
                   <option value="phone">Phone</option>
@@ -430,36 +385,39 @@ export default function AdminCreateOrderPage() {
                 </select>
               </div>
 
+              {/* PO number */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">PO Number</label>
                 <input
                   type="text"
                   value={form.purchaseOrderNumber}
-                  onChange={e => setForm(f => ({ ...f, purchaseOrderNumber: e.target.value }))}
+                  onChange={(e) => setForm((f) => ({ ...f, purchaseOrderNumber: e.target.value }))}
                   className="w-full px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-green-500"
                   placeholder="Optional"
                 />
               </div>
 
+              {/* Docket */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Docket Number</label>
                 <input
                   type="text"
                   value={form.docketNumber}
-                  onChange={e => setForm(f => ({ ...f, docketNumber: e.target.value }))}
+                  onChange={(e) => setForm((f) => ({ ...f, docketNumber: e.target.value }))}
                   className="w-full px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-green-500"
                   placeholder="Optional"
                 />
               </div>
 
+              {/* Notes */}
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
                 <textarea
                   value={form.notes}
-                  onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-                  className="w-full px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-green-500"
+                  onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                  className="w-full px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-green-500 resize-none"
                   rows={2}
-                  placeholder="Special instructions..."
+                  placeholder="Special instructions, delivery notes..."
                 />
               </div>
 
@@ -469,11 +427,18 @@ export default function AdminCreateOrderPage() {
           {/* Products */}
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="font-bold text-lg">Products</h2>
+              <h2 className="font-bold text-lg">
+                Products
+                {lineItems.length > 0 && (
+                  <span className="ml-2 text-sm font-normal text-gray-400">
+                    ({lineItems.length} line{lineItems.length !== 1 ? 's' : ''})
+                  </span>
+                )}
+              </h2>
               <button
                 type="button"
                 onClick={addLineItem}
-                className="flex items-center gap-2 px-4 py-2 rounded-md text-white text-sm font-medium hover:opacity-90"
+                className="flex items-center gap-2 px-4 py-2 rounded-md text-white text-sm font-medium hover:opacity-90 transition-opacity"
                 style={{ backgroundColor: '#006A4E' }}
               >
                 <Plus className="h-4 w-4" /> Add Product
@@ -482,66 +447,88 @@ export default function AdminCreateOrderPage() {
 
             {lineItems.length === 0 ? (
               <div className="text-center py-10 text-gray-400 border-2 border-dashed rounded-lg">
-                Click Add Product to start the order
+                Click <strong>Add Product</strong> to start the order
               </div>
             ) : (
               <div className="space-y-2">
-                {/* Header */}
+
+                {/* Column headers */}
                 <div className="grid grid-cols-12 gap-2 text-xs font-medium text-gray-500 pb-1 border-b px-1">
                   <span className="col-span-5">Product</span>
-                  <span className="col-span-2">Qty</span>
-                  <span className="col-span-2">Unit $</span>
-                  <span className="col-span-1">GST</span>
+                  <span className="col-span-2 text-center">Qty</span>
+                  <span className="col-span-2 text-center">Unit $</span>
+                  <span className="col-span-1 text-center">GST</span>
                   <span className="col-span-1 text-right">Total</span>
                   <span className="col-span-1"></span>
                 </div>
 
-                {lineItems.map(item => (
-                  <div key={item.id} className="grid grid-cols-12 gap-2 items-center bg-gray-50 p-2 rounded">
+                {lineItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="grid grid-cols-12 gap-2 items-center bg-gray-50 p-2 rounded-lg"
+                  >
+                    {/* Product searchable select — grouped by category */}
                     <div className="col-span-5">
                       <SearchableSelect
                         options={productOptions}
                         value={item.productId}
-                        onChange={val => updateLineItem(item.id, 'productId', val)}
+                        onChange={(val) => updateLineItem(item.id, 'productId', val)}
                         placeholder="Select product..."
+                        grouped={true}
                       />
                     </div>
+
+                    {/* Quantity */}
                     <div className="col-span-2">
                       <input
                         type="number"
                         min="0.5"
                         step="0.5"
                         value={item.quantity}
-                        onChange={e => updateLineItem(item.id, 'quantity', parseFloat(e.target.value) || 1)}
-                        className="w-full border rounded px-2 py-1.5 text-sm"
+                        onChange={(e) =>
+                          updateLineItem(item.id, 'quantity', parseFloat(e.target.value) || 1)
+                        }
+                        className="w-full border rounded px-2 py-1.5 text-sm text-center font-semibold focus:outline-none focus:ring-1 focus:ring-green-500"
                       />
                     </div>
+
+                    {/* Unit price — editable to override */}
                     <div className="col-span-2">
                       <input
                         type="number"
                         min="0"
                         step="0.01"
                         value={item.unitPrice}
-                        onChange={e => updateLineItem(item.id, 'unitPrice', parseFloat(e.target.value) || 0)}
-                        className="w-full border rounded px-2 py-1.5 text-sm"
+                        onChange={(e) =>
+                          updateLineItem(item.id, 'unitPrice', parseFloat(e.target.value) || 0)
+                        }
+                        className="w-full border rounded px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-1 focus:ring-green-500"
                       />
                     </div>
+
+                    {/* GST checkbox */}
                     <div className="col-span-1 flex justify-center">
                       <input
                         type="checkbox"
                         checked={item.gstApplicable}
-                        onChange={e => updateLineItem(item.id, 'gstApplicable', e.target.checked)}
-                        className="w-4 h-4"
+                        onChange={(e) =>
+                          updateLineItem(item.id, 'gstApplicable', e.target.checked)
+                        }
+                        className="w-4 h-4 accent-green-600"
                       />
                     </div>
-                    <div className="col-span-1 text-right text-sm font-mono">
-                      {fmt(item.quantity * item.unitPrice * (item.gstApplicable ? 1.1 : 1))}
+
+                    {/* Line total — subtotal only (ex GST) */}
+                    <div className="col-span-1 text-right text-sm font-mono font-semibold">
+                      {fmt(item.quantity * item.unitPrice)}
                     </div>
+
+                    {/* Remove */}
                     <div className="col-span-1 flex justify-center">
                       <button
                         type="button"
                         onClick={() => removeLineItem(item.id)}
-                        className="text-gray-400 hover:text-red-500"
+                        className="text-gray-400 hover:text-red-500 transition-colors"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -552,13 +539,15 @@ export default function AdminCreateOrderPage() {
                 {/* Totals */}
                 <div className="border-t pt-3 mt-2 space-y-1 text-right">
                   <div className="text-sm text-gray-600">
-                    Subtotal: <span className="font-mono font-medium ml-2">{fmt(subtotal)}</span>
+                    Subtotal (ex GST):{' '}
+                    <span className="font-mono font-medium ml-2">{fmt(subtotal)}</span>
                   </div>
                   <div className="text-sm text-gray-600">
-                    GST (10%): <span className="font-mono font-medium ml-2">{fmt(gstTotal)}</span>
+                    GST (10%):{' '}
+                    <span className="font-mono font-medium ml-2">{fmt(gstTotal)}</span>
                   </div>
-                  <div className="text-xl font-bold" style={{ color: '#006A4E' }}>
-                    Total: {fmt(grandTotal)}
+                  <div className="text-xl font-bold mt-1" style={{ color: '#006A4E' }}>
+                    Total (inc GST): {fmt(grandTotal)}
                   </div>
                 </div>
               </div>
@@ -569,15 +558,15 @@ export default function AdminCreateOrderPage() {
           <div className="flex gap-3 pb-8">
             <button
               type="submit"
-              disabled={loading || !lineItems.length || !form.customerId}
-              className="flex-1 py-3 rounded-md text-white font-semibold hover:opacity-90 disabled:opacity-50"
+              disabled={loading || !lineItems.length || !form.customerId || !form.deliveryDate}
+              className="flex-1 py-3 rounded-md text-white font-semibold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
               style={{ backgroundColor: '#006A4E' }}
             >
               {loading ? 'Creating Order...' : 'Create Order'}
             </button>
             <a
               href="/admin"
-              className="px-6 py-3 rounded-md border border-gray-300 hover:bg-gray-50 text-sm font-medium text-center"
+              className="px-6 py-3 rounded-md border border-gray-300 hover:bg-gray-50 text-sm font-medium text-center transition-colors"
             >
               Cancel
             </a>
