@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import AdminOrderEditView from './admin-order-edit-view'
@@ -15,42 +17,39 @@ export default async function AdminEditOrderPage({
 
   const supabase = await createClient()
 
-  // ✅ FIX: Use product_number not code
- const { data: order, error } = await supabase
-  .from('orders')
-  .select(`
-    *,
-    order_items (
-      id,
-      product_id,
-      quantity,
-      unit_price,
-      subtotal,
-      product_name,
-      gst_applicable,
-      products:product_id (
+  const { data: order, error } = await supabase
+    .from('orders')
+    .select(`
+      *,
+      order_items (
         id,
-        name,
-        code,
-        price,
+        product_id,
+        quantity,
         unit_price,
-        gst_applicable
+        subtotal,
+        product_name,
+        gst_applicable,
+        products:product_id (
+          id,
+          name,
+          code,
+          price,
+          gst_applicable
+        )
       )
-    )
-  `)
-  .eq('id', id)
-  .single()
+    `)
+    .eq('id', id)
+    .single()
 
   if (error || !order) {
     redirect('/admin?error=order-not-found')
   }
 
-  // ✅ Fetch all available products with correct column
   const { data: products } = await supabase
-  .from('products')
-  .select('id, name, code, price, unit_price, gst_applicable, is_available')
-  .eq('is_available', true)
-  .order('code')   // ← order by code not product_number
+    .from('products')
+    .select('id, name, code, price, gst_applicable, is_available')
+    .eq('is_available', true)
+    .order('code')
 
   return <AdminOrderEditView order={order} products={products || []} />
 }
