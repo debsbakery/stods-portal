@@ -24,7 +24,7 @@ export default function BatchPackingSlipGenerator({ availableDates }: Props) {
     }
   }
 
- const handleGenerate = async () => {
+const handleGenerate = async () => {
   if (!activeDate) {
     alert('Please select a date')
     return
@@ -39,26 +39,23 @@ export default function BatchPackingSlipGenerator({ availableDates }: Props) {
       body: JSON.stringify({ date: activeDate }),
     })
 
-    console.log('Status:', response.status)
-    console.log('Content-Type:', response.headers.get('content-type'))
-
     if (!response.ok) {
       const text = await response.text()
-      console.log('Error response:', text)
       alert(`Error ${response.status}: ${text}`)
       return
     }
 
     const blob = await response.blob()
-    console.log('Blob size:', blob.size, 'type:', blob.type)
+    const url  = window.URL.createObjectURL(blob)
 
-    if (blob.size === 0) {
-      alert('PDF is empty — check Vercel logs')
-      return
-    }
-
-    const url = window.URL.createObjectURL(blob)
-    window.open(url, '_blank')
+    // Open in new tab — bypasses popup blocker
+    const a = document.createElement('a')
+    a.href = url
+    a.target = '_blank'
+    a.rel = 'noopener'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
 
   } catch (error: any) {
     console.error('Error:', error)
@@ -67,7 +64,6 @@ export default function BatchPackingSlipGenerator({ availableDates }: Props) {
     setIsGenerating(false)
   }
 }
-
   return (
     <div className="bg-white rounded-lg shadow-md p-6 space-y-6">
       <h2 className="text-xl font-semibold">Select Delivery Date</h2>
