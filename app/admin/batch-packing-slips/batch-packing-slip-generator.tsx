@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Download, Loader2, Calendar } from 'lucide-react'
+import { Printer, Loader2, Calendar } from 'lucide-react'
 
 interface Props {
   availableDates: string[]
@@ -9,10 +9,20 @@ interface Props {
 
 export default function BatchPackingSlipGenerator({ availableDates }: Props) {
   const [selectedDate, setSelectedDate] = useState<string>('')
-  const [customDate, setCustomDate] = useState<string>('')
+  const [customDate,   setCustomDate]   = useState<string>('')
   const [isGenerating, setIsGenerating] = useState(false)
 
   const activeDate = selectedDate || customDate
+
+  const formatDate = (dateStr: string) => {
+    try {
+      return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-AU', {
+        weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric'
+      })
+    } catch {
+      return dateStr
+    }
+  }
 
   const handleGenerate = async () => {
     if (!activeDate) {
@@ -30,35 +40,21 @@ export default function BatchPackingSlipGenerator({ availableDates }: Props) {
       })
 
       if (!response.ok) {
-        throw new Error('Failed to generate packing slips')
+        const err = await response.json()
+        throw new Error(err.error || 'Failed to generate packing slips')
       }
 
       const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `packing-slips-${activeDate}.zip`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      window.URL.revokeObjectURL(url)
+      const url  = window.URL.createObjectURL(blob)
 
-    } catch (error) {
+      // Open PDF in new tab — use Ctrl+P to print
+      window.open(url, '_blank')
+
+    } catch (error: any) {
       console.error('Error:', error)
-      alert('Failed to generate packing slips')
+      alert(`Failed: ${error.message}`)
     } finally {
       setIsGenerating(false)
-    }
-  }
-
-  const formatDate = (dateStr: string) => {
-    try {
-      return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-AU', {
-        weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric'
-      })
-    } catch {
-      return dateStr
     }
   }
 
@@ -117,31 +113,37 @@ export default function BatchPackingSlipGenerator({ availableDates }: Props) {
           </>
         ) : (
           <>
-            <Download className="h-4 w-4" />
-            Generate Packing Slips
+            <Printer className="h-4 w-4" />
+            Generate &amp; Open Packing Slips
           </>
         )}
       </button>
 
-      <div className="border-t pt-4">
-        <h3 className="text-sm font-medium text-gray-700 mb-3">Quick Select</h3>
-        <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
-          {availableDates.slice(0, 10).map((date) => (
-            <button
-              key={date}
-              onClick={() => { setSelectedDate(date); setCustomDate('') }}
-              className={`p-3 text-sm rounded-lg border-2 transition-all ${
-                activeDate === date
-                  ? 'border-green-600 bg-green-50 text-green-800 font-semibold'
-                  : 'border-gray-200 hover:border-green-400 hover:bg-gray-50'
-              }`}
-            >
-              <Calendar className="h-4 w-4 mx-auto mb-1" />
-              {formatDate(date)}
-            </button>
-          ))}
+      <p className="text-xs text-gray-400 text-center">
+        PDF will open in a new tab — press Ctrl+P to print
+      </p>
+
+      {availableDates.length > 0 && (
+        <div className="border-t pt-4">
+          <h3 className="text-sm font-medium text-gray-700 mb-3">Quick Select</h3>
+          <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
+            {availableDates.slice(0, 10).map((date) => (
+              <button
+                key={date}
+                onClick={() => { setSelectedDate(date); setCustomDate('') }}
+                className={`p-3 text-sm rounded-lg border-2 transition-all ${
+                  activeDate === date
+                    ? 'border-green-600 bg-green-50 text-green-800 font-semibold'
+                    : 'border-gray-200 hover:border-green-400 hover:bg-gray-50'
+                }`}
+              >
+                <Calendar className="h-4 w-4 mx-auto mb-1" />
+                {formatDate(date)}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }
