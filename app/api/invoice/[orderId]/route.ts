@@ -1,6 +1,8 @@
+// app/api/invoice/[orderId]/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { generateInvoicePDF } from '@/lib/invoice-pdf'
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ orderId: string }> }
@@ -15,41 +17,41 @@ export async function GET(
     const { searchParams } = new URL(request.url)
     const download = searchParams.get('download') === 'true'
 
-  const { data: order, error: orderError } = await supabase
-  .from('orders')
-  .select(`
-    *,
-    customers (
-      id,
-      business_name,
-      contact_name,
-      email,
-      phone,
-      address,
-      abn,
-      payment_terms
-    ),
-    order_items (
-      id,
-      quantity,
-      unit_price,
-      subtotal,
-      gst_applicable,
-      product_name,
-      products (
-        id,
-        code,
-        name,
-        description
-      )
-    ),
-    invoice_numbers (
-      invoice_number,
-      created_at
-    )
-  `)
-  .eq('id', orderId)
-  .single()
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .select(`
+        *,
+        customers (
+          id,
+          business_name,
+          contact_name,
+          email,
+          phone,
+          address,
+          abn,
+          payment_terms
+        ),
+        order_items (
+          id,
+          quantity,
+          unit_price,
+          subtotal,
+          gst_applicable,
+          product_name,
+          products (
+            id,
+            code,
+            name,
+            description
+          )
+        ),
+        invoice_numbers (
+          invoice_number,
+          created_at
+        )
+      `)
+      .eq('id', orderId)
+      .single()
 
     if (orderError) throw orderError
     if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
@@ -57,7 +59,7 @@ export async function GET(
     const customer = order.customers as any
     const rawItems = (order.order_items || []) as any[]
 
-    // Sort by product code numerically — 900 first, then 1001, 1002 etc
+    // ── Sort by product code ──────────────────────────────────────────────
     const sortedItems = [...rawItems].sort((a, b) => {
       const codeA = parseInt(
         a.products?.code?.toString() ||
@@ -72,6 +74,7 @@ export async function GET(
       return codeA - codeB
     })
 
+    // ── Build order object ────────────────────────────────────────────────
     const orderWithItems = {
       id:                     order.id,
       invoice_number:         order.invoice_number,
@@ -90,15 +93,11 @@ export async function GET(
       total_amount:           order.total_amount,
       payment_terms:          customer?.payment_terms || 30,
       order_items: sortedItems.map((item: any) => {
-        // Code: use products.code (string) first, then product_code (number)
         const displayCode =
           item.products?.code?.toString() ||
           item.products?.product_code?.toString() ||
           null
 
-        // Name: use the stored product_name from order_items
-        // For code 900 this is the custom description the admin typed
-        // For regular items this is the product name saved at order time
         const displayName =
           item.product_name ||
           item.products?.name ||
@@ -109,15 +108,16 @@ export async function GET(
           product_id:          item.products?.id,
           product_code:        displayCode,
           product_name:        displayName,
-          product_description: item.products?.description,
+          product_description: item.products?.description ?? null,
           quantity:            item.quantity,
           unit_price:          item.unit_price,
           subtotal:            item.subtotal,
           gst_applicable:      item.gst_applicable !== false,
         }
-      })
+      }),
     }
 
+    // ── Bakery config ─────────────────────────────────────────────────────
     const bakeryInfo = {
       name:        process.env.BAKERY_NAME         || "Deb's Bakery",
       email:       process.env.BAKERY_EMAIL        || 'debs_bakery@outlook.com',
@@ -129,17 +129,26 @@ export async function GET(
       bankAccount: process.env.BAKERY_BANK_ACCOUNT || 'Account: XXXXXXXXXX',
     }
 
-const pdf = await generateInvoicePDF({ order: orderWithItems as any, bakeryInfo })
-    const pdfBuffer = Buffer.from(pdf.output('arraybuffer'))
+    // ── Resolve invoice number ────────────────────────────────────────────
+    const invRecord  = (order.invoice_numbers as any[])?.[0]
+    const invoiceNum = invRecord?.invoice_number
+      ? String(invRecord.invoice_number).padStart(6, '0')
+      : order.invoice_number
+        ? String(order.invoice_number).padStart(6, '0')
+        : `TEMP-${order.id.slice(0, 8).toUpperCase()}`
 
-   // Replace the existing invoiceNum line with this:
-const invRecord = (order.invoice_numbers as any[])?.[0]
-const invoiceNum = invRecord?.invoice_number
-  ? String(invRecord.invoice_number).padStart(6, '0')
-  : order.invoice_number
-    ? String(order.invoice_number).padStart(6, '0')
-    : `TEMP-${order.id.slice(0, 8).toUpperCase()}`
-    const filename = `invoice-${invoiceNum}.pdf`
+    const invoiceDate = invRecord?.created_at ?? order.created_at
+
+    // ── Generate PDF ──────────────────────────────────────────────────────
+    const pdf = generateInvoicePDF({
+      order:         orderWithItems as any,
+      invoiceNumber: invoiceNum,
+      invoiceDate:   invoiceDate,
+      bakery:        bakeryInfo,
+    })
+
+    const pdfBuffer = Buffer.from(pdf.output('arraybuffer'))
+    const filename  = `invoice-${invoiceNum}.pdf`
 
     return new NextResponse(pdfBuffer, {
       headers: {
