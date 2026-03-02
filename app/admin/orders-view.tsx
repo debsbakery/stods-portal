@@ -53,7 +53,11 @@ function getBrisbaneTomorrow(): string {
   brisbane.setUTCDate(brisbane.getUTCDate() + 1)
   return brisbane.toISOString().split('T')[0]
 }
-
+function getInitialWeekOffset(): number {
+  const today    = getBrisbaneToday()
+  const todayDay = new Date(today + 'T12:00:00Z').getUTCDay()
+  return todayDay === 0 ? 1 : 0  // Sunday = jump to next week
+}
 export default function OrdersView() {
   const supabase = createClient()
   const [orders, setOrders]         = useState<Order[]>([])
@@ -62,8 +66,7 @@ export default function OrdersView() {
   })
   const [loading, setLoading]       = useState(true)
   const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set())
-  const [weekOffset, setWeekOffset] = useState(0)
-
+const [weekOffset, setWeekOffset] = useState(getInitialWeekOffset)
   useEffect(() => {
     loadOrders()
     loadStats()
@@ -148,10 +151,10 @@ export default function OrdersView() {
 
   // ✅ Auto-expand using Brisbane today + tomorrow
   useEffect(() => {
-    const today    = getBrisbaneToday()
-    const tomorrow = getBrisbaneTomorrow()
-    setExpandedDays(new Set([today, tomorrow]))
-  }, [orders])
+  const today    = getBrisbaneToday()
+  const tomorrow = getBrisbaneTomorrow()
+  setExpandedDays(new Set([today, tomorrow]))
+}, [orders])
 
   function toggleDay(date: string) {
     setExpandedDays(prev => {
