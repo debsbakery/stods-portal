@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { ShoppingCart } from 'lucide-react';
+import { ShoppingCart, Trash2 } from 'lucide-react';
 import type { Product } from '@/lib/types';
 
 export default function ProductsView() {
@@ -46,7 +46,18 @@ export default function ProductsView() {
         return;
       }
     }
+async function deleteProduct(product: Product) {
+  if (!confirm(`Delete "${product.name}"?\n\nThis cannot be undone.`)) return
 
+  const res = await fetch(`/api/products/${product.id}`, { method: 'DELETE' })
+  const result = await res.json()
+
+  if (result.success) {
+    loadProducts()
+  } else {
+    alert('Failed to delete product')
+  }
+}
     const { error } = await supabase
       .from('products')
       .update({
@@ -183,6 +194,25 @@ export default function ProductsView() {
                         Cancel
                       </button>
                     </td>
+                    {/* ACTIONS */}
+<td className="px-6 py-4 whitespace-nowrap text-right space-x-3">
+  <button
+    onClick={() => {
+      setIsEditing(product.id);
+      setEditForm(product);
+    }}
+    className="text-[#006A4E] hover:text-[#004d38] font-medium"
+  >
+    Edit
+  </button>
+  <button
+    onClick={() => deleteProduct(product)}
+    className="text-red-500 hover:text-red-700"
+    title="Delete product"
+  >
+    <Trash2 className="h-4 w-4 inline" />
+  </button>
+</td>
                   </>
                 ) : (
                   <>
