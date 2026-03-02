@@ -1,3 +1,4 @@
+// components/admin/BatchInvoiceGenerator.tsx
 'use client'
 
 import { useState } from 'react'
@@ -7,12 +8,17 @@ interface BatchInvoiceGeneratorProps {
   availableDates: string[]
 }
 
+function getBrisbaneToday(): string {
+  const brisbane = new Date(Date.now() + 10 * 60 * 60 * 1000)
+  return brisbane.toISOString().split('T')[0]
+}
+
 export default function BatchInvoiceGenerator({ availableDates }: BatchInvoiceGeneratorProps) {
-  const [selectedDate,  setSelectedDate]  = useState<string>('')
-  const [customDate,    setCustomDate]    = useState<string>('')
-  const [sendEmails,    setSendEmails]    = useState(false)
-  const [isGenerating,  setIsGenerating]  = useState(false)
-  const [result,        setResult]        = useState<any>(null)
+  const [selectedDate, setSelectedDate] = useState<string>('')
+  const [customDate,   setCustomDate]   = useState<string>(getBrisbaneToday())
+  const [sendEmails,   setSendEmails]   = useState(false)
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [result,       setResult]       = useState<any>(null)
 
   const activeDate = selectedDate || customDate
 
@@ -31,7 +37,7 @@ export default function BatchInvoiceGenerator({ availableDates }: BatchInvoiceGe
 
     try {
       const response = await fetch('/api/admin/batch-invoice', {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           delivery_date: activeDate,
@@ -58,22 +64,19 @@ export default function BatchInvoiceGenerator({ availableDates }: BatchInvoiceGe
   const formatAusDate = (dateStr: string) => {
     try {
       return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-AU', {
-        weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric'
+        weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric',
       })
     } catch {
       return dateStr
     }
   }
 
-  // Get today's date string
-  const today = new Date().toISOString().split('T')[0]
-
   return (
     <div className="bg-white rounded-lg shadow-md p-6 space-y-6">
 
       <h2 className="text-xl font-semibold">Select Delivery Date</h2>
 
-      {/* Date selector row */}
+      {/* Dropdown — existing order dates */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
           Choose from existing order dates
@@ -92,7 +95,7 @@ export default function BatchInvoiceGenerator({ availableDates }: BatchInvoiceGe
         </select>
       </div>
 
-      {/* Manual date entry */}
+      {/* Manual date entry — defaults to Brisbane today */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
           Or enter any date manually
@@ -121,13 +124,15 @@ export default function BatchInvoiceGenerator({ availableDates }: BatchInvoiceGe
           />
         </button>
         <div className="flex items-center gap-2">
-          {sendEmails ? (
-            <Mail className="h-4 w-4 text-green-600" />
-          ) : (
-            <MailX className="h-4 w-4 text-gray-400" />
-          )}
+          {sendEmails
+            ? <Mail  className="h-4 w-4 text-green-600" />
+            : <MailX className="h-4 w-4 text-gray-400" />
+          }
           <span className="text-sm font-medium">
-            {sendEmails ? 'Will send invoice emails to customers' : 'Invoice only — no emails'}
+            {sendEmails
+              ? 'Will send invoice emails to customers'
+              : 'Invoice only — no emails'
+            }
           </span>
         </div>
       </div>
@@ -137,7 +142,8 @@ export default function BatchInvoiceGenerator({ availableDates }: BatchInvoiceGe
         <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm">
           <span className="font-medium text-green-800">
             Selected: {formatAusDate(activeDate)}
-          </span>{sendEmails && (
+          </span>
+          {sendEmails && (
             <span className="ml-2 text-green-600">+ sending emails</span>
           )}
         </div>
@@ -147,7 +153,7 @@ export default function BatchInvoiceGenerator({ availableDates }: BatchInvoiceGe
       <button
         onClick={handleGenerateBatch}
         disabled={!activeDate || isGenerating}
-        className="w-full py-3 rounded-lg text-white font-semibold transition-opacity   disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        className="w-full py-3 rounded-lg text-white font-semibold transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         style={{ backgroundColor: '#006A4E' }}
       >
         {isGenerating ? (
@@ -177,7 +183,8 @@ export default function BatchInvoiceGenerator({ availableDates }: BatchInvoiceGe
               <p>Total amount: ${Number(result.total_amount ?? 0).toFixed(2)}</p>
               {result.emails_sent !== undefined && (
                 <p>Emails sent: {result.emails_sent}</p>
-              )}{result.email_errors && result.email_errors.length > 0 && (
+              )}
+              {result.email_errors && result.email_errors.length > 0 && (
                 <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-yellow-800">
                   <p className="font-medium">Email errors:</p>
                   {result.email_errors.map((err: string, i: number) => (
@@ -217,6 +224,7 @@ export default function BatchInvoiceGenerator({ availableDates }: BatchInvoiceGe
           </div>
         </div>
       )}
+
     </div>
   )
 }
