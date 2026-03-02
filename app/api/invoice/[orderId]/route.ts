@@ -140,10 +140,8 @@ export async function GET(
     const invoiceDate = invRecord?.created_at ?? order.created_at
 
     // ── Generate PDF ──────────────────────────────────────────────────────
-    const pdf = generateInvoicePDF({
-      order:         orderWithItems as any,
-      invoiceNumber: invoiceNum,
-      invoiceDate:   invoiceDate,
+const pdf = await generateInvoicePDF({
+    order:         orderWithItems as any,
       bakery:        bakeryInfo,
     })
 
