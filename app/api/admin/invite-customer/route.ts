@@ -1,0 +1,54 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { createServiceClient } from '@/lib/supabase/server'
+
+export async function POST(req: NextRequest) {
+  const { customerId } = await req.json()
+
+  if (!customerId) {
+    return NextResponse.json({ error: 'Missing customerId' }, { status: 400 })
+  }
+
+  const supabase = await createServiceClient()
+
+  // Fetch customer
+  const { data: customer, error: fetchError } = await supabase
+    .from('customers')
+    .select('id, name, email, portal_access')
+    .eq('id', customerId)
+    .single()
+
+  if (fetchError || !customer) {
+    return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
+  }
+
+  if (!customer.email) {
+    return NextResponse.json({ error: 'Customer has no email address' }, { status: 400 })
+  }
+
+  // Send Supabase invite
+  const { error: inviteError } = await supabase.auth.admin.inviteUserByEmail(
+    customer.email,
+    {
+      data: {
+        customer_id: customer.id,
+        customer_name: customer.name,
+      },
+      redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/portal`,
+    }
+  )
+
+  if (inviteError) {
+    // "User already registered" is fine — they just need the link resent
+    if (!inviteError.message.includes('already been registered')) {
+      return NextResponse.json({ error: inviteError.message }, { status: 500 })
+    }
+  }
+
+  // Mark portal_access = true
+  await supabase
+    .from('customers')
+    .update({ portal_access: true })
+    .eq('id', customerId)
+
+  return NextResponse.json({ success: true, email: customer.email })
+}
