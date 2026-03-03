@@ -1,5 +1,4 @@
-﻿
-'use client'
+﻿'use client'
 
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -40,6 +39,7 @@ interface LineItem {
   creditPercent: number
   creditType: 'product_credit' | 'stale_return'
   isCustom: boolean
+  hasContract?: boolean
 }
 
 interface SelectOption {
@@ -158,7 +158,7 @@ function SearchableSelect({
               <input
                 ref={inputRef}
                 type="text"
-                                value={query}
+                value={query}
                 onChange={e => setQuery(e.target.value)}
                 placeholder="Type to search..."
                 className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded focus:outline-none focus:border-green-600"
@@ -216,6 +216,7 @@ export default function DirectInvoicePage() {
   const [loading,          setLoading]           = useState(false)
   const [error,            setError]             = useState<string | null>(null)
   const [selectedCustomer, setSelectedCustomer]  = useState<Customer | null>(null)
+  const [contractPricing,  setContractPricing]   = useState<Record<string, number>>({}) // ✅ NEW
   const [formData,         setFormData]          = useState({
     customerId:          '',
     deliveryDate:        new Date().toISOString().split('T')[0],
@@ -246,25 +247,52 @@ export default function DirectInvoicePage() {
     sublabel: `Balance: $${(c.balance || 0).toFixed(2)}`,
   }))
 
+  // ✅ Show contract price in dropdown if available
   const productOptions: SelectOption[] = products.map(p => {
-    const code  = p.code || p.product_number || p.product_code?.toString() || ''
-    const is900 = p.code === '900' || p.product_code === 900
+    const code       = p.code || p.product_number || p.product_code?.toString() || ''
+    const is900      = p.code === '900' || p.product_code === 900
+    const contract   = contractPricing[p.id]
+    const stdPrice   = p.unit_price || p.price || 0
+    const priceLabel = is900
+      ? 'Enter custom description + amount'
+      : contract !== undefined
+        ? `Contract: $${contract.toFixed(2)} | Std: $${stdPrice.toFixed(2)} | ${p.gst_applicable ? 'GST' : 'No GST'}`
+        : `$${stdPrice.toFixed(2)} | ${p.gst_applicable ? 'GST' : 'No GST'}`
     return {
       value:    p.id,
       label:    is900 ? 'Manual Adjustment' : p.name,
       badge:    String(code),
-      sublabel: is900
-        ? 'Enter custom description + amount'
-        : `$${(p.unit_price || p.price || 0).toFixed(2)} | ${p.gst_applicable ? 'GST' : 'No GST'}`,
+      sublabel: priceLabel,
     }
   })
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
-  function handleCustomerChange(id: string) {
+  // ✅ Load contract pricing when customer changes
+  async function handleCustomerChange(id: string) {
     const c = customers.find(c => c.id === id) || null
     setSelectedCustomer(c)
     setFormData(f => ({ ...f, customerId: id }))
+
+    if (id) {
+      const { data } = await supabase
+        .from('customer_pricing')
+        .select('product_id, contract_price')
+        .eq('customer_id', id)
+
+      if (data) {
+        const map: Record<string, number> = {}
+        data.forEach((row: any) => { map[row.product_id] = row.contract_price })
+        setContractPricing(map)
+      } else {
+        setContractPricing({})
+      }
+    } else {
+      setContractPricing({})
+    }
+
+    // Clear lines — prices must reset for new customer
+    setLineItems([])
   }
 
   function addLineItem(isCredit = false) {
@@ -280,6 +308,7 @@ export default function DirectInvoicePage() {
       creditPercent: 100,
       creditType:    'product_credit',
       isCustom:      false,
+      hasContract:   false,
     }])
   }
 
@@ -289,23 +318,30 @@ export default function DirectInvoicePage() {
       if (field === 'productId') {
         if (!value) return {
           ...item,
-          productId:   '',
-          productName: '',
-          productCode: '',
-          unitPrice:   0,
-          isCustom:    false,
+          productId:    '',
+          productName:  '',
+          productCode:  '',
+          unitPrice:    0,
+          isCustom:     false,
+          hasContract:  false,
         }
         const p = products.find(p => p.id === value)
         if (!p) return item
-        const is900 = p.code === '900' || p.product_code === 900
+        const is900         = p.code === '900' || p.product_code === 900
+        const stdPrice      = p.unit_price || p.price || 0
+        const contractPrice = contractPricing[p.id]
+        const resolvedPrice = is900 ? 0 : (contractPrice ?? stdPrice)
+        const hasContract   = !is900 && contractPrice !== undefined
+
         return {
           ...item,
           productId:     p.id,
           productName:   is900 ? '' : p.name,
           productCode:   p.code || p.product_number || p.product_code?.toString() || '',
-          unitPrice:     is900 ? 0 : (p.unit_price || p.price || 0),
+          unitPrice:     resolvedPrice,
           gstApplicable: is900 ? false : (p.gst_applicable ?? true),
           isCustom:      is900,
+          hasContract,
         }
       }
       return { ...item, [field]: value }
@@ -348,6 +384,7 @@ export default function DirectInvoicePage() {
     })
     setLineItems([])
     setSelectedCustomer(null)
+    setContractPricing({})
     setError(null)
   }
 
@@ -395,17 +432,25 @@ export default function DirectInvoicePage() {
 
       if (orderError) throw new Error(`Order creation failed: ${orderError.message}`)
 
+      // ✅ Build product_name with credit % label for credit lines
       const { error: itemsError } = await supabase
         .from('order_items')
-        .insert(sortedItems.map(item => ({
-          order_id:       newOrder.id,
-          product_id:     item.productId,
-          product_name:   item.productName,
-          quantity:       item.isCredit ? -item.quantity : item.quantity,
-          unit_price:     item.unitPrice,
-          subtotal:       lineSubtotal(item),
-          gst_applicable: item.gstApplicable,
-        })))
+        .insert(sortedItems.map(item => {
+          const creditLabel = item.isCredit && item.creditPercent < 100
+            ? ` (${item.creditPercent}% Credit)`
+            : item.isCredit
+              ? ' (100% Credit)'
+              : ''
+          return {
+            order_id:       newOrder.id,
+            product_id:     item.productId,
+            product_name:   item.productName + creditLabel,
+            quantity:       item.isCredit ? -item.quantity : item.quantity,
+            unit_price:     item.unitPrice,
+            subtotal:       lineSubtotal(item),
+            gst_applicable: item.gstApplicable,
+          }
+        }))
 
       if (itemsError) {
         await supabase.from('orders').delete().eq('id', newOrder.id)
@@ -488,13 +533,14 @@ export default function DirectInvoicePage() {
           console.error('Credit memo exception:', memoErr)
         }
       }
+
       // ✅ Assign invoice number immediately
       const invRes = await fetch('/api/admin/assign-invoice-number', {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId: newOrder.id }),
+        body:    JSON.stringify({ orderId: newOrder.id }),
       })
-      const invData = await invRes.json()
+      const invData       = await invRes.json()
       const invoiceNumber = invRes.ok
         ? String(invData.invoiceNumber).padStart(6, '0')
         : 'PENDING'
@@ -502,7 +548,7 @@ export default function DirectInvoicePage() {
       alert(
         `Invoice Created!\n\nInvoice #: ${invoiceNumber}\nSubtotal: ${fmt(subtotal)}\nGST: ${fmt(gstTotal)}\nTotal: ${fmt(grandTotal)}`
       )
-     
+
       resetForm()
 
     } catch (err: any) {
@@ -563,6 +609,11 @@ export default function DirectInvoicePage() {
                   </span>
                   {' | '}
                   Terms: {selectedCustomer.payment_terms || 30} days
+                  {Object.keys(contractPricing).length > 0 && (
+                    <span className="ml-2 text-blue-600 font-semibold text-xs">
+                      {Object.keys(contractPricing).length} contract price{Object.keys(contractPricing).length !== 1 ? 's' : ''} active
+                    </span>
+                  )}
                 </p>
               )}
             </div>
@@ -638,7 +689,11 @@ export default function DirectInvoicePage() {
           </div>
 
           {lineItems.length === 0 ? (
-            <p className="text-gray-400 text-center py-8">Add charge or credit lines above</p>
+            <p className="text-gray-400 text-center py-8">
+              {formData.customerId
+                ? 'Add charge or credit lines above'
+                : 'Select a customer first, then add line items'}
+            </p>
           ) : (
             <div className="space-y-2">
 
@@ -681,7 +736,7 @@ export default function DirectInvoicePage() {
                       onChange={val => updateLineItem(item.id, 'productId', val)}
                       placeholder="Select product..."
                     />
-                    {/* ✅ Custom description + GST toggle for code 900 */}
+                    {/* ✅ GST toggle for code 900 */}
                     {item.isCustom && (
                       <div className="space-y-1 mt-1">
                         <input
@@ -733,6 +788,10 @@ export default function DirectInvoicePage() {
                       onChange={e => updateLineItem(item.id, 'unitPrice', parseFloat(e.target.value) || 0)}
                       className="w-full border rounded px-2 py-1.5 text-sm"
                     />
+                    {/* ✅ Contract price indicator */}
+                    {item.hasContract && (
+                      <span className="text-xs text-blue-600 font-semibold">Contract</span>
+                    )}
                   </div>
 
                   {/* Credit percent */}
@@ -774,6 +833,12 @@ export default function DirectInvoicePage() {
                     {item.isCredit
                       ? `(${fmt(Math.abs(lineTotal(item)))})`
                       : fmt(lineTotal(item))}
+                    {/* ✅ Show credit % on the line total */}
+                    {item.isCredit && (
+                      <div className="text-xs text-orange-500 font-normal">
+                        {item.creditPercent}% CR
+                      </div>
+                    )}
                   </div>
 
                   {/* Remove */}
@@ -798,41 +863,4 @@ export default function DirectInvoicePage() {
                 <div className="text-sm text-gray-600">
                   GST (10%): <span className="font-medium ml-2">{fmt(gstTotal)}</span>
                 </div>
-                <div className="text-xl font-bold" style={{ color: grandTotal < 0 ? '#CE1126' : '#006A4E' }}>
-                  Total: {grandTotal < 0 ? `(${fmt(Math.abs(grandTotal))})` : fmt(grandTotal)}
-                </div>
-                {hasCredits && (
-                  <p className="text-xs text-orange-600">
-                    Includes credit lines - a credit memo will also be recorded
-                  </p>
-                )}
-              </div>
-
-            </div>
-          )}
-        </div>
-
-        {/* Submit */}
-        <div className="flex justify-end gap-3 pb-8">
-          <button
-            type="button"
-            onClick={resetForm}
-            className="px-6 py-3 border rounded-md hover:bg-gray-50"
-          >
-            Clear
-          </button>
-          <button
-            type="submit"
-            disabled={loading || !lineItems.length}
-            className="flex items-center gap-2 px-6 py-3 rounded text-white font-semibold hover:opacity-90 disabled:opacity-50"
-            style={{ backgroundColor: '#CE1126' }}
-          >
-            <DollarSign className="h-5 w-5" />
-            {loading ? 'Creating...' : 'Create Invoice'}
-          </button>
-        </div>
-
-      </form>
-    </div>
-  )
-}
+                <div className="text-xl font-bold"
