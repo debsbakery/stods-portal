@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
 
     const { date, orderIds, codeMin = 0, codeMax = 99999 } = await request.json()
 
-    let query = supabase
+      let query = supabase
       .from('orders')
       .select(`
         *,
@@ -31,16 +31,19 @@ export async function POST(request: NextRequest) {
       `)
 
     if (date) {
-      query = query.eq('delivery_date', date)
+      query = query
+        .eq('delivery_date', date)
+        .neq('status', 'cancelled')   // ✅ ADD THIS LINE
     } else if (orderIds && orderIds.length > 0) {
-      query = query.in('id', orderIds)
+      query = query
+        .in('id', orderIds)
+        .neq('status', 'cancelled')   // ✅ ADD THIS LINE
     } else {
       return NextResponse.json(
         { error: 'Either date or orderIds required' },
         { status: 400 }
       )
     }
-
     const { data: orders, error } = await query
     if (error) throw error
 
