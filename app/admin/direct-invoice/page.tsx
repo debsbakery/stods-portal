@@ -856,16 +856,7 @@ export default function DirectInvoicePage() {
               ))}
 
               {/* Totals */}
-              <div className="border-t-2 pt-4 mt-2 space-y-1 text-right">
-                <div className="text-sm text-gray-600">
-                  Subtotal: <span className="font-medium ml-2">{fmt(subtotal)}</span>
-                </div>
-                <div className="text-sm text-gray-600">
-                  GST (10%): <span className="font-medium ml-2">{fmt(gstTotal)}</span>
-                </div>
-                <div className="text-xl font-bold"
-                              {/* Totals */}
-              <div className="border-t-2 pt-4 mt-2 space-y-1 text-right">
+                           <div className="border-t-2 pt-4 mt-2 space-y-1 text-right">
                 <div className="text-sm text-gray-600">
                   Subtotal: <span className="font-medium ml-2">{fmt(subtotal)}</span>
                 </div>
