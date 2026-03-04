@@ -5,8 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 const CATEGORIES = [
   { label: 'All',               min: 0,    max: 99999 },
   { label: 'Cakes (1000-1999)', min: 1000, max: 1999  },
-  { label: 'Bread (2000-2750)', min: 2000, max: 2750  },
-  { label: 'Rolls (2751-3750)', min: 2751, max: 3750  },
+  { label: 'Bread (2000-2749)', min: 2000, max: 2749  },
+  { label: 'Rolls (2750-3750)', min: 2750, max: 3750  },
   { label: 'Pies (3751-4000)',  min: 3751, max: 4000  },
 ]
 
