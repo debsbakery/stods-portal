@@ -128,14 +128,19 @@ export default async function CustomerLedgerPage({
 
   // Build combined ledger — sort oldest first for running balance calc
   const ledgerEntriesAsc = [
-    ...invoices.map((inv: any) => ({
-      date:        inv.delivery_date,
-      type:        'invoice',
-      description: `Invoice - ${formatAusDate(inv.delivery_date)}${inv.invoice_number ? ` #${inv.invoice_number}` : ''}`,
-      debit:       parseFloat(inv.total_amount || '0'),
-      credit:      0,
-      balance:     0,
-    })),
+      ...invoices.map((inv: any) => {
+      const amount = parseFloat(inv.total_amount || '0')
+      // Negative total_amount = credit invoice (e.g. direct invoice with only credits)
+      const isNegative = amount < 0
+      return {
+        date:        inv.delivery_date,
+        type:        isNegative ? 'credit' : 'invoice',
+        description: `Invoice - ${formatAusDate(inv.delivery_date)}${inv.invoice_number ? ` #${inv.invoice_number}` : ''}`,
+        debit:       isNegative ? 0        : amount,
+        credit:      isNegative ? Math.abs(amount) : 0,
+        balance:     0,
+      }
+    }),
     ...payments.map((pay: any) => ({
       date:        pay.payment_date,
       type:        'payment',
@@ -164,7 +169,15 @@ export default async function CustomerLedgerPage({
   // Display newest first
   const ledgerEntries = [...ledgerEntriesAsc].reverse()
 
-  const totalInvoiced = invoices.reduce((s: number, inv: any) => s + parseFloat(inv.total_amount || '0'), 0)
+  const totalInvoiced = invoices.reduce((s: number, inv: any) => {
+    const amount = parseFloat(inv.total_amount || '0')
+    return s + (amount > 0 ? amount : 0)
+  }, 0)
+
+  const totalNegativeInvoices = invoices.reduce((s: number, inv: any) => {
+    const amount = parseFloat(inv.total_amount || '0')
+    return s + (amount < 0 ? Math.abs(amount) : 0)
+  }, 0)
   const totalPaid     = payments.reduce((s: number, pay: any) => s + parseFloat(pay.amount || '0'), 0)
   const totalCredits  = creditMemos.reduce((s: number, cm: any) => s + Math.abs(parseFloat(cm.total_amount || cm.amount || '0')), 0)
 
