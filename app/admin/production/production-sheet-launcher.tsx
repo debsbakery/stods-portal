@@ -87,13 +87,12 @@ export default function ProductionSheetLauncher({ inline = false }: { inline?: b
   }, [selectedDates, dayCount])
 
   // ── Actions ─────────────────────────────────────────────────────────────
+    // ── Actions ─────────────────────────────────────────────────────────────
   const buildUrl = (mode: 'view' | 'print') => {
-    const params = new URLSearchParams({
-      start: startDate,
-      end:   endDate,
-      mode,
-    })
-    return `/admin/production/sheet?${params.toString()}`
+    const dates = selectedDates.join(',')
+    const params = new URLSearchParams({ dates })
+    if (mode === 'print') params.set('autoprint', '1')
+    return `/admin/production/print?${params.toString()}`
   }
 
   const handleView = () => {
@@ -105,7 +104,6 @@ export default function ProductionSheetLauncher({ inline = false }: { inline?: b
     if (dayCount === 0) return
     window.open(buildUrl('print'), '_blank')
   }
-
   // ── Panel (shared between inline + dropdown) ────────────────────────────
   const panel = (
     <div
