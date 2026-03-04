@@ -1,4 +1,4 @@
-import { createAdminClient } from '@/lib/supabase/admin'
+import { createServiceClient } from '@/lib/supabase/service'
 import { NextResponse } from 'next/server'
 
 export async function POST(req: Request) {
@@ -23,7 +23,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid values' }, { status: 400 })
     }
 
-    const supabase = createAdminClient()
+    const supabase = createServiceClient()
     const today = new Date().toISOString().split('T')[0]
 
     const upserts = [
