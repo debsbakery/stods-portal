@@ -1,10 +1,10 @@
-export const dynamic = 'force-dynamic';
+﻿export const dynamic = 'force-dynamic';
 
 import { redirect } from "next/navigation";
 import { checkAdmin } from "@/lib/auth";
 import { ArrowLeft, Package } from "lucide-react";
-import ProductionForecastView from "./production-forecast-view";
-import ProductionSheetLauncher from "./production-sheet-launcher";   // ← ADD
+import ProductionSheetLauncher from "./production-sheet-launcher";
+import ProductionForecastToggle from "./production-forecast-toggle";
 
 export default async function ProductionDashboardPage() {
   const isAdmin = await checkAdmin();
@@ -25,19 +25,19 @@ export default async function ProductionDashboardPage() {
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-2">
               <Package className="h-8 w-8" style={{ color: "#006A4E" }} />
-              Production Forecast
+              Production
             </h1>
             <p className="text-gray-600">
-              Plan daily production based on confirmed orders and standing orders
+              Print production sheets for baking
             </p>
           </div>
-
-          {/* ── Replaces the old Link button ── */}
-          <ProductionSheetLauncher />
         </div>
       </div>
 
-      <ProductionForecastView />
+      <ProductionSheetLauncher inline />
+
+      <ProductionForecastToggle />
+
     </div>
   );
 }
