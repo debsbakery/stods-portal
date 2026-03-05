@@ -28,7 +28,8 @@ interface RecipeLine {
   ingredient_id: string | null
   quantity_grams: number | null
   sub_recipe_id: string | null
-  sub_qty_grams: number | nullingredients?: {
+  sub_qty_grams: number | null
+  ingredients?: {
     id: string
     name: string
     unit_cost: number
