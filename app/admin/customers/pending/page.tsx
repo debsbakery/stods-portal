@@ -1,9 +1,9 @@
 export const dynamic = 'force-dynamic'
 
-import { createServiceClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { checkAdmin } from '@/lib/auth'
 import { redirect } from 'next/navigation'
-import { ArrowLeft, Clock, CheckCircle, User, Shield } from 'lucide-react'
+import { ArrowLeft, Clock, CheckCircle, User, Shield, Mail } from 'lucide-react'
 import Link from 'next/link'
 import InviteCustomerButton from '@/components/admin/InviteCustomerButton'
 
@@ -11,16 +11,16 @@ export default async function PendingCustomersPage() {
   const isAdmin = await checkAdmin()
   if (!isAdmin) redirect('/')
 
-  const supabase = await createServiceClient()
+  const supabase = createAdminClient()
 
-  // Pending approval
+  // ── 1. Pending approval ───────────────────────────────────────────
   const { data: pending } = await supabase
     .from('customers')
     .select('*')
     .eq('status', 'pending')
     .order('created_at', { ascending: false })
 
-  // Active but no portal access yet
+  // ── 2. Active but portal_access = false (never invited) ──────────
   const { data: noPortal } = await supabase
     .from('customers')
     .select('*')
@@ -28,8 +28,46 @@ export default async function PendingCustomersPage() {
     .eq('portal_access', false)
     .order('business_name', { ascending: true })
 
-  const pendingCount  = pending?.length  ?? 0
-  const noPortalCount = noPortal?.length ?? 0
+  // ── 3. Active + portal_access = true — check who confirmed ───────
+  const { data: hasAccess } = await supabase
+    .from('customers')
+    .select('*')
+    .eq('status', 'active')
+    .eq('portal_access', true)
+    .order('business_name', { ascending: true })
+
+  // Get ALL auth users to check confirmed status
+  const { data: authData } = await supabase.auth.admin.listUsers()
+  const authUsers = authData?.users ?? []
+
+  // Build map: email (lowercase) -> { confirmed_at, last_sign_in_at }
+  const authMap = new Map<string, { confirmed_at: string | null; last_sign_in_at: string | null }>()
+  for (const u of authUsers) {
+    if (u.email) {
+      authMap.set(u.email.toLowerCase(), {
+        confirmed_at: u.confirmed_at ?? null,
+        last_sign_in_at: u.last_sign_in_at ?? null,
+      })
+    }
+  }
+
+  // Split hasAccess into: invited-but-not-confirmed vs confirmed
+  const notConfirmed: any[] = []
+  const confirmed:    any[] = []
+
+  for (const c of hasAccess ?? []) {
+    const auth = authMap.get(c.email?.toLowerCase() ?? '')
+    if (auth?.confirmed_at) {
+      confirmed.push({ ...c, last_sign_in_at: auth.last_sign_in_at })
+    } else {
+      notConfirmed.push(c)
+    }
+  }
+
+  const pendingCount      = pending?.length     ?? 0
+  const noPortalCount     = noPortal?.length    ?? 0
+  const notConfirmedCount = notConfirmed.length
+  const confirmedCount    = confirmed.length
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
@@ -41,65 +79,85 @@ export default async function PendingCustomersPage() {
         <ArrowLeft className="h-4 w-4" /> Back to Admin
       </Link>
 
-      {/* ── Section 1: Pending Approvals ───────────────────────────── */}
-      <div className="flex items-center gap-3 mb-4">
-        <Clock className="h-6 w-6 text-orange-500" />
-        <h1 className="text-2xl font-bold" style={{ color: '#006A4E' }}>
-          Pending Approvals
-        </h1>
-        {pendingCount > 0 && (
-          <span className="bg-orange-100 text-orange-700 text-sm font-semibold px-2.5 py-0.5 rounded-full">
-            {pendingCount} waiting
-          </span>
-        )}
+      {/* ── Summary Badges ─────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+        <SummaryBadge label="Pending Approval" count={pendingCount}      color="orange" />
+        <SummaryBadge label="Never Invited"    count={noPortalCount}     color="red"    />
+        <SummaryBadge label="Invited / Waiting" count={notConfirmedCount} color="blue"   />
+        <SummaryBadge label="Portal Active"    count={confirmedCount}    color="green"  />
       </div>
 
+      {/* ── Section 1: Pending Approvals ───────────────────────────── */}
+      <SectionHeader
+        icon={<Clock className="h-6 w-6 text-orange-500" />}
+        title="Pending Approvals"
+        count={pendingCount}
+        badgeColor="orange"
+      />
       {pendingCount === 0 ? (
-        <div className="bg-white rounded-lg border p-8 text-center mb-8">
-          <CheckCircle className="h-10 w-10 text-green-400 mx-auto mb-2" />
-          <p className="text-gray-500 font-medium">No pending applications</p>
-          <p className="text-gray-400 text-sm mt-1">All caught up!</p>
-        </div>
+        <EmptyState message="No pending applications" sub="All caught up!" />
       ) : (
         <div className="space-y-4 mb-8">
-          {pending!.map(customer => (
-            <CustomerCard
-              key={customer.id}
-              customer={customer}
-              showApprove
-            />
+          {pending!.map(c => (
+            <CustomerCard key={c.id} customer={c} showApprove />
           ))}
         </div>
       )}
 
-      {/* ── Section 2: No Portal Access ────────────────────────────── */}
-      <div className="flex items-center gap-3 mb-4 mt-8">
-        <Shield className="h-6 w-6 text-blue-500" />
-        <h2 className="text-2xl font-bold text-gray-800">
-          No Portal Access Yet
-        </h2>
-        {noPortalCount > 0 && (
-          <span className="bg-blue-100 text-blue-700 text-sm font-semibold px-2.5 py-0.5 rounded-full">
-            {noPortalCount} customers
-          </span>
-        )}
-      </div>
-      <p className="text-sm text-gray-500 mb-4">
-        Active customers who haven't been invited to the portal. Grant access during your visit.
-      </p>
-
+      {/* ── Section 2: Never Invited ───────────────────────────────── */}
+      <SectionHeader
+        icon={<Shield className="h-6 w-6 text-red-500" />}
+        title="Never Invited"
+        count={noPortalCount}
+        badgeColor="red"
+        subtitle="Active customers who have never been invited to the portal."
+      />
       {noPortalCount === 0 ? (
-        <div className="bg-white rounded-lg border p-8 text-center">
-          <CheckCircle className="h-10 w-10 text-green-400 mx-auto mb-2" />
-          <p className="text-gray-500 font-medium">All active customers have portal access</p>
+        <EmptyState message="All active customers have been invited" />
+      ) : (
+        <div className="space-y-3 mb-8">
+          {noPortal!.map(c => (
+            <CustomerCard key={c.id} customer={c} showApprove={false} />
+          ))}
         </div>
+      )}
+
+      {/* ── Section 3: Invited but Not Confirmed ───────────────────── */}
+      <SectionHeader
+        icon={<Mail className="h-6 w-6 text-blue-500" />}
+        title="Invited — Awaiting Confirmation"
+        count={notConfirmedCount}
+        badgeColor="blue"
+        subtitle="These customers received an invite but haven't clicked the link yet. Resend if needed."
+      />
+      {notConfirmedCount === 0 ? (
+        <EmptyState message="No outstanding invites" />
+      ) : (
+        <div className="space-y-3 mb-8">
+          {notConfirmed.map(c => (
+            <CustomerCard key={c.id} customer={c} showApprove={false} />
+          ))}
+        </div>
+      )}
+
+      {/* ── Section 4: Confirmed / Active ──────────────────────────── */}
+      <SectionHeader
+        icon={<CheckCircle className="h-6 w-6 text-green-500" />}
+        title="Portal Active"
+        count={confirmedCount}
+        badgeColor="green"
+        subtitle="These customers have confirmed their account and can log in."
+      />
+      {confirmedCount === 0 ? (
+        <EmptyState message="No confirmed portal users yet" />
       ) : (
         <div className="space-y-3">
-          {noPortal!.map(customer => (
+          {confirmed.map(c => (
             <CustomerCard
-              key={customer.id}
-              customer={customer}
+              key={c.id}
+              customer={c}
               showApprove={false}
+              showLastLogin
             />
           ))}
         </div>
@@ -108,13 +166,78 @@ export default async function PendingCustomersPage() {
   )
 }
 
-// ── Shared card component ───────────────────────────────────────────────────
+// ── Summary Badge ──────────────────────────────────────────────────────────
+function SummaryBadge({
+  label, count, color,
+}: {
+  label: string; count: number; color: 'orange' | 'red' | 'blue' | 'green'
+}) {
+  const styles = {
+    orange: 'bg-orange-50 border-orange-200 text-orange-700',
+    red:    'bg-red-50 border-red-200 text-red-700',
+    blue:   'bg-blue-50 border-blue-200 text-blue-700',
+    green:  'bg-green-50 border-green-200 text-green-700',
+  }
+  return (
+    <div className={`rounded-lg border p-4 text-center ${styles[color]}`}>
+      <p className="text-2xl font-bold">{count}</p>
+      <p className="text-xs font-medium mt-1">{label}</p>
+    </div>
+  )
+}
+
+// ── Section Header ─────────────────────────────────────────────────────────
+function SectionHeader({
+  icon, title, count, badgeColor, subtitle,
+}: {
+  icon: React.ReactNode
+  title: string
+  count: number
+  badgeColor: 'orange' | 'red' | 'blue' | 'green'
+  subtitle?: string
+}) {
+  const badgeStyles = {
+    orange: 'bg-orange-100 text-orange-700',
+    red:    'bg-red-100 text-red-700',
+    blue:   'bg-blue-100 text-blue-700',
+    green:  'bg-green-100 text-green-700',
+  }
+  return (
+    <div className="mt-8 mb-4">
+      <div className="flex items-center gap-3">
+        {icon}
+        <h2 className="text-xl font-bold text-gray-800">{title}</h2>
+        {count > 0 && (
+          <span className={`text-sm font-semibold px-2.5 py-0.5 rounded-full ${badgeStyles[badgeColor]}`}>
+            {count}
+          </span>
+        )}
+      </div>
+      {subtitle && <p className="text-sm text-gray-500 mt-1 ml-9">{subtitle}</p>}
+    </div>
+  )
+}
+
+// ── Empty State ────────────────────────────────────────────────────────────
+function EmptyState({ message, sub }: { message: string; sub?: string }) {
+  return (
+    <div className="bg-white rounded-lg border p-6 text-center mb-8">
+      <CheckCircle className="h-8 w-8 text-green-400 mx-auto mb-2" />
+      <p className="text-gray-500 font-medium">{message}</p>
+      {sub && <p className="text-gray-400 text-sm mt-1">{sub}</p>}
+    </div>
+  )
+}
+
+// ── Customer Card ──────────────────────────────────────────────────────────
 function CustomerCard({
   customer,
   showApprove,
+  showLastLogin = false,
 }: {
   customer: any
   showApprove: boolean
+  showLastLogin?: boolean
 }) {
   return (
     <div className="bg-white rounded-lg border shadow-sm p-5">
@@ -136,6 +259,11 @@ function CustomerCard({
             {customer.delivery_notes && (
               <p className="text-xs text-blue-600 mt-1 italic">
                 Notes: {customer.delivery_notes}
+              </p>
+            )}
+            {showLastLogin && customer.last_sign_in_at && (
+              <p className="text-xs text-green-600 mt-1 font-medium">
+                Last login: {new Date(customer.last_sign_in_at).toLocaleString('en-AU')}
               </p>
             )}
             <p className="text-xs text-gray-300 mt-1">
