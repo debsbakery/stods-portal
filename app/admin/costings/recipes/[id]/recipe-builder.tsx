@@ -286,14 +286,15 @@ export default function RecipeBuilder({ recipe, lines: initialLines, allIngredie
             />
             <span className="text-sm text-gray-700">Sub-Recipe</span>
           </label>
-        </div><div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4">
           {newLine.type === 'ingredient' ? (
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Ingredient</label>
               <select
                 value={newLine.ingredient_id}
                 onChange={(e) => setNewLine({ ...newLine, ingredient_id: e.target.value })}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"required
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                required
               >
                 <option value="">— Select ingredient —</option>
                 {allIngredients.map((ing) => (
@@ -322,21 +323,23 @@ export default function RecipeBuilder({ recipe, lines: initialLines, allIngredie
             </div>
           )}
 
-         <div>
-  <label className="block text-xs font-medium text-gray-600 mb-1">Quantity (grams)</label>
-  <input
-    type="number"
-    min="1"
-    step="1"
-    defaultValue={newLine.quantity_grams}
-    onChange={(e) => setNewLine({ ...newLine, quantity_grams: e.target.value })}
-    placeholder="e.g. 25000"
-    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-    required
-    key={newLine.type}
-  />
-</div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Quantity (grams)</label>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={newLine.quantity_grams}
+              onChange={(e) => setNewLine({ ...newLine, quantity_grams: e.target.value })}
+              placeholder="e.g. 25000"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              required
+              key={newLine.type}
+            />
+          </div>
+        </div>
 
+        {/* ✅ Button is OUTSIDE the grid, still INSIDE the form */}
         <button
           type="submit"
           disabled={adding}
@@ -345,6 +348,7 @@ export default function RecipeBuilder({ recipe, lines: initialLines, allIngredie
           <Plus className="h-4 w-4" />
           {adding ? 'Adding...' : 'Add Line'}
         </button>
+
       </form>
 
       {/* Product Weight Info */}
