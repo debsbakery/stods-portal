@@ -2,15 +2,14 @@
 export const dynamic = 'force-dynamic'
 import { redirect } from 'next/navigation'
 import { checkAdmin } from '@/lib/auth'
-import { createServiceClient } from '@/lib/supabase/server'
-import { ArrowLeft, Plus, Edit, Users } from 'lucide-react'
+import { createAdminClient } from '@/lib/supabase/admin'
+
 import Link from 'next/link'
 
 export default async function AdminCustomersPage() {  const isAdmin = await checkAdmin()
   if (!isAdmin) redirect('/')
 
-  const supabase = await createServiceClient()
-
+const supabase = createAdminClient()
   const { data: customers, error } = await supabase
     .from('customers')
     .select('id, business_name, contact_name, email, phone, status, balance, payment_terms')

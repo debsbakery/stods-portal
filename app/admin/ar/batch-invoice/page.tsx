@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic'
 import { redirect } from 'next/navigation';
 import { checkAdmin } from '@/lib/auth';
 import { ArrowLeft } from 'lucide-react';

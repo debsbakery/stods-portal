@@ -80,7 +80,7 @@ export default function RecipeBuilder({
       body: JSON.stringify({ name: recipeName || null }),
     })
     setSavingName(false)
-    window.location.reload()
+    window.location.href = window.location.pathname + '?t=' + Date.now()
   }
 
   async function saveBaseIngredient() {
@@ -91,7 +91,7 @@ export default function RecipeBuilder({
       body: JSON.stringify({ base_ingredient_id: baseIngredientId || null }),
     })
     setSavingBase(false)
-    window.location.reload()
+    window.location.href = window.location.pathname + '?t=' + Date.now()
   }
 
   async function addLine(e: React.FormEvent) {
@@ -123,7 +123,7 @@ export default function RecipeBuilder({
 
     if (res.ok) {
       setNewLine({ type: 'ingredient', ingredient_id: '', sub_recipe_id: '', quantity_grams: '' })
-      window.location.reload()
+      window.location.href = window.location.pathname + '?t=' + Date.now()
     } else {
       alert('Failed to add line')
     }
@@ -138,7 +138,7 @@ export default function RecipeBuilder({
       body: JSON.stringify({ line_id: lineId }),
     })
     setDeleting(null)
-    window.location.reload()
+    window.location.href = window.location.pathname + '?t=' + Date.now()
   }
 
   const totalWeight = lines.reduce((sum, line) => {
@@ -432,4 +432,5 @@ export default function RecipeBuilder({
     </div>
   )
 }
+
 
