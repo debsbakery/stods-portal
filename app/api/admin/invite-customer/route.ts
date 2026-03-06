@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServiceClient } from '@/lib/supabase/service'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function POST(req: NextRequest) {
   const { customerId } = await req.json()
@@ -8,8 +8,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Missing customerId' }, { status: 400 })
   }
 
-  // ✅ This line was missing entirely!
-  const supabase = createServiceClient()
+  const supabase = createAdminClient()
 
   // Fetch customer
   const { data: customer, error: fetchError } = await supabase
