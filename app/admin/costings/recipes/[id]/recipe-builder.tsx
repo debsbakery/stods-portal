@@ -49,12 +49,16 @@ interface Props {
   allRecipes: any[]
 }
 
-export default function RecipeBuilder({ recipe, lines: initialLines, allIngredients, allRecipes }: Props) {
+export default function RecipeBuilder({
+  recipe,
+  lines: initialLines,
+  allIngredients,
+  allRecipes,
+}: Props) {
   const router = useRouter()
   const [lines, setLines] = useState<RecipeLine[]>(initialLines)
   const [baseIngredientId, setBaseIngredientId] = useState(recipe.base_ingredient_id || '')
   const [savingBase, setSavingBase] = useState(false)
-
   const [newLine, setNewLine] = useState({
     type: 'ingredient' as 'ingredient' | 'sub_recipe',
     ingredient_id: '',
@@ -66,13 +70,11 @@ export default function RecipeBuilder({ recipe, lines: initialLines, allIngredie
 
   async function saveBaseIngredient() {
     setSavingBase(true)
-
     await fetch(`/api/admin/recipes/${recipe.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ base_ingredient_id: baseIngredientId || null }),
     })
-
     setSavingBase(false)
     router.refresh()
   }
@@ -115,13 +117,11 @@ export default function RecipeBuilder({ recipe, lines: initialLines, allIngredie
   async function deleteLine(lineId: string) {
     if (!confirm('Delete this line?')) return
     setDeleting(lineId)
-
     await fetch(`/api/admin/recipes/${recipe.id}/lines`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ line_id: lineId }),
     })
-
     setDeleting(null)
     router.refresh()
   }
@@ -137,11 +137,12 @@ export default function RecipeBuilder({ recipe, lines: initialLines, allIngredie
     return sum
   }, 0)
 
-  const costPerKg = totalWeight > 0 ? (totalCost / (totalWeight / 1000)) : 0
+  const costPerKg = totalWeight > 0 ? totalCost / (totalWeight / 1000) : 0
 
   return (
     <div className="space-y-6 max-w-4xl">
 
+      {/* ── Header ───────────────────────────────────────────────── */}
       <div className="flex items-center gap-3">
         <button
           onClick={() => router.push('/admin/costings/recipes')}
@@ -159,11 +160,14 @@ export default function RecipeBuilder({ recipe, lines: initialLines, allIngredie
         </div>
       </div>
 
-      {/* Base Ingredient Selector */}
+      {/* ── Base Ingredient Selector ──────────────────────────────── */}
       <div className="bg-white border border-gray-200 rounded-xl p-6">
-        <h2 className="text-base font-semibold text-gray-800 mb-3">Base Ingredient (for scaling)</h2>
+        <h2 className="text-base font-semibold text-gray-800 mb-3">
+          Base Ingredient (for scaling)
+        </h2>
         <p className="text-xs text-gray-500 mb-3">
-          Select the flour or main ingredient used as the scaling reference when printing recipes at different weights.
+          Select the flour or main ingredient used as the scaling reference
+          when printing recipes at different weights.
         </p>
         <div className="flex gap-3">
           <select
@@ -188,7 +192,7 @@ export default function RecipeBuilder({ recipe, lines: initialLines, allIngredie
         </div>
       </div>
 
-      {/* Recipe Lines */}
+      {/* ── Recipe Lines Table ────────────────────────────────────── */}
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
           <h2 className="text-base font-semibold text-gray-800">Recipe Lines</h2>
@@ -202,8 +206,12 @@ export default function RecipeBuilder({ recipe, lines: initialLines, allIngredie
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600">Ingredient / Sub-Recipe</th>
-                <th className="text-right px-4 py-3 font-semibold text-gray-600">Quantity (g)</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600">
+                  Ingredient / Sub-Recipe
+                </th>
+                <th className="text-right px-4 py-3 font-semibold text-gray-600">
+                  Quantity (g)
+                </th>
                 <th className="text-right px-4 py-3 font-semibold text-gray-600">Cost</th>
                 <th className="text-right px-4 py-3 font-semibold text-gray-600">Actions</th>
               </tr>
@@ -213,7 +221,9 @@ export default function RecipeBuilder({ recipe, lines: initialLines, allIngredie
                 <tr key={line.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3">
                     {line.ingredient_id ? (
-                      <span className="font-medium text-gray-900">{line.ingredients?.name}</span>
+                      <span className="font-medium text-gray-900">
+                        {line.ingredients?.name}
+                      </span>
                     ) : (
                       <span className="text-indigo-600 font-medium">
                         {line.sub_recipes?.products?.name || 'Sub-Recipe'}
@@ -224,9 +234,11 @@ export default function RecipeBuilder({ recipe, lines: initialLines, allIngredie
                     {(line.quantity_grams || line.sub_qty_grams || 0).toLocaleString()}g
                   </td>
                   <td className="px-4 py-3 text-right text-gray-600">
-                    {line.ingredient_id && line.ingredients
-                      ? `$${(((line.quantity_grams || 0) / 1000) * line.ingredients.unit_cost).toFixed(2)}`
-                      : <span className="text-gray-300">—</span>}
+                    {line.ingredient_id && line.ingredients ? (
+                      `$${(((line.quantity_grams || 0) / 1000) * line.ingredients.unit_cost).toFixed(2)}`
+                    ) : (
+                      <span className="text-gray-300">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button
@@ -250,23 +262,31 @@ export default function RecipeBuilder({ recipe, lines: initialLines, allIngredie
                   ${totalCost.toFixed(2)}
                 </td>
                 <td></td>
-              </tr><tr>
+              </tr>
+              <tr>
                 <td colSpan={2} className="px-4 py-3 font-semibold text-indigo-600">
                   Cost per kg
                 </td>
                 <td className="px-4 py-3 text-right font-semibold text-indigo-600 text-base">
                   ${costPerKg.toFixed(2)}/kg
-                </td><td></td>
+                </td>
+                <td></td>
               </tr>
             </tfoot>
           </table>
         )}
       </div>
 
-      {/* Add Line Form */}
-      <form onSubmit={addLine} className="bg-white border border-indigo-200 rounded-xl p-6 space-y-4">
-        <h2 className="text-base font-semibold text-gray-800">Add Ingredient or Sub-Recipe</h2>
+      {/* ── Add Line Form ─────────────────────────────────────────── */}
+      <form
+        onSubmit={addLine}
+        className="bg-white border border-indigo-200 rounded-xl p-6 space-y-4"
+      >
+        <h2 className="text-base font-semibold text-gray-800">
+          Add Ingredient or Sub-Recipe
+        </h2>
 
+        {/* Radio buttons — their own div, closed before grid */}
         <div className="flex gap-4">
           <label className="flex items-center gap-2 cursor-pointer">
             <input
@@ -286,10 +306,15 @@ export default function RecipeBuilder({ recipe, lines: initialLines, allIngredie
             />
             <span className="text-sm text-gray-700">Sub-Recipe</span>
           </label>
-              <div className="grid grid-cols-2 gap-4">
+        </div>
+
+        {/* Grid — separate div, after radio buttons div is closed */}
+        <div className="grid grid-cols-2 gap-4">
           {newLine.type === 'ingredient' ? (
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Ingredient</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Ingredient
+              </label>
               <select
                 value={newLine.ingredient_id}
                 onChange={(e) => setNewLine({ ...newLine, ingredient_id: e.target.value })}
@@ -306,7 +331,9 @@ export default function RecipeBuilder({ recipe, lines: initialLines, allIngredie
             </div>
           ) : (
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Sub-Recipe</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Sub-Recipe
+              </label>
               <select
                 value={newLine.sub_recipe_id}
                 onChange={(e) => setNewLine({ ...newLine, sub_recipe_id: e.target.value })}
@@ -324,7 +351,9 @@ export default function RecipeBuilder({ recipe, lines: initialLines, allIngredie
           )}
 
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Quantity (grams)</label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              Quantity (grams)
+            </label>
             <input
               type="number"
               min="1"
@@ -339,7 +368,7 @@ export default function RecipeBuilder({ recipe, lines: initialLines, allIngredie
           </div>
         </div>
 
-        {/* ✅ Button is OUTSIDE the grid, still INSIDE the form */}
+        {/* Submit button — outside grid, inside form */}
         <button
           type="submit"
           disabled={adding}
@@ -348,10 +377,9 @@ export default function RecipeBuilder({ recipe, lines: initialLines, allIngredie
           <Plus className="h-4 w-4" />
           {adding ? 'Adding...' : 'Add Line'}
         </button>
-
       </form>
 
-      {/* Product Weight Info */}
+      {/* ── Product Weight Info ───────────────────────────────────── */}
       {recipe.products?.weight_grams && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
           <p className="text-sm text-blue-800">
@@ -363,6 +391,7 @@ export default function RecipeBuilder({ recipe, lines: initialLines, allIngredie
           </p>
         </div>
       )}
+
     </div>
   )
 }
