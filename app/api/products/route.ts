@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ products: products || [] });
   } catch (error: any) {
-    console.error('❌ Error fetching products:', error);
+    console.error('Error fetching products:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
@@ -37,9 +37,10 @@ export async function POST(request: NextRequest) {
   try {
     const supabase = await createServiceClient();
     const body = await request.json();
-    const { name, price, description, category, image_url } = body;
 
-    if (!name || !price) {
+    const { name, price, description, category, image_url, code, gst_applicable } = body;
+
+    if (!name || price === undefined || price === null) {
       return NextResponse.json(
         { error: 'name and price are required' },
         { status: 400 }
@@ -52,19 +53,18 @@ export async function POST(request: NextRequest) {
         name,
         price,
         description: description || null,
-        category: category || null,
-        image_url: image_url || null,
+        category:    category    || null,
+        image_url:   image_url   || null,
+        code:        code        || null, // ✅ This was the missing line
       })
       .select()
       .single();
 
     if (error) throw error;
 
-    console.log('✅ Product created:', product.name);
-
     return NextResponse.json({ product }, { status: 201 });
   } catch (error: any) {
-    console.error('❌ Error creating product:', error);
+    console.error('Error creating product:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
