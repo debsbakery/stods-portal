@@ -1,7 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { TrendingUp, TrendingDown, DollarSign, ShoppingCart, Users, BarChart3 } from 'lucide-react'
+import {
+  TrendingUp, TrendingDown, DollarSign,
+  ShoppingCart, Users, BarChart3
+} from 'lucide-react'
 
 interface Week {
   week_start: string
@@ -39,6 +42,7 @@ const fmtWeek = (start: string, end: string) =>
 
 export default function WeeklyReportView({ weeks, topProducts, thisWeekStart }: Props) {
   const [selectedWeek, setSelectedWeek] = useState(0)
+  const [actualWages, setActualWages] = useState<Record<string, string>>({})
 
   const current  = weeks[selectedWeek]
   const previous = weeks[selectedWeek + 1]
@@ -53,6 +57,17 @@ export default function WeeklyReportView({ weeks, topProducts, thisWeekStart }: 
 
   const maxRevenue = Math.max(...weeks.map(w => w.revenue))
 
+  // ── Profit estimate ───────────────────────────────────────────
+  const wages        = parseFloat(actualWages[current?.week_start] || '0') || 0
+  const estIngred    = current ? current.revenue * 0.30 : 0
+  const estOverhead  = current ? current.revenue * 0.30 : 0
+  const totalCosts   = estIngred + wages + estOverhead
+  const estProfit    = current ? current.revenue - totalCosts : 0
+  const estMargin    = current && current.revenue > 0
+    ? (estProfit / current.revenue) * 100
+    : 0
+  const wagesEntered = wages > 0
+
   return (
     <div className="space-y-6 max-w-6xl">
 
@@ -60,7 +75,7 @@ export default function WeeklyReportView({ weeks, topProducts, thisWeekStart }: 
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Weekly Revenue Report</h1>
         <p className="text-sm text-gray-500 mt-0.5">
-          Last {weeks.length} weeks of trading
+          Last {weeks.length} weeks of trading — revenue ex-GST
         </p>
       </div>
 
@@ -103,7 +118,7 @@ export default function WeeklyReportView({ weeks, topProducts, thisWeekStart }: 
 
             <div className="bg-white rounded-xl border border-gray-200 p-5">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-sm text-gray-500 font-medium">Total Revenue</p>
+                <p className="text-sm text-gray-500 font-medium">Revenue (ex-GST)</p>
                 <DollarSign className="h-5 w-5 text-green-500" />
               </div>
               <p className="text-2xl font-bold text-gray-900">{fmt(current.revenue)}</p>
@@ -113,8 +128,7 @@ export default function WeeklyReportView({ weeks, topProducts, thisWeekStart }: 
                 }`}>
                   {revChange >= 0
                     ? <TrendingUp className="h-3 w-3" />
-                    : <TrendingDown className="h-3 w-3" />
-                  }
+                    : <TrendingDown className="h-3 w-3" />}
                   {revChange >= 0 ? '+' : ''}{revChange.toFixed(1)}% vs last week
                 </p>
               )}
@@ -132,8 +146,7 @@ export default function WeeklyReportView({ weeks, topProducts, thisWeekStart }: 
                 }`}>
                   {ordChange >= 0
                     ? <TrendingUp className="h-3 w-3" />
-                    : <TrendingDown className="h-3 w-3" />
-                  }
+                    : <TrendingDown className="h-3 w-3" />}
                   {ordChange >= 0 ? '+' : ''}{ordChange.toFixed(1)}% vs last week
                 </p>
               )}
@@ -141,7 +154,7 @@ export default function WeeklyReportView({ weeks, topProducts, thisWeekStart }: 
 
             <div className="bg-white rounded-xl border border-gray-200 p-5">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-sm text-gray-500 font-medium">Avg Order Value</p>
+                <p className="text-sm text-gray-500 font-medium">Avg Order</p>
                 <BarChart3 className="h-5 w-5 text-purple-500" />
               </div>
               <p className="text-2xl font-bold text-gray-900">
@@ -159,6 +172,155 @@ export default function WeeklyReportView({ weeks, topProducts, thisWeekStart }: 
               <p className="text-xs text-gray-400 mt-1">active this week</p>
             </div>
 
+          </div>
+
+          {/* ── Profit Estimate ───────────────────────────────────── */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <h3 className="text-sm font-semibold text-gray-700 mb-4">
+              Profit Estimate
+              <span className="ml-2 text-xs font-normal text-gray-400">
+                Ingredients + overhead = 30% estimate until recipes complete
+              </span>
+            </h3>
+
+            {/* Actual wages input */}
+            <div className="mb-5 flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <div className="flex-1">
+                <label className="block text-xs font-semibold text-blue-700 mb-1">
+                  Actual Wages Paid This Week
+                </label>
+                <p className="text-xs text-blue-500">
+                  Enter real wages to get accurate profit. Leave blank to use 30% estimate.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-blue-600 font-semibold">$</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="e.g. 3500"
+                  value={actualWages[current.week_start] || ''}
+                  onChange={e => setActualWages(prev => ({
+                    ...prev,
+                    [current.week_start]: e.target.value
+                  }))}
+                  className="w-32 border border-blue-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            {/* Cost breakdown table */}
+            <div className="space-y-2 mb-4">
+              <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                <span className="text-sm text-gray-600">Revenue (ex-GST)</span>
+                <span className="font-mono font-semibold text-gray-900">
+                  {fmt(current.revenue)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                <span className="text-sm text-gray-600">
+                  Est. Ingredients
+                  <span className="text-xs text-gray-400 ml-1">(30% est.)</span>
+                </span>
+                <span className="font-mono text-amber-600">-{fmt(estIngred)}</span>
+              </div>
+              <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                <div>
+                  <span className="text-sm text-gray-600">
+                    {wagesEntered ? 'Actual Wages' : 'Est. Labour'}
+                  </span>
+                  {!wagesEntered && (
+                    <span className="text-xs text-gray-400 ml-1">(30% est.)</span>
+                  )}
+                  {wagesEntered && (
+                    <span className="text-xs text-blue-600 ml-1 font-medium">actual</span>
+                  )}
+                </div>
+                <span className="font-mono text-blue-600">
+                  -{fmt(wagesEntered ? wages : current.revenue * 0.30)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                <span className="text-sm text-gray-600">
+                  Est. Overhead
+                  <span className="text-xs text-gray-400 ml-1">(30% long-term avg)</span>
+                </span>
+                <span className="font-mono text-purple-600">-{fmt(estOverhead)}</span>
+              </div>
+              <div className={`flex justify-between items-center py-3 rounded-lg px-2 ${
+                estProfit >= 0 ? 'bg-green-50' : 'bg-red-50'
+              }`}>
+                <div>
+                  <span className={`text-sm font-bold ${
+                    estProfit >= 0 ? 'text-green-700' : 'text-red-700'
+                  }`}>
+                    Est. Gross Profit
+                  </span>
+                  <span className={`text-xs ml-2 ${
+                    estMargin >= 10 ? 'text-green-600' : 'text-red-600'
+                  }`}>
+                    ({estMargin.toFixed(1)}% margin)
+                  </span>
+                </div>
+                <span className={`font-mono font-bold text-lg ${
+                  estProfit >= 0 ? 'text-green-700' : 'text-red-700'
+                }`}>
+                  {fmt(estProfit)}
+                </span>
+              </div>
+            </div>
+
+            {/* Visual bar */}
+            {current.revenue > 0 && (
+              <div>
+                <div className="flex h-4 rounded-full overflow-hidden bg-gray-100">
+                  <div
+                    className="bg-amber-400"
+                    style={{ width: '30%' }}
+                    title="Ingredients 30%"
+                  />
+                  <div
+                    className="bg-blue-400"
+                    style={{
+                      width: `${wagesEntered
+                        ? (wages / current.revenue) * 100
+                        : 30}%`
+                    }}
+                    title="Labour"
+                  />
+                  <div
+                    className="bg-purple-400"
+                    style={{ width: '30%' }}
+                    title="Overhead 30%"
+                  />
+                  <div
+                    className={estProfit >= 0 ? 'bg-green-400 flex-1' : 'bg-red-400 flex-1'}
+                    title="Profit"
+                  />
+                </div>
+                <div className="flex gap-4 mt-2 text-xs text-gray-500 flex-wrap">
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 bg-amber-400 rounded-full" />Ingredients 30%
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 bg-blue-400 rounded-full" />
+                    {wagesEntered
+                      ? `Labour ${((wages / current.revenue) * 100).toFixed(1)}% (actual)`
+                      : 'Labour 30% (est)'}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 bg-purple-400 rounded-full" />Overhead 30%
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className={`w-2 h-2 rounded-full ${
+                      estProfit >= 0 ? 'bg-green-400' : 'bg-red-400'
+                    }`} />
+                    Profit {estMargin.toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ── Invoiced vs Pending ───────────────────────────────── */}
@@ -181,24 +343,24 @@ export default function WeeklyReportView({ weeks, topProducts, thisWeekStart }: 
             {current.revenue > 0 && (
               <div className="flex h-3 rounded-full overflow-hidden bg-gray-100">
                 <div
-                  className="bg-green-500 transition-all"
+                  className="bg-green-500"
                   style={{ width: `${(current.invoiced_revenue / current.revenue) * 100}%` }}
                 />
                 <div
-                  className="bg-amber-400 transition-all"
+                  className="bg-amber-400"
                   style={{ width: `${(current.pending_revenue / current.revenue) * 100}%` }}
                 />
               </div>
             )}
             <div className="flex gap-4 mt-2 text-xs text-gray-500">
               <span className="flex items-center gap-1">
-                <span className="w-2 h-2 bg-green-500 rounded-full inline-block" />
+                <span className="w-2 h-2 bg-green-500 rounded-full" />
                 Invoiced {current.revenue > 0
                   ? ((current.invoiced_revenue / current.revenue) * 100).toFixed(0)
                   : 0}%
               </span>
               <span className="flex items-center gap-1">
-                <span className="w-2 h-2 bg-amber-400 rounded-full inline-block" />
+                <span className="w-2 h-2 bg-amber-400 rounded-full" />
                 Pending {current.revenue > 0
                   ? ((current.pending_revenue / current.revenue) * 100).toFixed(0)
                   : 0}%
@@ -257,9 +419,7 @@ export default function WeeklyReportView({ weeks, topProducts, thisWeekStart }: 
                   <div className="flex h-1.5 bg-gray-100 rounded-full overflow-hidden">
                     <div
                       className="bg-indigo-400 rounded-full"
-                      style={{
-                        width: `${(p.revenue / topProducts[0].revenue) * 100}%`
-                      }}
+                      style={{ width: `${(p.revenue / topProducts[0].revenue) * 100}%` }}
                     />
                   </div>
                   <p className="text-xs text-gray-400 mt-0.5">{p.qty} units</p>
@@ -288,7 +448,7 @@ export default function WeeklyReportView({ weeks, topProducts, thisWeekStart }: 
           </thead>
           <tbody className="divide-y divide-gray-50">
             {weeks.map((w, i) => {
-              const prior = weeks[i + 1]
+              const prior  = weeks[i + 1]
               const change = prior
                 ? ((w.revenue - prior.revenue) / prior.revenue) * 100
                 : null
@@ -297,9 +457,7 @@ export default function WeeklyReportView({ weeks, topProducts, thisWeekStart }: 
                   key={w.week_start}
                   onClick={() => setSelectedWeek(i)}
                   className={`cursor-pointer transition ${
-                    selectedWeek === i
-                      ? 'bg-green-50'
-                      : 'hover:bg-gray-50'
+                    selectedWeek === i ? 'bg-green-50' : 'hover:bg-gray-50'
                   }`}
                 >
                   <td className="px-4 py-3">
@@ -327,8 +485,7 @@ export default function WeeklyReportView({ weeks, topProducts, thisWeekStart }: 
                       }`}>
                         {change >= 0
                           ? <TrendingUp className="h-3 w-3" />
-                          : <TrendingDown className="h-3 w-3" />
-                        }
+                          : <TrendingDown className="h-3 w-3" />}
                         {change >= 0 ? '+' : ''}{change.toFixed(1)}%
                       </span>
                     ) : (
