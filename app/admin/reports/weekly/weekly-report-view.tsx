@@ -230,63 +230,53 @@ const estMargin    = current && current.revenue > 0
                   {fmt(current.revenue)}
                 </span>
               </div>
-              <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                <span className="text-sm text-gray-600">
-                  Est. Ingredients
-                  <span className="text-xs text-gray-400 ml-1">(30% est.)</span>
-                </span>
-                <span className="font-mono text-amber-600">-{fmt(estIngred)}</span>
-              </div>
-              <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                <div>
-                  <span className="text-sm text-gray-600">
-                    {wagesEntered ? 'Actual Wages' : 'Est. Labour'}
-                  </span>
-                  {!wagesEntered && (
-                    <span className="text-xs text-gray-400 ml-1">(30% est.)</span>
-                  )}
-                  {wagesEntered && (
-                    <span className="text-xs text-blue-600 ml-1 font-medium">actual</span>
-                  )}
-                </div>
-                <span className="font-mono text-blue-600">
-                  -{fmt(labourCost)}
-                </span>
-              </div>
-              <div className="flex justify-between items-center py-2 border-b border-gray-100">
+            {/* Ingredients */}
+<div className="flex justify-between items-center py-2 border-b border-gray-100">
+  <span className="text-sm text-gray-600">
+    Est. Ingredients
+    <span className="text-xs text-gray-400 ml-1">(30% est.)</span>
+  </span>
+  <div className="text-right">
+    <span className="font-mono text-amber-600">-{fmt(estIngred)}</span>
+    <span className="text-xs text-amber-500 ml-2">
+      {current.revenue > 0 ? ((estIngred / current.revenue) * 100).toFixed(1) : 0}%
+    </span>
+  </div>
+</div>
+
+{/* Labour */}
+<div className="flex justify-between items-center py-2 border-b border-gray-100">
+  <div>
+    <span className="text-sm text-gray-600">
+      {wagesEntered ? 'Actual Wages' : 'Est. Labour'}
+    </span>
+    {!wagesEntered && <span className="text-xs text-gray-400 ml-1">(30% est.)</span>}
+    {wagesEntered && <span className="text-xs text-blue-600 ml-1 font-medium">actual</span>}
+  </div>
+  <div className="text-right">
+    <span className="font-mono text-blue-600">-{fmt(labourCost)}</span>
+    <span className="text-xs text-blue-500 ml-2">
+      {current.revenue > 0 ? ((labourCost / current.revenue) * 100).toFixed(1) : 0}%
+    </span>
+  </div>
+</div>
+
+{/* Overhead */}
+<div className="flex justify-between items-center py-2 border-b border-gray-100">
   <span className="text-sm text-gray-600">
     Est. Overhead
     {hasWeightData
-      ? <span className="text-xs text-gray-400 ml-1">
-          ({weightKg.toFixed(0)}kg × ${overheadPerKg}/kg)
-        </span>
-      : <span className="text-xs text-gray-400 ml-1">(30% est — add weights to products)</span>
+      ? <span className="text-xs text-gray-400 ml-1">({weightKg.toFixed(0)}kg × ${overheadPerKg}/kg)</span>
+      : <span className="text-xs text-gray-400 ml-1">(30% est.)</span>
     }
   </span>
-  <span className="font-mono text-purple-600">-{fmt(estOverhead)}</span>
+  <div className="text-right">
+    <span className="font-mono text-purple-600">-{fmt(estOverhead)}</span>
+    <span className="text-xs text-purple-500 ml-2">
+      {current.revenue > 0 ? ((estOverhead / current.revenue) * 100).toFixed(1) : 0}%
+    </span>
+  </div>
 </div>
-              <div className={`flex justify-between items-center py-3 rounded-lg px-2 ${
-                estProfit >= 0 ? 'bg-green-50' : 'bg-red-50'
-              }`}>
-                <div>
-                  <span className={`text-sm font-bold ${
-                    estProfit >= 0 ? 'text-green-700' : 'text-red-700'
-                  }`}>
-                    Est. Net Profit
-                  </span>
-                  <span className={`text-xs ml-2 ${
-                    estMargin >= 10 ? 'text-green-600' : 'text-red-600'
-                  }`}>
-                    ({estMargin.toFixed(1)}% margin)
-                  </span>
-                </div>
-                <span className={`font-mono font-bold text-lg ${
-                  estProfit >= 0 ? 'text-green-700' : 'text-red-700'
-                }`}>
-                  {fmt(estProfit)}
-                </span>
-              </div>
-            </div>
 
             {/* Visual bar */}
             {current.revenue > 0 && (
