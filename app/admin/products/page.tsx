@@ -20,6 +20,13 @@ export default async function ProductsPage() {
           <ArrowLeft className="h-4 w-4" />
           Back to Admin
         </a>
+        <a
+  href="/admin/products/bulk-weights"
+  className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-white font-semibold hover:opacity-90"
+  style={{ backgroundColor: '#0369a1' }}
+>
+  Bulk Weights
+</a>
         <div className="flex justify-between items-start flex-wrap gap-4">
           <div>
             <h1 className="text-3xl font-bold">Product Management</h1>
