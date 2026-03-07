@@ -1,31 +1,60 @@
+// app/api/statement/send-all/route.ts
 export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { generateStatementPDF } from '@/lib/pdf/statement'
 import { Resend } from 'resend'
 import pLimit from 'p-limit'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
-
-// Process 3 customers concurrently — balances Resend rate limits vs speed
-const limit = pLimit(3)
+const limit  = pLimit(3)
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient()
+    const supabase = createAdminClient() // ← admin, no await
 
-    const endDate = new Date().toISOString().split('T')[0]
-    const startDate = new Date(new Date().setMonth(new Date().getMonth() - 3))
-      .toISOString()
-      .split('T')[0]
+    // Accept optional params from body — falls back to last month
+    const body = await request.json().catch(() => ({}))
 
-    // Single query: customers with balance + email
-    const { data: customers, error: customersError } = await supabase
+    // If specific customerIds passed, use those
+    // If balanceOnly = true, only customers with balance > 0
+    // Default: last complete month
+    const { customerIds, balanceOnly = true } = body
+
+    const now       = new Date()
+    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+
+    const startDate: string = body.startDate
+      ?? new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1)
+           .toISOString().split('T')[0]
+
+    const endDate: string = body.endDate
+      ?? new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 0)
+           .toISOString().split('T')[0]
+
+    const monthLabel = lastMonth.toLocaleString('en-AU', {
+      month: 'long',
+      year: 'numeric',
+    })
+
+    // ── Fetch customers ───────────────────────────────────────
+    let query = supabase
       .from('customers')
-      .select('id, email, business_name, balance, address, payment_terms')
-      .gt('balance', 0)
+      .select('id, email, business_name, contact_name, balance, address, payment_terms')
       .not('email', 'is', null)
+
+    // Filter by balance if requested
+    if (balanceOnly) {
+      query = query.gt('balance', 0)
+    }
+
+    // Filter to specific customers if provided
+    if (customerIds && customerIds.length > 0) {
+      query = query.in('id', customerIds)
+    }
+
+    const { data: customers, error: customersError } = await query
 
     if (customersError) {
       return NextResponse.json({ error: 'Failed to fetch customers' }, { status: 500 })
@@ -36,112 +65,172 @@ export async function POST(request: NextRequest) {
         success: true,
         sent: 0,
         failed: 0,
-        message: 'No customers with outstanding balances and email addresses',
+        total: 0,
+        message: 'No customers to send statements to',
       })
     }
 
-    // Batch-fetch ALL orders and payments in 2 queries instead of N*4
-    const customerIds = customers.map(c => c.id)
+    const allCustomerIds = customers.map(c => c.id)
 
-    const [
-      { data: allOrders },
-      { data: allPayments },
-      { data: allPriorOrders },
-      { data: allPriorPayments },
-    ] = await Promise.all([
+    // ── Batch fetch AR transactions — 2 queries total ─────────
+    const [{ data: periodTx }, { data: priorTx }] = await Promise.all([
+      // Transactions within the statement period
       supabase
-        .from('orders')
-        .select('id, order_number, delivery_date, total_amount, status, customer_id')
-        .in('customer_id', customerIds)
-        .gte('delivery_date', startDate)
-        .lte('delivery_date', endDate)
-        .order('delivery_date', { ascending: true }),
+        .from('ar_transactions')
+        .select('id, transaction_type, amount, description, created_at, order_id, customer_id')
+        .in('customer_id', allCustomerIds)
+        .gte('created_at', startDate)
+        .lte('created_at', endDate + 'T23:59:59')
+        .order('created_at', { ascending: true }),
 
+      // Prior transactions for opening balance
       supabase
-        .from('payments')
-        .select('id, payment_date, amount, payment_method, reference_number, customer_id')
-        .in('customer_id', customerIds)
-        .gte('payment_date', startDate)
-        .lte('payment_date', endDate)
-        .order('payment_date', { ascending: true }),
-
-      supabase
-        .from('orders')
-        .select('total_amount, customer_id')
-        .in('customer_id', customerIds)
-        .lt('delivery_date', startDate),
-
-      supabase
-        .from('payments')
-        .select('amount, customer_id')
-        .in('customer_id', customerIds)
-        .lt('payment_date', startDate),
+        .from('ar_transactions')
+        .select('amount, transaction_type, customer_id')
+        .in('customer_id', allCustomerIds)
+        .lt('created_at', startDate),
     ])
 
-    // Group by customer_id for O(1) lookup
-    const ordersByCustomer = groupBy(allOrders ?? [], 'customer_id')
-    const paymentsByCustomer = groupBy(allPayments ?? [], 'customer_id')
-    const priorOrdersByCustomer = groupBy(allPriorOrders ?? [], 'customer_id')
-    const priorPaymentsByCustomer = groupBy(allPriorPayments ?? [], 'customer_id')
+    // ── Batch fetch invoice numbers ───────────────────────────
+    const allOrderIds = [
+      ...new Set((periodTx ?? []).filter(t => t.order_id).map(t => t.order_id))
+    ]
 
-    let sent = 0
+    let invoiceMap: Record<string, string> = {}
+    if (allOrderIds.length > 0) {
+      const { data: invNums } = await supabase
+        .from('invoice_numbers')
+        .select('order_id, invoice_number')
+        .in('order_id', allOrderIds)
+      invoiceMap = Object.fromEntries(
+        (invNums ?? []).map(i => [i.order_id, i.invoice_number])
+      )
+    }
+
+    // ── Group by customer for O(1) lookup ─────────────────────
+    const txByCustomer    = groupBy(periodTx ?? [], 'customer_id')
+    const priorByCustomer = groupBy(priorTx  ?? [], 'customer_id')
+
+    let sent   = 0
     let failed = 0
     const errors: string[] = []
 
-    // Process concurrently with p-limit
+    // ── Process each customer concurrently (max 3 at a time) ──
     await Promise.all(
       customers.map(customer =>
         limit(async () => {
           try {
-            const orders = ordersByCustomer[customer.id] ?? []
-            const payments = paymentsByCustomer[customer.id] ?? []
+            const transactions = txByCustomer[customer.id]    ?? []
+            const prior        = priorByCustomer[customer.id] ?? []
 
-            const priorInvoiceTotal = (priorOrdersByCustomer[customer.id] ?? [])
-              .reduce((sum, o) => sum + parseFloat(o.total_amount || '0'), 0)
+            // Calculate opening balance from prior AR transactions
+            const openingBalance = prior.reduce((sum, tx) => {
+              const isCredit =
+                tx.transaction_type === 'payment' ||
+                tx.transaction_type === 'credit'
+              return sum + (isCredit ? -tx.amount : tx.amount)
+            }, 0)
 
-            const priorPaymentTotal = (priorPaymentsByCustomer[customer.id] ?? [])
-              .reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0)
+            // Build statement lines with running balance
+            let runningBalance = openingBalance
+            const lines = transactions.map(tx => {
+              const isCredit =
+                tx.transaction_type === 'payment' ||
+                tx.transaction_type === 'credit'
 
-            const openingBalance = priorInvoiceTotal - priorPaymentTotal
+              runningBalance = isCredit
+                ? runningBalance - tx.amount
+                : runningBalance + tx.amount
 
+              const invoiceNum = tx.order_id ? invoiceMap[tx.order_id] : null
+              const reference  = invoiceNum
+                ? `INV-${String(invoiceNum).padStart(4, '0')}`
+                : tx.transaction_type.toUpperCase()
+
+              return {
+                date: tx.created_at,
+                description: isCredit
+                  ? tx.transaction_type === 'credit'
+                    ? 'Credit note'
+                    : 'Payment received - thank you'
+                  : reference,
+                reference,
+                debit:            isCredit ? null : tx.amount,
+                credit:           isCredit ? tx.amount : null,
+                balance:          Math.round(runningBalance * 100) / 100,
+                transaction_type: tx.transaction_type,
+              }
+            })
+
+            // Generate PDF with new signature
             const pdfBuffer = await generateStatementPDF({
               customer,
-              orders,
-              payments,
-              openingBalance,
+              lines,
+              openingBalance:  Math.round(openingBalance  * 100) / 100,
+              closingBalance:  Math.round(runningBalance  * 100) / 100,
               startDate,
               endDate,
             })
 
+            const customerName =
+              customer.business_name ||
+              customer.contact_name  ||
+              customer.email         ||
+              'Valued Customer'
+
+            // Send via Resend
             await resend.emails.send({
-              from: "Deb's Bakery <noreply@debsbakery.store>",
-              to: customer.email!,
-              subject: `Monthly Statement - ${customer.business_name || customer.email}`,
+              from:    "Deb's Bakery <noreply@debsbakery.store>",
+              to:      customer.email!,
+              subject: `Account Statement — ${monthLabel}`,
               html: `
-                <div style="font-family: Arial, sans-serif;">
-                  <h2 style="color: #006A4E;">Monthly Account Statement</h2>
-                  <p>Dear ${customer.business_name || 'Valued Customer'},</p>
-                  <p>Please find attached your monthly account statement.</p>
-                  <p><strong>Current Balance: $${parseFloat(customer.balance || '0').toFixed(2)}</strong></p>
-                  <p>Thank you for your continued business.</p>
-                  <p>Best regards,<br/>Deb's Bakery</p>
+                <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+                  <div style="background:#006A4E;padding:24px;border-radius:8px 8px 0 0;">
+                    <h1 style="color:white;margin:0;font-size:22px;">Deb's Bakery</h1>
+                    <p style="color:#a7f3d0;margin:4px 0 0;font-size:13px;">
+                      Monthly Account Statement
+                    </p>
+                  </div>
+                  <div style="padding:24px;border:1px solid #e5e7eb;
+                              border-top:none;border-radius:0 0 8px 8px;">
+                    <p>Dear ${customerName},</p>
+                    <p>Please find attached your account statement for
+                       <strong>${monthLabel}</strong>.</p>
+                    <div style="background:#fef3c7;border:1px solid #f59e0b;
+                                border-radius:6px;padding:16px;margin:20px 0;">
+                      <p style="margin:0;font-size:14px;">
+                        <strong>
+                          Outstanding Balance:
+                          $${parseFloat(String(customer.balance || 0)).toFixed(2)}
+                        </strong>
+                      </p>
+                      <p style="margin:6px 0 0;font-size:12px;color:#92400e;">
+                        Payment Terms: ${customer.payment_terms || 'Due on receipt'}
+                      </p>
+                    </div>
+                    <p style="color:#6b7280;font-size:13px;">
+                      Questions about your account? Please contact us.
+                    </p>
+                    <p style="margin-top:24px;">
+                      Kind regards,<br/>
+                      <strong style="color:#006A4E;">Deb's Bakery Accounts Team</strong>
+                    </p>
+                  </div>
                 </div>
               `,
-              attachments: [
-                {
-                  filename: `statement-${customer.business_name?.replace(/\s/g, '-') || customer.id}.pdf`,
-                  content: pdfBuffer,
-                },
-              ],
+              attachments: [{
+                filename: `Statement-${customerName.replace(/\s+/g, '-')}-${monthLabel.replace(' ', '-')}.pdf`,
+                content:  pdfBuffer,
+              }],
             })
 
-            console.log(`Statement sent to ${customer.email}`)
+            console.log(`[send-all] Sent to ${customer.email}`)
             sent++
 
-          } catch (error: any) {
-            console.error(`Failed for ${customer.email}:`, error)
+          } catch (err: any) {
+            console.error(`[send-all] Failed ${customer.email}:`, err.message)
             failed++
-            errors.push(`${customer.email}: ${error.message}`)
+            errors.push(`${customer.business_name || customer.email}: ${err.message}`)
           }
         })
       )
@@ -151,12 +240,13 @@ export async function POST(request: NextRequest) {
       success: true,
       sent,
       failed,
-      total: customers.length,
-      errors: errors.length > 0 ? errors : undefined,
+      total:  customers.length,
+      period: monthLabel,
+      ...(errors.length > 0 && { errors }),
     })
 
   } catch (error: any) {
-    console.error('Send all statements error:', error)
+    console.error('[send-all] Unexpected error:', error)
     return NextResponse.json(
       { error: error.message || 'Failed to send statements' },
       { status: 500 }
@@ -164,12 +254,14 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Simple groupBy utility
-function groupBy<T extends Record<string, any>>(arr: T[], key: string): Record<string, T[]> {
+function groupBy<T extends Record<string, any>>(
+  arr: T[],
+  key: string
+): Record<string, T[]> {
   return arr.reduce((acc, item) => {
-    const group = item[key]
-    acc[group] = acc[group] ?? []
-    acc[group].push(item)
+    const g   = item[key]
+    acc[g]    = acc[g] ?? []
+    acc[g].push(item)
     return acc
   }, {} as Record<string, T[]>)
 }
