@@ -6,7 +6,16 @@ import WeeklyReportView from './weekly-report-view'
 export default async function WeeklyReportPage() {
   const supabase = createAdminClient()
 
-  // ── Fetch order items (ex-GST subtotals) ──────────────────────
+  // ── Cost settings ──────────────────────────────────────────
+  const { data: settings } = await supabase
+    .from('cost_settings')
+    .select('setting_key, value')
+
+  const overheadPerKg = Number(
+    settings?.find(s => s.setting_key === 'overhead_per_kg')?.value ?? 1.50
+  )
+
+  // ── Fetch order items (ex-GST subtotals) ──────────────────
   const { data: items } = await supabase
     .from('order_items')
     .select(`
@@ -23,7 +32,42 @@ export default async function WeeklyReportPage() {
     .in('orders.status', ['invoiced', 'pending'])
     .gte('orders.delivery_date', '2026-01-01')
 
-  // ── Group by week (Sun–Sat, Brisbane UTC+10) ──────────────────
+  // ── Fetch weight data ─────────────────────────────────────
+  const { data: weightItems } = await supabase
+    .from('order_items')
+    .select(`
+      quantity,
+      orders!inner (
+        delivery_date,
+        status
+      ),
+      products (
+        weight_grams
+      )
+    `)
+    .in('orders.status', ['invoiced', 'pending'])
+    .gte('orders.delivery_date', '2026-01-01')
+
+  // ── Group weight by week ──────────────────────────────────
+  const weekWeightMap = new Map<string, number>()
+
+  for (const item of weightItems ?? []) {
+    const order   = item.orders as any
+    const product = item.products as any
+    if (!order?.delivery_date) continue
+    if (!product?.weight_grams) continue
+
+    const date = new Date(order.delivery_date + 'T00:00:00Z')
+    const day  = date.getUTCDay()
+    const sun  = new Date(date)
+    sun.setUTCDate(date.getUTCDate() - day)
+    const weekKey = sun.toISOString().split('T')[0]
+
+    const grams = Number(item.quantity) * Number(product.weight_grams)
+    weekWeightMap.set(weekKey, (weekWeightMap.get(weekKey) ?? 0) + grams)
+  }
+
+  // ── Group revenue by week ─────────────────────────────────
   const weekMap = new Map<string, {
     week_start:       string
     first_day:        string
@@ -39,9 +83,8 @@ export default async function WeeklyReportPage() {
     const order = item.orders as any
     if (!order?.delivery_date) continue
 
-    // Calculate Sunday of that week (Brisbane)
     const date = new Date(order.delivery_date + 'T00:00:00Z')
-    const day  = date.getUTCDay() // 0=Sun
+    const day  = date.getUTCDay()
     const sun  = new Date(date)
     sun.setUTCDate(date.getUTCDate() - day)
     const weekKey = sun.toISOString().split('T')[0]
@@ -59,11 +102,11 @@ export default async function WeeklyReportPage() {
       })
     }
 
-    const week = weekMap.get(weekKey)!
+    const week     = weekMap.get(weekKey)!
     const subtotal = Number(item.subtotal ?? 0)
 
     week.order_ids.add(order.id)
-    week.revenue += subtotal
+    week.revenue          += subtotal
     if (order.status === 'invoiced') week.invoiced_revenue += subtotal
     if (order.status === 'pending')  week.pending_revenue  += subtotal
     if (order.customer_id) week.customers.add(order.customer_id)
@@ -81,11 +124,12 @@ export default async function WeeklyReportPage() {
       invoiced_revenue: w.invoiced_revenue,
       pending_revenue:  w.pending_revenue,
       customer_count:   w.customers.size,
+      total_weight_kg:  (weekWeightMap.get(w.week_start) ?? 0) / 1000,
     }))
     .sort((a, b) => b.week_start.localeCompare(a.week_start))
     .slice(0, 12)
 
-  // ── Top products this week (ex-GST) ───────────────────────────
+  // ── Top products this week ────────────────────────────────
   const thisWeekStart = weeks[0]?.week_start
 
   const { data: thisWeekItems } = await supabase
@@ -119,6 +163,7 @@ export default async function WeeklyReportPage() {
       weeks={weeks}
       topProducts={topProductsList}
       thisWeekStart={thisWeekStart ?? ''}
+      overheadPerKg={overheadPerKg}
     />
   )
 }

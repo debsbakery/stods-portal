@@ -15,6 +15,7 @@ interface Week {
   invoiced_revenue: number
   pending_revenue: number
   customer_count: number
+  total_weight_kg: number
 }
 
 interface TopProduct {
@@ -27,6 +28,7 @@ interface Props {
   weeks: Week[]
   topProducts: TopProduct[]
   thisWeekStart: string
+  overheadPerKg: number
 }
 
 const fmt = (n: number) =>
@@ -40,7 +42,7 @@ const fmtDate = (d: string) =>
 const fmtWeek = (start: string, end: string) =>
   `${fmtDate(start)} – ${fmtDate(end)}`
 
-export default function WeeklyReportView({ weeks, topProducts, thisWeekStart }: Props) {
+export default function WeeklyReportView({ weeks, topProducts, thisWeekStart,  overheadPerKg, }: Props) {
   const [selectedWeek, setSelectedWeek] = useState(0)
   const [actualWages, setActualWages] = useState<Record<string, string>>({})
 
@@ -58,19 +60,26 @@ export default function WeeklyReportView({ weeks, topProducts, thisWeekStart }: 
   const maxRevenue = Math.max(...weeks.map(w => w.revenue))
 
   // ── Profit estimate — ALL declared in correct order ───────────
-  const wages        = parseFloat(actualWages[current?.week_start] || '0') || 0
-  const wagesEntered = wages > 0
-  const estIngred    = current ? current.revenue * 0.30 : 0
-  const estOverhead  = current ? current.revenue * 0.30 : 0
-  const labourCost   = wagesEntered
-    ? wages
-    : (current ? current.revenue * 0.30 : 0)
-  const totalCosts   = estIngred + labourCost + estOverhead
-  const estProfit    = current ? current.revenue - totalCosts : 0
-  const estMargin    = current && current.revenue > 0
-    ? (estProfit / current.revenue) * 100
-    : 0
+ // ── Profit estimate ───────────────────────────────────────────
+const wages        = parseFloat(actualWages[current?.week_start] || '0') || 0
+const wagesEntered = wages > 0
+const estIngred    = current ? current.revenue * 0.30 : 0
 
+// ✅ Weight-based overhead
+const weightKg     = current ? current.total_weight_kg : 0
+const hasWeightData = weightKg > 0
+const estOverhead  = hasWeightData
+  ? weightKg * overheadPerKg                    // actual weight × $/kg
+  : (current ? current.revenue * 0.30 : 0)      // fallback to 30% if no weights
+
+const labourCost   = wagesEntered
+  ? wages
+  : (current ? current.revenue * 0.30 : 0)
+const totalCosts   = estIngred + labourCost + estOverhead
+const estProfit    = current ? current.revenue - totalCosts : 0
+const estMargin    = current && current.revenue > 0
+  ? (estProfit / current.revenue) * 100
+  : 0
   return (
     <div className="space-y-6 max-w-6xl">
 
@@ -245,12 +254,17 @@ export default function WeeklyReportView({ weeks, topProducts, thisWeekStart }: 
                 </span>
               </div>
               <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                <span className="text-sm text-gray-600">
-                  Est. Overhead
-                  <span className="text-xs text-gray-400 ml-1">(30% long-term avg)</span>
-                </span>
-                <span className="font-mono text-purple-600">-{fmt(estOverhead)}</span>
-              </div>
+  <span className="text-sm text-gray-600">
+    Est. Overhead
+    {hasWeightData
+      ? <span className="text-xs text-gray-400 ml-1">
+          ({weightKg.toFixed(0)}kg × ${overheadPerKg}/kg)
+        </span>
+      : <span className="text-xs text-gray-400 ml-1">(30% est — add weights to products)</span>
+    }
+  </span>
+  <span className="font-mono text-purple-600">-{fmt(estOverhead)}</span>
+</div>
               <div className={`flex justify-between items-center py-3 rounded-lg px-2 ${
                 estProfit >= 0 ? 'bg-green-50' : 'bg-red-50'
               }`}>
