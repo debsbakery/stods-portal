@@ -49,6 +49,7 @@ export async function POST(req: NextRequest) {
           unit_price:     item.unitPrice,
           subtotal:       item.quantity * item.unitPrice,
           gst_applicable: item.gstApplicable,
+          custom_description: item.custom_description ?? null,
         }))
       )
 
