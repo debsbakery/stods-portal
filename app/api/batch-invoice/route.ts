@@ -17,9 +17,10 @@ export async function POST(request: NextRequest) {
         *,
         customer:customers(*),
         order_items(
-          *,
-          product:products(*)
-        )
+  *,
+  custom_description,
+  product:products(*)
+)
       `)
 
     if (date) {

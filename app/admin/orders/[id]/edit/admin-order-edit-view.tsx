@@ -5,41 +5,51 @@ import { useRouter } from 'next/navigation'
 import { Plus, Minus, X, ArrowLeft, Save } from 'lucide-react'
 import { SearchableSelect, SelectOption } from '@/components/ui/searchable-select'
 
+const CUSTOM_CODE = '900'
+
 export default function AdminOrderEditView({ order, products }: any) {
   const router = useRouter()
-  const [mounted, setMounted] = useState(false)
-
-  const [items,               setItems]               = useState<any[]>(order.order_items || [])
-  const [saving,              setSaving]              = useState(false)
-  const [selectedProductId,   setSelectedProductId]   = useState('')
-  const [selectedQty,         setSelectedQty]         = useState(1)
+  const [mounted, setMounted]                       = useState(false)
+  const [items, setItems]                           = useState<any[]>(order.order_items || [])
+  const [saving, setSaving]                         = useState(false)
+  const [selectedProductId, setSelectedProductId]   = useState('')
+  const [selectedQty, setSelectedQty]               = useState(1)
   const [purchaseOrderNumber, setPurchaseOrderNumber] = useState(order.purchase_order_number || '')
-  const [docketNumber,        setDocketNumber]        = useState(order.docket_number || '')
-  const [contractPrices,      setContractPrices]      = useState<Record<string, number>>({})
+  const [docketNumber, setDocketNumber]             = useState(order.docket_number || '')
+  const [contractPrices, setContractPrices]         = useState<Record<string, number>>({})
 
   useEffect(() => { setMounted(true) }, [])
 
-  // ── Load contract pricing ──────────────────────────────────────────────────
+  // Load contract pricing
   useEffect(() => {
     if (!order.customer_id) return
     fetch(`/api/customers/${order.customer_id}/pricing`)
-      .then((r) => r.ok ? r.json() : { pricing: [] })
-      .then((data) => {
+      .then(r => r.ok ? r.json() : { pricing: [] })
+      .then(data => {
         const map: Record<string, number> = {}
         ;(data.pricing ?? []).forEach((p: any) => { map[p.product_id] = p.price })
         setContractPrices(map)
-      }).catch(() => setContractPrices({}))
+      })
+      .catch(() => setContractPrices({}))
   }, [order.customer_id])
 
-  // ── Resolve product_id consistently across DB and new items ───────────────
   function resolveProductId(item: any): string {
     return item.product_id ?? item.products?.id ?? item.product?.id ?? ''
   }
 
-  // ── Resolve price — unit_price may be 0 in DB, fall back to products.price ─
   function resolveItemPrice(item: any): number {
     if (item.unit_price > 0) return Number(item.unit_price)
     return Number(item.products?.price ?? item.product?.price ?? 0)
+  }
+
+  function resolveProductCode(item: any): string {
+    return String(
+      item.products?.code ?? item.product?.code ?? ''
+    )
+  }
+
+  function isCustomItem(item: any): boolean {
+    return resolveProductCode(item) === CUSTOM_CODE
   }
 
   function priceForProduct(productId: string): number {
@@ -52,34 +62,39 @@ export default function AdminOrderEditView({ order, products }: any) {
     value:    p.id,
     label:    p.name,
     badge:    String(p.code ?? ''),
-    sublabel: `$${(contractPrices[p.id] ?? p.price ?? 0).toFixed(2)}${
-      contractPrices[p.id] !== undefined ? ' (contract)' : ''
-    }`,
+    sublabel: String(p.code) === CUSTOM_CODE
+      ? 'Custom description + price'
+      : `$${(contractPrices[p.id] ?? p.price ?? 0).toFixed(2)}${
+          contractPrices[p.id] !== undefined ? ' (contract)' : ''
+        }`,
   }))
 
-  // ── Totals using resolved price ────────────────────────────────────────────
   function calculateTotals() {
-    const subtotal = items.reduce((sum: number, item: any) => {
-      return sum + item.quantity * resolveItemPrice(item)
-    }, 0)
-
-    const gst = items.reduce((sum: number, item: any) => {
-      return sum + (item.gst_applicable
-        ? item.quantity * resolveItemPrice(item) * 0.1
-        : 0)
-    }, 0)
-
+    const subtotal = items.reduce(
+      (sum: number, item: any) => sum + item.quantity * resolveItemPrice(item), 0
+    )
+    const gst = items.reduce(
+      (sum: number, item: any) =>
+        sum + (item.gst_applicable ? item.quantity * resolveItemPrice(item) * 0.1 : 0),
+      0
+    )
     return { subtotal, gst, total: subtotal + gst }
   }
 
   function updateQuantity(itemId: string, newQty: number) {
     if (newQty <= 0) {
-      setItems((prev) => prev.filter((i: any) => i.id !== itemId))
+      setItems(prev => prev.filter((i: any) => i.id !== itemId))
     } else {
-      setItems((prev) =>
-        prev.map((i: any) => (i.id === itemId ? { ...i, quantity: newQty } : i))
+      setItems(prev =>
+        prev.map((i: any) => i.id === itemId ? { ...i, quantity: newQty } : i)
       )
     }
+  }
+
+  function updateItemField(itemId: string, field: string, value: any) {
+    setItems(prev =>
+      prev.map((i: any) => i.id === itemId ? { ...i, [field]: value } : i)
+    )
   }
 
   function addProduct() {
@@ -87,27 +102,27 @@ export default function AdminOrderEditView({ order, products }: any) {
     const product = products.find((p: any) => p.id === selectedProductId)
     if (!product) return
 
-    const qty   = Math.max(1, selectedQty)
-    const price = priceForProduct(selectedProductId)
+    const qty      = Math.max(1, selectedQty)
+    const price    = priceForProduct(selectedProductId)
+    const isCustom = String(product.code) === CUSTOM_CODE
 
-    // ✅ Use resolveProductId for consistent matching
-    const existing = items.find(
-      (i: any) => resolveProductId(i) === selectedProductId
-    )
+    const existing = items.find((i: any) => resolveProductId(i) === selectedProductId)
 
-    if (existing) {
+    if (existing && !isCustom) {
       updateQuantity(existing.id, existing.quantity + qty)
     } else {
-      setItems((prev) => [
+      setItems(prev => [
         ...prev,
         {
-          id:             `new-${Date.now()}`,
-          product_id:     product.id,
-          product_name:   product.name,
-          products:       product,
-          quantity:       qty,
-          unit_price:     price,
-          gst_applicable: product.gst_applicable ?? false,
+          id:                 `new-${Date.now()}`,
+          product_id:         product.id,
+          product_name:       product.name,
+          products:           product,
+          quantity:           qty,
+          unit_price:         isCustom ? 0 : price,
+          gst_applicable:     isCustom ? false : (product.gst_applicable ?? false),
+          custom_description: '',
+          isCustomItem:       isCustom,
         },
       ])
     }
@@ -122,6 +137,21 @@ export default function AdminOrderEditView({ order, products }: any) {
       return
     }
 
+    // Validate custom items
+    for (const item of items) {
+      if (isCustomItem(item)) {
+        const desc = item.custom_description || ''
+        if (!desc.trim()) {
+          alert('Custom item (code 900) requires a description')
+          return
+        }
+        if (resolveItemPrice(item) <= 0) {
+          alert('Custom item (code 900) requires a price greater than $0')
+          return
+        }
+      }
+    }
+
     setSaving(true)
     const { total } = calculateTotals()
 
@@ -131,11 +161,14 @@ export default function AdminOrderEditView({ order, products }: any) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           items: items.map((item: any) => ({
-            product_id:     resolveProductId(item),
-            product_name:   item.products?.name ?? item.product?.name ?? item.product_name,
-            quantity:       item.quantity,
-            unit_price:     resolveItemPrice(item),   // ✅ never sends 0
-            gst_applicable: item.gst_applicable,
+            product_id:         resolveProductId(item),
+            product_name:       item.products?.name ?? item.product?.name ?? item.product_name,
+            quantity:           item.quantity,
+            unit_price:         resolveItemPrice(item),
+            gst_applicable:     item.gst_applicable,
+            custom_description: isCustomItem(item)
+              ? (item.custom_description || '').trim()
+              : null,
           })),
           total_amount:          total,
           purchase_order_number: purchaseOrderNumber || null,
@@ -147,7 +180,7 @@ export default function AdminOrderEditView({ order, products }: any) {
         router.push('/admin?success=order-updated')
       } else {
         const err = await response.json()
-        alert(`Failed to save: ${err.error ?? 'Unknown error'}`)
+        alert('Failed to save: ' + (err.error ?? 'Unknown error'))
       }
     } catch (err) {
       console.error('Save error:', err)
@@ -172,8 +205,8 @@ export default function AdminOrderEditView({ order, products }: any) {
   const { subtotal, gst, total } = calculateTotals()
 
   const orderTitle = order.invoice_number
-    ? `Edit Order #${String(order.invoice_number).padStart(6, '0')}`
-    : `Edit Order #${order.id.slice(0, 8).toUpperCase()}`
+    ? 'Edit Order #' + String(order.invoice_number).padStart(6, '0')
+    : 'Edit Order #' + order.id.slice(0, 8).toUpperCase()
 
   const deliveryDisplay = order.delivery_date
     ? new Date(order.delivery_date + 'T00:00:00').toLocaleDateString('en-AU', {
@@ -205,40 +238,38 @@ export default function AdminOrderEditView({ order, products }: any) {
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-6">
 
-          {/* ── PO / Docket ── */}
+          {/* PO / Docket */}
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">Order References</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Purchase Order Number <span className="text-gray-400">(optional)</span>
+                  Purchase Order Number
                 </label>
                 <input
                   type="text"
                   placeholder="e.g. PO-2024-1234"
                   value={purchaseOrderNumber}
-                  onChange={(e) => setPurchaseOrderNumber(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm
-                             focus:outline-none focus:ring-2 focus:ring-green-500"
+                  onChange={e => setPurchaseOrderNumber(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Docket Number <span className="text-gray-400">(optional)</span>
+                  Docket Number
                 </label>
                 <input
                   type="text"
                   placeholder="e.g. DOC-5678"
                   value={docketNumber}
-                  onChange={(e) => setDocketNumber(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm
-                             focus:outline-none focus:ring-2 focus:ring-green-500"
+                  onChange={e => setDocketNumber(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
             </div>
           </div>
 
-          {/* ── Current items ── */}
+          {/* Current items */}
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">
               Order Items
@@ -248,80 +279,125 @@ export default function AdminOrderEditView({ order, products }: any) {
             </h2>
 
             {items.length === 0 ? (
-              <p className="text-center py-8 text-gray-400">
-                No items — add products below
-              </p>
+              <p className="text-center py-8 text-gray-400">No items — add products below</p>
             ) : (
               <div className="space-y-2">
                 {items.map((item: any) => {
-                  // ✅ Resolve all fields consistently
-                  const resolvedId   = resolveProductId(item)
-                  const productCode  = item.products?.code ?? item.product?.code ?? ''
-                  const productName  = item.products?.name ?? item.product?.name ?? item.product_name ?? ''
-                  const unitPrice    = resolveItemPrice(item)
-                  const isContract   = contractPrices[resolvedId] !== undefined
+                  const resolvedId  = resolveProductId(item)
+                  const productCode = resolveProductCode(item)
+                  const productName = item.products?.name ?? item.product?.name ?? item.product_name ?? ''
+                  const unitPrice   = resolveItemPrice(item)
+                  const isContract  = contractPrices[resolvedId] !== undefined
+                  const custom      = isCustomItem(item)
 
                   return (
-                    <div
-                      key={item.id}
-                      className="flex items-center gap-3 p-3 border rounded-lg
-                                 hover:border-gray-300 transition-colors"
-                    >
-                      <span className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded
-                                       text-gray-500 shrink-0 min-w-[3rem] text-center">
-                        {productCode || '—'}
-                      </span>
+                    <div key={item.id} className="space-y-1">
 
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate">{productName}</p>
-                        <p className="text-xs text-gray-400">
-                          ${unitPrice.toFixed(2)} each
-                          {item.gst_applicable && (
-                            <span className="ml-1 text-green-600">+ GST</span>
+                      {/* Main item row */}
+                      <div className="flex items-center gap-3 p-3 border rounded-lg hover:border-gray-300 transition-colors">
+
+                        <span className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-500 shrink-0 min-w-[3rem] text-center">
+                          {productCode || '-'}
+                        </span>
+
+                        <div className="flex-1 min-w-0">
+                          {custom ? (
+                            // Custom item — show price input inline
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-medium text-amber-600 shrink-0">
+                                Custom:
+                              </span>
+                              <input
+                                type="number"
+                                min="0.01"
+                                step="0.01"
+                                value={unitPrice || ''}
+                                onChange={e =>
+                                  updateItemField(item.id, 'unit_price', parseFloat(e.target.value) || 0)
+                                }
+                                placeholder="Price $"
+                                className="w-24 border border-amber-300 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-amber-400"
+                              />
+                              <input
+                                type="checkbox"
+                                checked={item.gst_applicable ?? false}
+                                onChange={e =>
+                                  updateItemField(item.id, 'gst_applicable', e.target.checked)
+                                }
+                                className="w-3.5 h-3.5 accent-green-600"
+                                title="GST applicable"
+                              />
+                              <span className="text-xs text-gray-400">GST</span>
+                            </div>
+                          ) : (
+                            <p className="font-medium text-sm truncate">{productName}</p>
                           )}
-                          {isContract && (
-                            <span className="ml-1 text-blue-600 font-medium">Contract</span>
+                          <p className="text-xs text-gray-400">
+                            ${unitPrice.toFixed(2)} each
+                            {item.gst_applicable && (
+                              <span className="ml-1 text-green-600">+ GST</span>
+                            )}
+                            {isContract && (
+                              <span className="ml-1 text-blue-600 font-medium">Contract</span>
+                            )}
+                          </p>
+                        </div>
+
+                        {/* Qty controls */}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                            className="w-7 h-7 bg-gray-100 hover:bg-gray-200 rounded flex items-center justify-center"
+                          >
+                            <Minus className="h-3 w-3" />
+                          </button>
+                          <input
+                            type="number"
+                            min={1}
+                            value={item.quantity}
+                            onChange={e => updateQuantity(item.id, parseInt(e.target.value) || 0)}
+                            className="w-12 text-center border rounded text-sm font-semibold py-0.5"
+                          />
+                          <button
+                            onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                            className="w-7 h-7 bg-gray-100 hover:bg-gray-200 rounded flex items-center justify-center"
+                          >
+                            <Plus className="h-3 w-3" />
+                          </button>
+                        </div>
+
+                        <div className="w-20 text-right text-sm font-semibold shrink-0">
+                          ${(item.quantity * unitPrice).toFixed(2)}
+                        </div>
+
+                        <button
+                          onClick={() => updateQuantity(item.id, 0)}
+                          className="text-red-400 hover:text-red-600 shrink-0"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+
+                      {/* Custom description row — only for code 900 */}
+                      {custom && (
+                        <div className="ml-2 mr-8">
+                          <input
+                            type="text"
+                            value={item.custom_description || ''}
+                            onChange={e =>
+                              updateItemField(item.id, 'custom_description', e.target.value)
+                            }
+                            placeholder="Description e.g. Birthday Cake - 2 tier chocolate"
+                            className="w-full border border-amber-400 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-amber-50"
+                          />
+                          {!(item.custom_description || '').trim() && (
+                            <p className="text-xs text-amber-600 mt-0.5">
+                              Description required for custom items
+                            </p>
                           )}
-                        </p>
-                      </div>
+                        </div>
+                      )}
 
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                          className="w-7 h-7 bg-gray-100 hover:bg-gray-200 rounded
-                                     flex items-center justify-center"
-                        >
-                          <Minus className="h-3 w-3" />
-                        </button>
-                        <input
-                          type="number"
-                          min={1}
-                          value={item.quantity}
-                          onChange={(e) =>
-                            updateQuantity(item.id, parseInt(e.target.value) || 0)
-                          }
-                          className="w-12 text-center border rounded text-sm
-                                     font-semibold py-0.5"
-                        />
-                        <button
-                          onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                          className="w-7 h-7 bg-gray-100 hover:bg-gray-200 rounded
-                                     flex items-center justify-center"
-                        >
-                          <Plus className="h-3 w-3" />
-                        </button>
-                      </div>
-
-                      <div className="w-20 text-right text-sm font-semibold shrink-0">
-                        ${(item.quantity * unitPrice).toFixed(2)}
-                      </div>
-
-                      <button
-                        onClick={() => updateQuantity(item.id, 0)}
-                        className="text-red-400 hover:text-red-600 shrink-0"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
                     </div>
                   )
                 })}
@@ -329,7 +405,7 @@ export default function AdminOrderEditView({ order, products }: any) {
             )}
           </div>
 
-          {/* ── Add product ── */}
+          {/* Add product */}
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">Add Product</h2>
 
@@ -339,7 +415,7 @@ export default function AdminOrderEditView({ order, products }: any) {
                   label="Search products"
                   options={productOptions}
                   value={selectedProductId}
-                  onChange={(val) => setSelectedProductId(val)}
+                  onChange={val => setSelectedProductId(val)}
                   placeholder="Type product name or code..."
                   grouped={true}
                 />
@@ -351,22 +427,15 @@ export default function AdminOrderEditView({ order, products }: any) {
                   type="number"
                   min={1}
                   value={selectedQty}
-                  onChange={(e) =>
-                    setSelectedQty(Math.max(1, parseInt(e.target.value) || 1))
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm
-                             text-center font-semibold focus:outline-none
-                             focus:ring-2 focus:ring-green-500"
+                  onChange={e => setSelectedQty(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-center font-semibold focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
 
               <button
                 onClick={addProduct}
                 disabled={!selectedProductId}
-                className="px-4 py-2 bg-green-600 text-white rounded-md text-sm font-medium
-                           hover:bg-green-700 disabled:bg-gray-200 disabled:text-gray-400
-                           disabled:cursor-not-allowed transition-colors
-                           flex items-center gap-2"
+                className="px-4 py-2 bg-green-600 text-white rounded-md text-sm font-medium hover:bg-green-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
               >
                 <Plus className="h-4 w-4" /> Add
               </button>
@@ -375,27 +444,35 @@ export default function AdminOrderEditView({ order, products }: any) {
             {selectedProductId && (() => {
               const p = products.find((x: any) => x.id === selectedProductId)
               if (!p) return null
-              const price = priceForProduct(p.id)
+              const price    = priceForProduct(p.id)
+              const isCustom = String(p.code) === CUSTOM_CODE
               return (
                 <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-sm">
                   <span className="font-medium text-green-800">{p.name}</span>
-                  <span className="text-green-600 ml-2">${price.toFixed(2)} each</span>
-                  {contractPrices[p.id] !== undefined && (
-                    <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-0.5
-                                     rounded font-medium">
-                      Contract price
+                  {isCustom ? (
+                    <span className="text-amber-600 ml-2">
+                      Enter description + price after adding
                     </span>
+                  ) : (
+                    <>
+                      <span className="text-green-600 ml-2">${price.toFixed(2)} each</span>
+                      {contractPrices[p.id] !== undefined && (
+                        <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-medium">
+                          Contract price
+                        </span>
+                      )}
+                      <span className="text-green-600 ml-2">
+                        - {selectedQty} = <strong>${(price * selectedQty).toFixed(2)}</strong>
+                      </span>
+                    </>
                   )}
-                  <span className="text-green-600 ml-2">
-                    — {selectedQty} = <strong>${(price * selectedQty).toFixed(2)}</strong>
-                  </span>
                 </div>
               )
             })()}
           </div>
         </div>
 
-        {/* ── Right column — summary ── */}
+        {/* Right column — summary */}
         <div>
           <div className="bg-white rounded-lg shadow p-6 sticky top-6">
             <h2 className="text-lg font-semibold mb-4">Order Summary</h2>
@@ -419,10 +496,7 @@ export default function AdminOrderEditView({ order, products }: any) {
               <button
                 onClick={saveChanges}
                 disabled={saving || items.length === 0}
-                className="w-full py-3 bg-green-600 hover:bg-green-700 text-white
-                           rounded-lg font-semibold disabled:bg-gray-200
-                           disabled:text-gray-400 disabled:cursor-not-allowed
-                           transition-colors flex items-center justify-center gap-2"
+                className="w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
               >
                 <Save className="h-4 w-4" />
                 {saving ? 'Saving...' : 'Save Changes'}
@@ -430,25 +504,16 @@ export default function AdminOrderEditView({ order, products }: any) {
 
               <button
                 onClick={() => router.push('/admin')}
-                className="w-full py-2 border border-gray-300 rounded-lg text-sm
-                           text-gray-600 hover:bg-gray-50 transition-colors"
+                className="w-full py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors"
               >
                 Cancel
               </button>
             </div>
 
             <div className="mt-4 pt-4 border-t text-xs text-gray-400 space-y-1">
-              <p>
-                Status:{' '}
-                <span className="font-medium text-gray-600">{order.status}</span>
-              </p>
+              <p>Status: <span className="font-medium text-gray-600">{order.status}</span></p>
               {order.invoice_number && (
-                <p>
-                  Invoice #:{' '}
-                  <span className="font-medium">
-                    {String(order.invoice_number).padStart(6, '0')}
-                  </span>
-                </p>
+                <p>Invoice #: <span className="font-medium">{String(order.invoice_number).padStart(6, '0')}</span></p>
               )}
             </div>
           </div>

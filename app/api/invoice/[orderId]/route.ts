@@ -31,20 +31,21 @@ export async function GET(
           abn,
           payment_terms
         ),
-        order_items (
-          id,
-          quantity,
-          unit_price,
-          subtotal,
-          gst_applicable,
-          product_name,
-          products (
-            id,
-            code,
-            name,
-            description
-          )
-        ),
+       order_items (
+  id,
+  quantity,
+  unit_price,
+  subtotal,
+  gst_applicable,
+  product_name,
+  custom_description,        // ADD THIS LINE
+  products (
+    id,
+    code,
+    name,
+    description
+  )
+),
         invoice_numbers (
           invoice_number,
           created_at
@@ -98,11 +99,11 @@ export async function GET(
           item.products?.product_code?.toString() ||
           null
 
-        const displayName =
-          item.product_name ||
-          item.products?.name ||
-          '(no description)'
-
+      const displayName =
+  item.custom_description ||   // 900 items show custom text
+  item.product_name ||
+  item.products?.name ||
+  '(no description)'
         return {
           id:                  item.id,
           product_id:          item.products?.id,
@@ -113,6 +114,7 @@ export async function GET(
           unit_price:          item.unit_price,
           subtotal:            item.subtotal,
           gst_applicable:      item.gst_applicable !== false,
+          custom_description:  item.custom_description ?? null, 
         }
       }),
     }
