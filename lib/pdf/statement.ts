@@ -9,6 +9,8 @@ interface StatementLine {
   credit: number | null
   balance: number
   transaction_type: string
+  paid_status?: 'paid' | 'partial' | 'unpaid' | 'na'
+  amount_paid?: number
 }
 
 interface StatementData {
@@ -31,7 +33,7 @@ interface StatementData {
 export async function generateStatementPDF(data: StatementData): Promise<Buffer> {
   const { customer, lines, openingBalance, closingBalance, startDate, endDate } = data
 
-  const pdfDoc  = await PDFDocument.create()
+  const pdfDoc   = await PDFDocument.create()
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
   const font     = await pdfDoc.embedFont(StandardFonts.Helvetica)
 
@@ -39,7 +41,7 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
   const { width, height } = page.getSize()
 
   const formatCurrency = (amount: number | null) =>
-    amount == null ? '' : `$${amount.toFixed(2)}`
+    amount == null ? '' : '$' + amount.toFixed(2)
 
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr)
@@ -54,22 +56,30 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
   const RED:   [number, number, number] = [0.808, 0.067, 0.149]
   const GREY:  [number, number, number] = [0.4, 0.4, 0.4]
   const DARK:  [number, number, number] = [0.15, 0.15, 0.15]
+  const AMBER: [number, number, number] = [0.8, 0.5, 0.0]
+
+  // Column positions — shifted to fit STATUS column
+  const COL = {
+    date:    50,
+    desc:    115,
+    status:  330,
+    debit:   385,
+    credit:  450,
+    balance: 510,
+  }
+  const RIGHT_MARGIN = width - 25
 
   const drawText = (
     text: string,
     x: number,
     yPos: number,
-    opts: {
-      size?: number
-      bold?: boolean
-      color?: [number, number, number]
-    } = {}
+    opts: { size?: number; bold?: boolean; color?: [number, number, number] } = {}
   ) => {
     page.drawText(String(text ?? ''), {
       x,
-      y:    yPos,
-      size: opts.size ?? 9,
-      font: opts.bold ? fontBold : font,
+      y:     yPos,
+      size:  opts.size ?? 9,
+      font:  opts.bold ? fontBold : font,
       color: rgb(...(opts.color ?? DARK)),
     })
   }
@@ -87,10 +97,28 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
     page.drawRectangle({ x, y, width: w, height: h, color: rgb(...color) })
   }
 
-  const COL = { date: 50, desc: 125, debit: 360, credit: 430, balance: 490 }
-  const RIGHT_MARGIN = width - 50
+  // Draw status badge for invoice rows
+  const drawStatus = (status: string | undefined, x: number, y: number) => {
+    if (!status || status === 'na') return
+    if (status === 'paid') {
+      drawRect(x, y - 3, 32, 11, [0.86, 0.97, 0.88])
+      page.drawText('PAID', {
+        x: x + 4, y: y + 1, size: 6.5, font: fontBold, color: rgb(...GREEN),
+      })
+    } else if (status === 'partial') {
+      drawRect(x, y - 3, 38, 11, [0.99, 0.95, 0.82])
+      page.drawText('PART PD', {
+        x: x + 3, y: y + 1, size: 6.5, font: fontBold, color: rgb(...AMBER),
+      })
+    } else if (status === 'unpaid') {
+      drawRect(x, y - 3, 36, 11, [0.99, 0.90, 0.90])
+      page.drawText('UNPAID', {
+        x: x + 3, y: y + 1, size: 6.5, font: fontBold, color: rgb(...RED),
+      })
+    }
+  }
 
-  // ── Page header ───────────────────────────────────────────────────
+  // Page header
   const addPageHeader = (pageRef: typeof page, isFirst: boolean) => {
     const h = pageRef.getSize().height
     pageRef.drawRectangle({
@@ -105,14 +133,16 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
     })
 
     if (isFirst) {
-      const periodStr = `${startDate ? formatDate(startDate) : 'Beginning'} - ${formatDate(endDate)}`
+      const periodStr =
+        (startDate ? formatDate(startDate) : 'Beginning') +
+        ' - ' + formatDate(endDate)
       pageRef.drawText('Statement Period', {
         x: RIGHT_MARGIN - 180, y: h - 35, size: 8, font, color: rgb(0.8, 1, 0.9),
       })
       pageRef.drawText(periodStr, {
         x: RIGHT_MARGIN - 180, y: h - 50, size: 10, font: fontBold, color: rgb(1, 1, 1),
       })
-      pageRef.drawText(`Printed: ${formatDate(new Date().toISOString())}`, {
+      pageRef.drawText('Printed: ' + formatDate(new Date().toISOString()), {
         x: RIGHT_MARGIN - 180, y: h - 65, size: 8, font, color: rgb(0.8, 1, 0.9),
       })
     } else {
@@ -122,7 +152,18 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
     }
   }
 
-  // ── First page ────────────────────────────────────────────────────
+  // Draw table header row
+  const drawTableHeader = (yRef: number) => {
+    drawRect(50, yRef - 4, RIGHT_MARGIN - 50, 18, [0.1, 0.1, 0.1])
+    page.drawText('DATE',        { x: COL.date    + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
+    page.drawText('DESCRIPTION', { x: COL.desc    + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
+    page.drawText('STATUS',      { x: COL.status  + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
+    page.drawText('CHARGES',     { x: COL.debit   + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
+    page.drawText('PAYMENTS',    { x: COL.credit  + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
+    page.drawText('BALANCE',     { x: COL.balance + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
+  }
+
+  // First page
   addPageHeader(page, true)
   let y = height - 95
 
@@ -139,7 +180,7 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
   if (customer.email)   { y -= 12; drawText(customer.email,   COL.date, y, { size: 8, color: GREY }) }
   y -= 20
 
-  // Summary boxes
+  // Opening / Closing balance boxes
   const boxY  = height - 95
   const boxH  = 65
   const box1X = RIGHT_MARGIN - 220
@@ -147,14 +188,20 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
 
   drawRect(box1X, boxY - boxH, 105, boxH, [0.94, 0.97, 0.94])
   page.drawText('Opening Balance', { x: box1X + 8, y: boxY - 20, size: 7, font, color: rgb(...GREY) })
-  page.drawText(formatCurrency(openingBalance), { x: box1X + 8, y: boxY - 38, size: 13, font: fontBold, color: rgb(...DARK) })
+  page.drawText(formatCurrency(openingBalance), {
+    x: box1X + 8, y: boxY - 38, size: 13, font: fontBold, color: rgb(...DARK),
+  })
 
   const closeCol = closingBalance > 0 ? RED : GREEN
   drawRect(box2X, boxY - boxH, 105, boxH, closingBalance > 0 ? [0.97, 0.94, 0.94] : [0.94, 0.97, 0.94])
   page.drawText('Closing Balance', { x: box2X + 8, y: boxY - 20, size: 7, font, color: rgb(...GREY) })
-  page.drawText(formatCurrency(closingBalance), { x: box2X + 8, y: boxY - 38, size: 13, font: fontBold, color: rgb(...closeCol) })
+  page.drawText(formatCurrency(closingBalance), {
+    x: box2X + 8, y: boxY - 38, size: 13, font: fontBold, color: rgb(...closeCol),
+  })
   if (closingBalance > 0) {
-    page.drawText('AMOUNT DUE', { x: box2X + 8, y: boxY - 54, size: 7, font: fontBold, color: rgb(...RED) })
+    page.drawText('AMOUNT DUE', {
+      x: box2X + 8, y: boxY - 54, size: 7, font: fontBold, color: rgb(...RED),
+    })
   }
 
   y -= 10
@@ -162,53 +209,48 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
   y -= 20
 
   // Table header
-  drawRect(50, y - 4, RIGHT_MARGIN - 50, 18, [0.1, 0.1, 0.1])
-  page.drawText('DATE',        { x: COL.date    + 2, y: y + 2, size: 7.5, font: fontBold, color: rgb(1, 1, 1) })
-  page.drawText('DESCRIPTION', { x: COL.desc    + 2, y: y + 2, size: 7.5, font: fontBold, color: rgb(1, 1, 1) })
-  page.drawText('CHARGES',     { x: COL.debit   + 2, y: y + 2, size: 7.5, font: fontBold, color: rgb(1, 1, 1) })
-  page.drawText('PAYMENTS',    { x: COL.credit  + 2, y: y + 2, size: 7.5, font: fontBold, color: rgb(1, 1, 1) })
-  page.drawText('BALANCE',     { x: COL.balance + 2, y: y + 2, size: 7.5, font: fontBold, color: rgb(1, 1, 1) })
+  drawTableHeader(y)
   y -= 20
 
   // Opening balance row
-  drawText(startDate ? formatDate(startDate) : '—', COL.date,    y, { size: 8, color: GREY })
-  drawText('Opening Balance',                         COL.desc,    y, { size: 8, color: GREY, bold: true })
-  drawText(formatCurrency(openingBalance),            COL.balance, y, { size: 8, color: GREY })
+  drawText(startDate ? formatDate(startDate) : '-', COL.date,    y, { size: 8, color: GREY })
+  drawText('Opening Balance',                        COL.desc,    y, { size: 8, color: GREY, bold: true })
+  drawText(formatCurrency(openingBalance),           COL.balance, y, { size: 8, color: GREY })
   y -= 14
   drawLine(50, y, RIGHT_MARGIN, y)
   y -= 12
 
-  // ── Transaction rows ──────────────────────────────────────────────
+  // Transaction rows — oldest first (lines already sorted ascending in route)
   let rowIndex = 0
 
   for (const line of lines) {
-    if (y < 80) {
+    // New page if running out of space
+    if (y < 100) {
       page = pdfDoc.addPage([595, 842])
       addPageHeader(page, false)
       y = page.getSize().height - 100
-
-      drawRect(50, y - 4, RIGHT_MARGIN - 50, 18, [0.1, 0.1, 0.1])
-      page.drawText('DATE',        { x: COL.date    + 2, y: y + 2, size: 7.5, font: fontBold, color: rgb(1, 1, 1) })
-      page.drawText('DESCRIPTION', { x: COL.desc    + 2, y: y + 2, size: 7.5, font: fontBold, color: rgb(1, 1, 1) })
-      page.drawText('CHARGES',     { x: COL.debit   + 2, y: y + 2, size: 7.5, font: fontBold, color: rgb(1, 1, 1) })
-      page.drawText('PAYMENTS',    { x: COL.credit  + 2, y: y + 2, size: 7.5, font: fontBold, color: rgb(1, 1, 1) })
-      page.drawText('BALANCE',     { x: COL.balance + 2, y: y + 2, size: 7.5, font: fontBold, color: rgb(1, 1, 1) })
+      drawTableHeader(y)
       y -= 20
       rowIndex = 0
     }
 
+    // Alternating row background
     if (rowIndex % 2 === 0) {
       drawRect(50, y - 4, RIGHT_MARGIN - 50, 16, [0.97, 0.97, 0.97])
     }
 
-    const isCredit = line.transaction_type === 'payment' || line.transaction_type === 'credit'
-
-    const desc = line.description.length > 38
-      ? line.description.substring(0, 36) + '...'
+    // Truncate description to fit shorter column
+    const desc = line.description.length > 30
+      ? line.description.substring(0, 28) + '..'
       : line.description
 
     drawText(formatDate(line.date), COL.date, y, { size: 8 })
     drawText(desc,                  COL.desc, y, { size: 8 })
+
+    // Status badge — only on invoice rows
+    if (line.transaction_type === 'invoice') {
+      drawStatus(line.paid_status, COL.status, y)
+    }
 
     if (line.debit != null && line.debit > 0) {
       drawText(formatCurrency(line.debit), COL.debit, y, { size: 8 })
@@ -224,7 +266,7 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
     rowIndex++
   }
 
-  // ── Totals ────────────────────────────────────────────────────────
+  // Totals row
   y -= 4
   drawLine(50, y, RIGHT_MARGIN, y, 1)
   y -= 18
@@ -232,15 +274,15 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
   const totalDebits  = lines.reduce((s, l) => s + (l.debit  ?? 0), 0)
   const totalCredits = lines.reduce((s, l) => s + (l.credit ?? 0), 0)
 
-  drawText('TOTALS',                     COL.desc,   y, { size: 9, bold: true })
-  drawText(formatCurrency(totalDebits),  COL.debit,  y, { size: 9, bold: true })
-  drawText(formatCurrency(totalCredits), COL.credit, y, { size: 9, bold: true, color: GREEN })
+  drawText('TOTALS',                    COL.desc,    y, { size: 9, bold: true })
+  drawText(formatCurrency(totalDebits), COL.debit,   y, { size: 9, bold: true })
+  drawText(formatCurrency(totalCredits),COL.credit,  y, { size: 9, bold: true, color: GREEN })
 
   y -= 8
   drawLine(50, y, RIGHT_MARGIN, y)
   y -= 20
 
-  // Closing balance highlight box
+  // Closing balance highlight
   drawRect(
     300, y - 8, RIGHT_MARGIN - 300, 28,
     closingBalance > 0 ? [0.99, 0.94, 0.94] : [0.94, 0.99, 0.94]
@@ -252,13 +294,13 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
     { size: 11, bold: true, color: closingBalance > 0 ? RED : GREEN }
   )
 
-  // ── Footer ────────────────────────────────────────────────────────
+  // Footer
   y -= 45
   drawLine(50, y, RIGHT_MARGIN, y)
   y -= 15
 
   drawText(
-    `Payment Terms: ${customer.payment_terms || '30 days'}`,
+    'Payment Terms: ' + (customer.payment_terms || '30 days'),
     50, y,
     { size: 8, color: GREY }
   )
@@ -268,15 +310,14 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
     { size: 8, color: GREY }
   )
 
+  y -= 16
   if (closingBalance > 0) {
-    y -= 16
     drawText(
-      `Amount of ${formatCurrency(closingBalance)} is due for payment.`,
+      'Amount of ' + formatCurrency(closingBalance) + ' is due for payment.',
       50, y,
       { size: 8, color: RED }
     )
   } else {
-    y -= 16
     drawText(
       'Your account is up to date. Thank you for your business.',
       50, y,
@@ -284,7 +325,6 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
     )
   }
 
-  // ── Serialize ─────────────────────────────────────────────────────
   const pdfBytes = await pdfDoc.save()
   return Buffer.from(pdfBytes)
 }
