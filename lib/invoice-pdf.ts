@@ -323,4 +323,4 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<jsPDF> {
   doc.text('Thank you for your business!', 105, 284, { align: 'center' });
 
   return doc;
-}}
+}}}
