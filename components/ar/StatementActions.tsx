@@ -1,8 +1,9 @@
 ﻿'use client'
-import { useState, useMemo } from 'react'
+
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Download, Mail, Calendar, Loader2, FileText } from 'lucide-react'
-import { addMonths, format } from 'date-fns'
+import { addMonths, format, startOfDay } from 'date-fns'
 
 interface StatementActionsProps {
   customer: {
@@ -16,66 +17,80 @@ interface StatementActionsProps {
   }
 }
 
-export default function StatementActions({ customer }: StatementActionsProps) {
- const [dateRange, setDateRange] = useState(() => ({
-  from: addMonths(new Date(), -1),
-  to: new Date(),
-}))
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [isSending, setIsSending] = useState(false)
-
-  const presets = useMemo(() => [
-  { label: 'Last Month',   from: addMonths(new Date(), -1), to: new Date() },
-  { label: 'Last 3 Months',from: addMonths(new Date(), -3), to: new Date() },
-  { label: 'YTD',          from: new Date(new Date().getFullYear(), 0, 1), to: new Date() },
-  { label: 'All Time',     from: new Date(2020, 0, 1), to: new Date() },
-], [])
-
- const handleOpenInvoices = async () => {
-  setIsGenerating(true)
-  try {
-    const res = await fetch(`/api/statement/${customer.id}/open-invoices`)
-    if (!res.ok) throw new Error('Failed to generate')
-    const blob = await res.blob()
-    const url  = URL.createObjectURL(blob)
-    const a    = document.createElement('a')
-    a.href     = url
-    a.download = `open-invoices-${customer.business_name?.replace(/\s+/g, '-') || customer.id}.pdf`
-    a.click()
-    URL.revokeObjectURL(url)
-  } catch (err: any) {
-    alert('Failed: ' + err.message)
-  } finally {
-    setIsGenerating(false)
-  }
+type Preset = {
+  label: string
+  from: Date
+  to: Date
 }
-const handlePrintStatement = async () => {
+
+function getPresets(): Preset[] {
+  const today = startOfDay(new Date())
+  return [
+    { label: 'Last Month',    from: addMonths(today, -1), to: today },
+    { label: 'Last 3 Months', from: addMonths(today, -3), to: today },
+    { label: 'YTD',           from: new Date(today.getFullYear(), 0, 1), to: today },
+    { label: 'All Time',      from: new Date(2020, 0, 1), to: today },
+  ]
+}
+
+export default function StatementActions({ customer }: StatementActionsProps) {
+  // Use null initial state to avoid hydration mismatch
+  // Dates are only set after component mounts on client
+  const [mounted, setMounted]         = useState(false)
+  const [dateFrom, setDateFrom]       = useState('')
+  const [dateTo, setDateTo]           = useState('')
+  const [activePreset, setActivePreset] = useState('Last Month')
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [isSending, setIsSending]       = useState(false)
+
+  // Set dates only on client after mount — prevents hydration mismatch
+  useEffect(() => {
+    const today = startOfDay(new Date())
+    setDateFrom(format(addMonths(today, -1), 'yyyy-MM-dd'))
+    setDateTo(format(today, 'yyyy-MM-dd'))
+    setMounted(true)
+  }, [])
+
+  function applyPreset(preset: Preset) {
+    setDateFrom(format(preset.from, 'yyyy-MM-dd'))
+    setDateTo(format(preset.to,   'yyyy-MM-dd'))
+    setActivePreset(preset.label)
+  }
+
+  const handleOpenInvoices = async () => {
     setIsGenerating(true)
     try {
-      const params = new URLSearchParams({
-        startDate: format(dateRange.from, 'yyyy-MM-dd'),
-        endDate: format(dateRange.to, 'yyyy-MM-dd'),
-      })
+      const res = await fetch('/api/statement/' + customer.id + '/open-invoices')
+      if (!res.ok) throw new Error('Failed to generate open invoices PDF')
+      const blob = await res.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = 'open-invoices-' + (customer.business_name || customer.id).replace(/\s+/g, '-') + '.pdf'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err: any) {
+      alert('Failed: ' + err.message)
+    } finally {
+      setIsGenerating(false)
+    }
+  }
 
-      const response = await fetch(`/api/statement/${customer.id}?${params}`)
-
-      if (!response.ok) {
-        throw new Error('Failed to generate statement')
-      }
-
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      
-      const printWindow = window.open(url)
-      if (printWindow) {
-        printWindow.addEventListener('load', () => {
-          printWindow.print()
-        })
-      }
-
-    } catch (error) {
-      console.error('Error generating statement:', error)
-      alert('Failed to generate statement. Please try again.')
+  const handlePrintStatement = async () => {
+    setIsGenerating(true)
+    try {
+      const params = new URLSearchParams({ startDate: dateFrom, endDate: dateTo })
+      const res    = await fetch('/api/statement/' + customer.id + '?' + params)
+      if (!res.ok) throw new Error('Failed to generate statement')
+      const blob = await res.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = 'statement-' + (customer.business_name || customer.id).replace(/\s+/g, '-') + '.pdf'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err: any) {
+      alert('Failed to generate statement: ' + err.message)
     } finally {
       setIsGenerating(false)
     }
@@ -86,61 +101,58 @@ const handlePrintStatement = async () => {
       alert('Customer has no email address on file')
       return
     }
-
-    const confirmed = confirm(
-      `Send statement to ${customer.email}?\n\nPeriod: ${format(dateRange.from, 'dd/MM/yyyy')} - ${format(dateRange.to, 'dd/MM/yyyy')}`
-    )
-
-    if (!confirmed) return
-
+    if (!confirm('Send statement to ' + customer.email + '?\n\nPeriod: ' + dateFrom + ' to ' + dateTo)) {
+      return
+    }
     setIsSending(true)
     try {
-      const params = new URLSearchParams({
-        startDate: format(dateRange.from, 'yyyy-MM-dd'),
-        endDate: format(dateRange.to, 'yyyy-MM-dd'),
-      })
-
+      const params   = new URLSearchParams({ startDate: dateFrom, endDate: dateTo })
       const response = await fetch(
-        `/api/statement/${customer.id}/email?${params}`,
+        '/api/statement/' + customer.id + '/email?' + params,
         { method: 'POST' }
       )
-
       if (!response.ok) {
         const error = await response.json()
         throw new Error(error.error || 'Failed to send statement')
       }
-
-      alert(`âœ… Statement sent successfully to ${customer.email}`)
-
-    } catch (error: any) {
-      console.error('Error sending statement:', error)
-      alert(`âŒ Failed to send statement: ${error.message}`)
+      alert('Statement sent successfully to ' + customer.email)
+    } catch (err: any) {
+      alert('Failed to send statement: ' + err.message)
     } finally {
       setIsSending(false)
     }
   }
 
+  // Render nothing date-related until mounted — avoids hydration mismatch
+  if (!mounted) {
+    return (
+      <div className="bg-white rounded-lg shadow-md p-6 border">
+        <h3 className="text-lg font-semibold mb-4" style={{ color: '#006A4E' }}>
+          Statement Actions
+        </h3>
+        <div className="h-24 animate-pulse bg-gray-100 rounded" />
+      </div>
+    )
+  }
+
+  const presets = getPresets()
+
   return (
     <div className="bg-white rounded-lg shadow-md p-6 border">
       <h3 className="text-lg font-semibold mb-4" style={{ color: '#006A4E' }}>
-        ðŸ“„ Statement Actions
+        Statement Actions
       </h3>
 
       <div className="mb-4">
         <p className="text-sm text-gray-600 mb-2">Select Period:</p>
         <div className="flex flex-wrap gap-2">
-          {presets.map((preset) => (
+          {presets.map(preset => (
             <Button
               key={preset.label}
               variant="outline"
               size="sm"
-              onClick={() => setDateRange({ from: preset.from, to: preset.to })}
-              className={
-                format(dateRange.from, 'yyyy-MM-dd') === format(preset.from, 'yyyy-MM-dd') &&
-                format(dateRange.to, 'yyyy-MM-dd') === format(preset.to, 'yyyy-MM-dd')
-                  ? 'border-green-600 bg-green-50'
-                  : ''
-              }
+              onClick={() => applyPreset(preset)}
+              className={activePreset === preset.label ? 'border-green-600 bg-green-50' : ''}
             >
               {preset.label}
             </Button>
@@ -152,13 +164,11 @@ const handlePrintStatement = async () => {
         <div className="flex items-center gap-2 text-sm">
           <Calendar className="h-4 w-4 text-gray-500" />
           <span className="font-medium">Selected Period:</span>
-          <span className="text-gray-700">
-            {format(dateRange.from, 'dd/MM/yyyy')} - {format(dateRange.to, 'dd/MM/yyyy')}
-          </span>
+          <span className="text-gray-700">{dateFrom} to {dateTo}</span>
         </div>
       </div>
 
-      <div className="flex gap-3">
+      <div className="flex flex-wrap gap-3">
         <Button
           onClick={handlePrintStatement}
           disabled={isGenerating}
@@ -166,27 +176,22 @@ const handlePrintStatement = async () => {
           style={{ backgroundColor: '#006A4E', color: 'white' }}
         >
           {isGenerating ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Generating...
-            </>
+            <><Loader2 className="h-4 w-4 animate-spin" /> Generating...</>
           ) : (
-            <>
-              <Download className="h-4 w-4" />
-              Print Statement
-            </>
+            <><Download className="h-4 w-4" /> Print Statement</>
           )}
         </Button>
-// Add button in JSX:
-<Button
-  onClick={handleOpenInvoices}
-  disabled={isGenerating}
-  variant="outline"
-  className="gap-2"
->
-  <FileText className="h-4 w-4" />
-  Open Invoices PDF
-</Button>
+
+        <Button
+          onClick={handleOpenInvoices}
+          disabled={isGenerating}
+          variant="outline"
+          className="gap-2"
+        >
+          <FileText className="h-4 w-4" />
+          Open Invoices PDF
+        </Button>
+
         <Button
           onClick={handleEmailStatement}
           disabled={isSending || !customer.email}
@@ -194,22 +199,15 @@ const handlePrintStatement = async () => {
           className="gap-2"
         >
           {isSending ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Sending...
-            </>
+            <><Loader2 className="h-4 w-4 animate-spin" /> Sending...</>
           ) : (
-            <>
-              <Mail className="h-4 w-4" />
-              Email Statement
-            </>
+            <><Mail className="h-4 w-4" /> Email Statement</>
           )}
         </Button>
       </div>
 
       {!customer.email && (
-        <p className="text-sm text-amber-600 mt-3 flex items-center gap-1">
-          <span>âš ï¸</span>
+        <p className="text-sm text-amber-600 mt-3">
           No email on file - email button disabled
         </p>
       )}
