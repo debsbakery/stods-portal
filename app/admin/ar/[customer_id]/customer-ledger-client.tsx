@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState } from 'react'
 import { formatCurrency } from '@/lib/utils'
@@ -69,7 +69,6 @@ export default function CustomerLedgerClient({
     }
     setError('')
     setSaving(true)
-
     try {
       const res = await fetch('/api/admin/payments', {
         method:  'POST',
@@ -84,16 +83,13 @@ export default function CustomerLedgerClient({
           allocations:      [],
         }),
       })
-
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Failed to record payment')
-
       setShowPayment(false)
       setPayAmount('')
       setPayRef('')
       setPayNotes('')
       router.refresh()
-
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -103,7 +99,6 @@ export default function CustomerLedgerClient({
 
   return (
     <>
-      {/* Header row */}
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-lg font-semibold text-gray-800">
           Transaction Ledger
@@ -122,7 +117,6 @@ export default function CustomerLedgerClient({
         )}
       </div>
 
-      {/* Ledger table */}
       <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -157,7 +151,6 @@ export default function CustomerLedgerClient({
                     <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
                       {formatAusDate(entry.date)}
                     </td>
-
                     <td className="px-4 py-3">
                       {entry.type === 'invoice' && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium">
@@ -175,12 +168,9 @@ export default function CustomerLedgerClient({
                         </span>
                       )}
                     </td>
-
                     <td className="px-4 py-3 text-gray-700 max-w-xs truncate">
                       {entry.description}
                     </td>
-
-                    {/* Paid status badge */}
                     <td className="px-3 py-3 text-center">
                       {entry.type === 'invoice' && (
                         <>
@@ -202,15 +192,12 @@ export default function CustomerLedgerClient({
                         </>
                       )}
                     </td>
-
                     <td className="px-4 py-3 text-right font-mono text-red-600">
                       {entry.debit > 0 ? formatCurrency(entry.debit) : '—'}
                     </td>
-
                     <td className="px-4 py-3 text-right font-mono text-green-600">
                       {entry.credit > 0 ? formatCurrency(entry.credit) : '—'}
                     </td>
-
                     <td
                       className="px-4 py-3 text-right font-mono font-semibold"
                       style={{ color: entry.balance > 0 ? '#CE1126' : '#006A4E' }}
@@ -225,11 +212,9 @@ export default function CustomerLedgerClient({
         </div>
       </div>
 
-      {/* Record Payment Modal */}
       {showPayment && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
-
             <div className="flex items-center justify-between p-5 border-b">
               <div>
                 <h3 className="text-lg font-bold text-gray-900">Record Payment</h3>
@@ -245,15 +230,12 @@ export default function CustomerLedgerClient({
                 <X className="h-5 w-5" />
               </button>
             </div>
-
             <div className="p-5 space-y-4">
-
               {error && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
                   {error}
                 </div>
               )}
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Amount <span className="text-red-500">*</span>
@@ -278,7 +260,6 @@ export default function CustomerLedgerClient({
                   Pay full balance ({formatCurrency(currentBalance)})
                 </button>
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Payment Date <span className="text-red-500">*</span>
@@ -290,7 +271,6 @@ export default function CustomerLedgerClient({
                   className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Payment Method
@@ -307,7 +287,6 @@ export default function CustomerLedgerClient({
                   <option value="other">Other</option>
                 </select>
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Reference Number
@@ -320,7 +299,6 @@ export default function CustomerLedgerClient({
                   className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Notes
@@ -334,7 +312,6 @@ export default function CustomerLedgerClient({
                 />
               </div>
             </div>
-
             <div className="flex gap-3 p-5 border-t bg-gray-50 rounded-b-xl">
               <button
                 onClick={() => { setShowPayment(false); setError('') }}
@@ -355,7 +332,6 @@ export default function CustomerLedgerClient({
                 )}
               </button>
             </div>
-
           </div>
         </div>
       )}
