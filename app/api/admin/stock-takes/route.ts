@@ -21,7 +21,9 @@ export async function GET(req: NextRequest) {
         items:stock_take_items (
           id,
           ingredient_id,
-          counted_qty_kg,
+          counted_packs,
+          pack_size_kg,
+          total_kg,
           notes,
           ingredients ( id, name, unit, unit_cost )
         )
@@ -72,7 +74,9 @@ export async function POST(req: NextRequest) {
           items.map((i: any) => ({
             stock_take_id:  stockTake.id,
             ingredient_id:  i.ingredient_id,
-            counted_qty_kg: i.counted_qty_kg ?? null,
+            counted_packs:  i.counted_packs  ?? null,
+            pack_size_kg:   i.pack_size_kg   ?? null,
+            total_kg:       i.total_kg       ?? null,
             notes:          i.notes          || null,
           }))
         )
@@ -100,8 +104,7 @@ export async function PUT(req: NextRequest) {
     if (take_date !== undefined) updateData.take_date = take_date
     if (notes !== undefined)     updateData.notes     = notes
     if (status !== undefined) {
-      updateData.status = status
-      if (status === 'completed') updateData.completed_at = new Date().toISOString()
+      updateData.status = statusif (status === 'completed') updateData.completed_at = new Date().toISOString()
     }
 
     const { data: stockTake, error: takeError } = await supabase
@@ -123,7 +126,9 @@ export async function PUT(req: NextRequest) {
             items.map((i: any) => ({
               stock_take_id:  id,
               ingredient_id:  i.ingredient_id,
-              counted_qty_kg: i.counted_qty_kg ?? null,
+              counted_packs:  i.counted_packs  ?? null,
+              pack_size_kg:   i.pack_size_kg   ?? null,
+              total_kg:       i.total_kg       ?? null,
               notes:          i.notes          || null,
             }))
           )

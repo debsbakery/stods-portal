@@ -24,10 +24,15 @@ interface Props {
   initialStockTakes: StockTake[]
 }
 
+interface CountEntry {
+  packs: string
+  pack_size_kg: string
+}
+
 export default function StockTakeView({ ingredients, initialStockTakes }: Props) {
   const [stockTakes, setStockTakes] = useState<StockTake[]>(initialStockTakes)
   const [activeId, setActiveId]     = useState<string | null>(null)
-  const [counts, setCounts]         = useState<Record<string, string>>({})
+  const [counts, setCounts]         = useState<Record<string, CountEntry>>({})
   const [takeDate, setTakeDate]     = useState(new Date().toISOString().split('T')[0])
   const [notes, setNotes]           = useState('')
   const [saving, setSaving]         = useState(false)
@@ -48,7 +53,9 @@ export default function StockTakeView({ ingredients, initialStockTakes }: Props)
           notes:     notes || null,
           items:     ingredients.map((ing) => ({
             ingredient_id:  ing.id,
-            counted_qty_kg: null,
+            counted_packs:  null,
+            pack_size_kg:   null,
+            total_kg:       null,
             notes:          null,
           })),
         }),
@@ -57,7 +64,7 @@ export default function StockTakeView({ ingredients, initialStockTakes }: Props)
       const json = await res.json()
       if (!res.ok) throw new Error(json.error)
 
-      setSuccess('Stock take created — enter counts below')
+      setSuccess('Stock take created — enter pack counts below')
       setActiveId(json.data.id)
       setCounts({})
       setNotes('')
@@ -79,19 +86,27 @@ export default function StockTakeView({ ingredients, initialStockTakes }: Props)
     setSaving(true)
 
     try {
-      const items = ingredients.map((ing) => ({
-        ingredient_id:  ing.id,
-        counted_qty_kg: counts[ing.id] ? Number(counts[ing.id]) : null,
-        notes:          null,
-      }))
+      const items = ingredients.map((ing) => {
+        const entry = counts[ing.id]
+        const packs = entry?.packs ? Number(entry.packs) : 0
+        const packSize = entry?.pack_size_kg ? Number(entry.pack_size_kg) : 0
+        const totalKg = packs * packSize
+
+        return {
+          ingredient_id:  ing.id,
+          counted_packs:  packs > 0 ? packs : null,
+          pack_size_kg:   packSize > 0 ? packSize : null,
+          total_kg:       totalKg > 0 ? totalKg : null,
+          notes:          null,
+        }
+      })
 
       const res = await fetch('/api/admin/stock-takes', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id:     activeId,
-          items,
-          status: 'completed',
+          items,status: 'completed',
         }),
       })
 
@@ -121,8 +136,7 @@ export default function StockTakeView({ ingredients, initialStockTakes }: Props)
         body: JSON.stringify({ id }),
       })
       if (!res.ok) throw new Error('Delete failed')
-      setStockTakes((prev) => prev.filter((st) => st.id !== id))
-      if (activeId === id) {
+      setStockTakes((prev) => prev.filter((st) => st.id !== id))if (activeId === id) {
         setActiveId(null)
         setCounts({})
       }
@@ -135,9 +149,29 @@ export default function StockTakeView({ ingredients, initialStockTakes }: Props)
     window.print()
   }
 
+  function updateCount(ingId: string, field: 'packs' | 'pack_size_kg', value: string) {
+    setCounts({
+      ...counts,
+      [ingId]: {
+        packs:        field === 'packs'        ? value : (counts[ingId]?.packs        ?? ''),
+        pack_size_kg: field === 'pack_size_kg' ? value : (counts[ingId]?.pack_size_kg ?? ''),
+      },
+    })
+  }
+
   const totalValue = ingredients.reduce((sum, ing) => {
-    const qty = counts[ing.id] ? Number(counts[ing.id]) : 0
-    return sum + qty * Number(ing.unit_cost)
+    const entry = counts[ing.id]
+    const packs = entry?.packs ? Number(entry.packs) : 0
+    const packSize = entry?.pack_size_kg ? Number(entry.pack_size_kg) : 0
+    const totalKg = packs * packSize
+    return sum + totalKg * Number(ing.unit_cost)
+  }, 0)
+
+  const totalKg = ingredients.reduce((sum, ing) => {
+    const entry = counts[ing.id]
+    const packs = entry?.packs ? Number(entry.packs) : 0
+    const packSize = entry?.pack_size_kg ? Number(entry.pack_size_kg) : 0
+    return sum + packs * packSize
   }, 0)
 
   return (
@@ -190,8 +224,7 @@ export default function StockTakeView({ ingredients, initialStockTakes }: Props)
             disabled={saving}
             className="w-full py-3 rounded-lg text-white font-bold text-sm hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2"
             style={{ backgroundColor: '#006A4E' }}
-          >
-            <Plus className="h-4 w-4" />
+          ><Plus className="h-4 w-4" />
             {saving ? 'Creating...' : 'Create Stock Take Sheet'}
           </button>
         </div>
@@ -199,11 +232,11 @@ export default function StockTakeView({ ingredients, initialStockTakes }: Props)
 
       {/* Active Stock Take Entry */}
       {activeId && (
-        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-          <div className="px-6 py-4 bg-green-50 border-b border-green-200 flex items-center justify-between">
+        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden print-area">
+          <div className="px-6 py-4 bg-green-50 border-b border-green-200 flex items-center justify-between no-print">
             <div>
               <h2 className="font-bold text-green-900">Active Stock Take — {takeDate}</h2>
-              <p className="text-xs text-green-700 mt-0.5">Enter counted quantities below</p>
+              <p className="text-xs text-green-700 mt-0.5">Count packs and enter pack size</p>
             </div>
             <div className="flex gap-2">
               <button
@@ -225,6 +258,18 @@ export default function StockTakeView({ ingredients, initialStockTakes }: Props)
             </div>
           </div>
 
+          {/* Summary KPIs */}
+          <div className="grid grid-cols-2 divide-x divide-gray-200 border-b border-gray-200 no-print">
+            <div className="px-5 py-3">
+              <p className="text-xs text-gray-500">Total Stock (kg)</p>
+              <p className="font-bold text-gray-800 text-lg">{totalKg.toFixed(2)}</p>
+            </div>
+            <div className="px-5 py-3">
+              <p className="text-xs text-gray-500">Total Stock Value</p>
+              <p className="font-bold text-gray-800 text-lg">${totalValue.toFixed(2)}</p>
+            </div>
+          </div>
+
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
@@ -235,7 +280,13 @@ export default function StockTakeView({ ingredients, initialStockTakes }: Props)
                   Unit Cost
                 </th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">
-                  Counted Qty (kg)
+                  Packs
+                </th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">
+                  Pack Size (kg)
+                </th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">
+                  Total (kg)
                 </th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">
                   Value
@@ -244,37 +295,56 @@ export default function StockTakeView({ ingredients, initialStockTakes }: Props)
             </thead>
             <tbody className="divide-y divide-gray-100">
               {ingredients.map((ing) => {
-                const qty = counts[ing.id] ? Number(counts[ing.id]) : 0
-                const value = qty * Number(ing.unit_cost)
+                const entry = counts[ing.id]
+                const packs = entry?.packs ? Number(entry.packs) : 0
+                const packSize = entry?.pack_size_kg ? Number(entry.pack_size_kg) : 0
+                const totalKg = packs * packSize
+                const value = totalKg * Number(ing.unit_cost)
+
                 return (
                   <tr key={ing.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 font-medium text-gray-900">{ing.name}</td>
-                    <td className="px-4 py-3 text-right text-gray-600">
+                    <td className="px-4 py-3 text-right text-gray-600 text-xs">
                       ${Number(ing.unit_cost).toFixed(4)}/{ing.unit}
+                    </td>
+                    <td className="px-4 py-3"><input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={entry?.packs ?? ''}
+                        onChange={(e) => updateCount(ing.id, 'packs', e.target.value)}
+                        placeholder="0"
+                        className="w-full text-right border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                      />
                     </td>
                     <td className="px-4 py-3">
                       <input
                         type="number"
                         min="0"
                         step="0.01"
-                        value={counts[ing.id] ?? ''}
-                        onChange={(e) =>
-                          setCounts({ ...counts, [ing.id]: e.target.value })
-                        }
+                        value={entry?.pack_size_kg ?? ''}
+                        onChange={(e) => updateCount(ing.id, 'pack_size_kg', e.target.value)}
                         placeholder="0.00"
                         className="w-full text-right border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                       />
                     </td>
+                    <td className="px-4 py-3 text-right font-mono text-gray-700">
+                      {totalKg > 0 ? totalKg.toFixed(2) : '—'}
+                    </td>
                     <td className="px-4 py-3 text-right font-semibold text-gray-900">
-                      ${value.toFixed(2)}
+                      {value > 0 ? '$' + value.toFixed(2) : '—'}
                     </td>
                   </tr>
                 )
               })}
-            </tbody><tfoot className="border-t-2 border-gray-300 bg-gray-50">
+            </tbody>
+            <tfoot className="border-t-2 border-gray-300 bg-gray-50">
               <tr>
-                <td colSpan={3} className="px-4 py-3 font-bold text-gray-800">
-                  Total Stock Value
+                <td colSpan={4} className="px-4 py-3 font-bold text-gray-800">
+                  Total
+                </td>
+                <td className="px-4 py-3 text-right font-bold font-mono text-gray-900">
+                  {totalKg.toFixed(2)} kg
                 </td>
                 <td className="px-4 py-3 text-right font-bold text-gray-900 text-base">
                   ${totalValue.toFixed(2)}
