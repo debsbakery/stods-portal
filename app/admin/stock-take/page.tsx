@@ -1,152 +1,70 @@
 export const dynamic = 'force-dynamic'
 
-import { NextRequest, NextResponse } from 'next/server'
+import { checkAdmin } from '@/lib/auth'
+import { redirect } from 'next/navigation'
+import { ArrowLeft } from 'lucide-react'
 import { createAdminClient } from '@/lib/supabase/admin'
+import StockTakeView from './stock-take-view'
 
-export async function GET(req: NextRequest) {
+async function getData() {
   const supabase = createAdminClient()
-  const { searchParams } = new URL(req.url)
-  const id = searchParams.get('id')
 
-  if (id) {
-    const { data: stockTake, error: takeError } = await supabase
-      .from('stock_takes')
-      .select(`
-        id,
-        take_date,
-        notes,
-        status,
-        created_at,
-        completed_at,
-        items:stock_take_items (
-          id,
-          ingredient_id,
-          counted_qty_kg,
-          notes,
-          ingredients ( id, name, unit, unit_cost )
-        )
-      `)
-      .eq('id', id)
-      .single()
+  const { data: ingredients } = await supabase
+    .from('ingredients')
+    .select('id, name, unit, unit_cost')
+    .order('name', { ascending: true })
 
-    if (takeError) return NextResponse.json({ error: takeError.message }, { status: 500 })
-    return NextResponse.json({ data: stockTake })
-  }
-
-  const { data: stockTakes, error } = await supabase
+  const { data: stockTakes } = await supabase
     .from('stock_takes')
     .select('id, take_date, notes, status, created_at, completed_at')
     .order('take_date', { ascending: false })
+    .limit(20)
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ data: stockTakes })
-}
-
-export async function POST(req: NextRequest) {
-  const supabase = createAdminClient()
-
-  try {
-    const body = await req.json()
-    const { take_date, notes, items } = body
-
-    if (!take_date) {
-      return NextResponse.json({ error: 'take_date required' }, { status: 400 })
-    }
-
-    const { data: stockTake, error: takeError } = await supabase
-      .from('stock_takes')
-      .insert({
-        take_date,
-        notes:  notes  || null,
-        status: 'draft',
-      })
-      .select()
-      .single()
-
-    if (takeError) throw takeError
-
-    if (items && items.length > 0) {
-      const { error: itemsError } = await supabase
-        .from('stock_take_items')
-        .insert(
-          items.map((i: any) => ({
-            stock_take_id:  stockTake.id,
-            ingredient_id:  i.ingredient_id,
-            counted_qty_kg: i.counted_qty_kg ?? null,
-            notes:          i.notes          || null,
-          }))
-        )
-
-      if (itemsError) throw itemsError
-    }
-
-    return NextResponse.json({ data: stockTake }, { status: 201 })
-  } catch (error: any) {
-    console.error('Stock take error:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  return {
+    ingredients: (ingredients ?? []).map((i) => ({
+      id:        i.id,
+      name:      i.name,
+      unit:      i.unit,
+      unit_cost: Number(i.unit_cost),})),
+    stockTakes: (stockTakes ?? []).map((st) => ({
+      id:           st.id,
+      take_date:    st.take_date,
+      notes:        st.notes,
+      status:       st.status,
+      created_at:   st.created_at,
+      completed_at: st.completed_at,
+    })),
   }
 }
 
-export async function PUT(req: NextRequest) {
-  const supabase = createAdminClient()
+export default async function StockTakePage() {
+  const isAdmin = await checkAdmin()
+  if (!isAdmin) redirect('/')
 
-  try {
-    const body = await req.json()
-    const { id, take_date, notes, status, items } = body
+  const { ingredients, stockTakes } = await getData()
 
-    if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
+  return (
+    <div className="container mx-auto px-4 py-8">
+      <a
+        href="/admin"
+        className="flex items-center gap-1 text-sm mb-4 hover:opacity-80"
+        style={{ color: '#CE1126' }}
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back to Admin
+      </a>
 
-    const updateData: any = {}
-    if (take_date !== undefined) updateData.take_date = take_date
-    if (notes !== undefined)     updateData.notes     = notes
-    if (status !== undefined) {
-      updateData.status = status
-      if (status === 'completed') updateData.completed_at = new Date().toISOString()
-    }
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold">Stock Take</h1>
+        <p className="text-gray-600 mt-1">
+          Print blank sheet → count physical stock → enter counts
+        </p>
+      </div>
 
-    const { data: stockTake, error: takeError } = await supabase
-      .from('stock_takes')
-      .update(updateData)
-      .eq('id', id)
-      .select()
-      .single()
-
-    if (takeError) throw takeError
-
-    if (items) {
-      await supabase.from('stock_take_items').delete().eq('stock_take_id', id)
-
-      if (items.length > 0) {
-        const { error: itemsError } = await supabase
-          .from('stock_take_items')
-          .insert(
-            items.map((i: any) => ({
-              stock_take_id:  id,
-              ingredient_id:  i.ingredient_id,
-              counted_qty_kg: i.counted_qty_kg ?? null,
-              notes:          i.notes          || null,
-            }))
-          )
-
-        if (itemsError) throw itemsError
-      }
-    }
-
-    return NextResponse.json({ data: stockTake })
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-}
-
-export async function DELETE(req: NextRequest) {
-  const supabase = createAdminClient()
-  try {
-    const { id } = await req.json()
-    if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
-    const { error } = await supabase.from('stock_takes').delete().eq('id', id)
-    if (error) throw error
-    return NextResponse.json({ ok: true })
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
+      <StockTakeView
+        ingredients={ingredients}
+        initialStockTakes={stockTakes}
+      />
+    </div>
+  )
 }
