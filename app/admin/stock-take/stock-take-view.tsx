@@ -128,22 +128,23 @@ export default function StockTakeView({ ingredients, initialStockTakes }: Props)
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this stock take?')) return
-    try {
-      const res = await fetch('/api/admin/stock-takes', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
-      })
-      if (!res.ok) throw new Error('Delete failed')
-      setStockTakes((prev) => prev.filter((st) => st.id !== id))if (activeId === id) {
-        setActiveId(null)
-        setCounts({})
-      }
-    } catch (err: any) {
-      setError(err.message)
+  if (!confirm('Delete this stock take?')) return
+  try {
+    const res = await fetch('/api/admin/stock-takes', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    })
+    if (!res.ok) throw new Error('Delete failed')
+    setStockTakes((prev) => prev.filter((st) => st.id !== id))
+    if (activeId === id) {
+      setActiveId(null)
+      setCounts({})
     }
+  } catch (err: any) {
+    setError(err.message)
   }
+}
 
   function handlePrint() {
     window.print()
