@@ -104,7 +104,8 @@ export async function PUT(req: NextRequest) {
     if (take_date !== undefined) updateData.take_date = take_date
     if (notes !== undefined)     updateData.notes     = notes
     if (status !== undefined) {
-      updateData.status = statusif (status === 'completed') updateData.completed_at = new Date().toISOString()
+      updateData.status = status
+      if (status === 'completed') updateData.completed_at = new Date().toISOString()
     }
 
     const { data: stockTake, error: takeError } = await supabase
