@@ -49,7 +49,6 @@ export default function AdminClientView({
     }
   }
 
-  // ── Brisbane date (UTC+10, no DST) ─────────────────────────────
   const todayLabel = (() => {
     const brisbane = new Date(Date.now() + 10 * 60 * 60 * 1000)
     const iso = brisbane.toISOString().split('T')[0]
@@ -58,30 +57,19 @@ export default function AdminClientView({
     })
   })()
 
-  // ── Format week dates ───────────────────────────────────────────
   const weekLabel = weekStart && weekEnd
     ? `${new Date(weekStart + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })} – ${new Date(weekEnd + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}`
     : ''
 
   return (
-    <div className="min-h-screen bg-gray-50">
-
-      {/* Sticky Header */}
-      <div className="bg-white shadow-sm border-b sticky top-0 z-10">
-        <div className="container mx-auto px-4">
-
-          {/* Top bar */}
-          <div className="flex justify-between items-start py-4 gap-4">
-
-            {/* Left — title + weekly revenue */}
-            <div className="shrink-0">
+    <div className="min-h-screen bg-gray-50"><div className="bg-white shadow-sm border-b sticky top-0 z-10">
+        <div className="container mx-auto px-4"><div className="flex justify-between items-start py-4 gap-4"><div className="shrink-0">
               <h1 className="text-2xl font-bold" style={{ color: '#006A4E' }}>
                 Admin Dashboard
               </h1>
               <p className="text-sm text-gray-500 mt-0.5">
                 {todayLabel} — Deb's Bakery
-              </p>
-              {weekRevenue > 0 && (
+              </p>{weekRevenue > 0 && (
                 <div className="mt-2 inline-flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-1.5">
                   <BarChart3 className="h-4 w-4 text-green-600" />
                   <div>
@@ -102,7 +90,6 @@ export default function AdminClientView({
               )}
             </div>
 
-            {/* Action buttons */}
             <div className="flex gap-2 flex-wrap justify-end">
 
               <a href="/admin/batch-invoice"
@@ -171,6 +158,24 @@ export default function AdminClientView({
                 <BarChart3 className="h-4 w-4" />Weekly Report
               </a>
 
+              <a href="/admin/reports/stales"
+                className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
+                style={{ backgroundColor: '#dc2626' }}>
+                <BarChart3 className="h-4 w-4" />Stales
+              </a>
+
+              <a href="/admin/reports/accountant"
+                className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
+                style={{ backgroundColor: '#2563eb' }}>
+                <FileText className="h-4 w-4" />Accountant
+              </a>
+
+              <a href="/admin/reports/sales-history"
+                className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
+                style={{ backgroundColor: '#7c3aed' }}>
+                <BarChart3 className="h-4 w-4" />Sales History
+              </a>
+
               <a href="/admin/payments/record"
                 className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
                 style={{ backgroundColor: '#16a34a' }}>
@@ -189,102 +194,55 @@ export default function AdminClientView({
                 <Truck className="h-4 w-4" />Routes
               </a>
 
+              <a href="/admin/inventory"
+                className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
+                style={{ backgroundColor: '#16a34a' }}>
+                <Package className="h-4 w-4" />Inventory
+              </a>
+
+              <a href="/admin/stock-take"
+                className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
+                style={{ backgroundColor: '#ea580c' }}>
+                <ClipboardList className="h-4 w-4" />Stock Take
+              </a>
+
+              <a href="/admin/costings"
+                className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
+                style={{ backgroundColor: '#ca8a04' }}>
+                <DollarSign className="h-4 w-4" />Cost Settings
+              </a>
+
+              <a href="/admin/products/bulk-codes"
+                className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
+                style={{ backgroundColor: '#4f46e5' }}>
+                <ShoppingCart className="h-4 w-4" />Bulk Codes
+              </a>
+
+              <a href="/admin/products/bulk-weights"
+                className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
+                style={{ backgroundColor: '#0d9488' }}>
+                <Package className="h-4 w-4" />Bulk Weights
+              </a>
+
+              <a href="/admin/portal-qr"
+                className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
+                style={{ backgroundColor: '#db2777' }}>
+                <FileText className="h-4 w-4" />Portal QR
+              </a>
+
               <button
                 onClick={testStandingOrderGeneration}
                 disabled={testingStandingOrders}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 shadow-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-              >
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 shadow-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
                 {testingStandingOrders
                   ? <><RefreshCw className="h-4 w-4 animate-spin" />Generating...</>
                   : <><Play className="h-4 w-4" />Test S/O</>
                 }
               </button>
-          {/* Quick Access Cards */}
-          <div className="py-6 space-y-6">
-            
-            {/* Reports */}
-            <div>
-              <h3 className="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">
-                Reports
-              </h3>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                <a href="/admin/reports/stales"
-                  className="flex flex-col items-center gap-2 p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-red-400 hover:shadow-md transition-all group">
-                  <BarChart3 className="h-6 w-6 text-red-500 group-hover:scale-110 transition-transform" />
-                  <span className="text-sm font-medium text-gray-700 text-center">Stales Analysis</span>
-                </a>
 
-                <a href="/admin/reports/accountant"
-                  className="flex flex-col items-center gap-2 p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-blue-400 hover:shadow-md transition-all group">
-                  <FileText className="h-6 w-6 text-blue-500 group-hover:scale-110 transition-transform" />
-                  <span className="text-sm font-medium text-gray-700 text-center">Accountant Summary</span>
-                </a>
-
-                <a href="/admin/reports/sales-history"
-                  className="flex flex-col items-center gap-2 p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-purple-400 hover:shadow-md transition-all group">
-                  <BarChart3 className="h-6 w-6 text-purple-500 group-hover:scale-110 transition-transform" />
-                  <span className="text-sm font-medium text-gray-700 text-center">Sales History</span>
-                </a>
-
-                <a href="/admin/costings"
-                  className="flex flex-col items-center gap-2 p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-yellow-400 hover:shadow-md transition-all group">
-                  <DollarSign className="h-6 w-6 text-yellow-600 group-hover:scale-110 transition-transform" />
-                  <span className="text-sm font-medium text-gray-700 text-center">Cost Settings</span>
-                </a>
-              </div>
-            </div>
-
-            {/* Inventory */}
-            <div>
-              <h3 className="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">
-                Inventory
-              </h3>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                <a href="/admin/inventory"
-                  className="flex flex-col items-center gap-2 p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-green-400 hover:shadow-md transition-all group">
-                  <Package className="h-6 w-6 text-green-500 group-hover:scale-110 transition-transform" />
-                  <span className="text-sm font-medium text-gray-700 text-center">Inventory Received</span>
-                </a>
-
-                <a href="/admin/stock-take"
-                  className="flex flex-col items-center gap-2 p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-orange-400 hover:shadow-md transition-all group">
-                  <ClipboardList className="h-6 w-6 text-orange-500 group-hover:scale-110 transition-transform" />
-                  <span className="text-sm font-medium text-gray-700 text-center">Stock Take</span>
-                </a>
-              </div>
-            </div>
-
-            {/* Product Tools */}
-            <div>
-              <h3 className="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">
-                Product Tools
-              </h3>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                <a href="/admin/products/bulk-codes"
-                  className="flex flex-col items-center gap-2 p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-indigo-400 hover:shadow-md transition-all group">
-                  <ShoppingCart className="h-6 w-6 text-indigo-500 group-hover:scale-110 transition-transform" />
-                  <span className="text-sm font-medium text-gray-700 text-center">Bulk Codes</span>
-                </a>
-
-                <a href="/admin/products/bulk-weights"
-                  className="flex flex-col items-center gap-2 p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-teal-400 hover:shadow-md transition-all group">
-                  <Package className="h-6 w-6 text-teal-500 group-hover:scale-110 transition-transform" />
-                  <span className="text-sm font-medium text-gray-700 text-center">Bulk Weights</span>
-                </a>
-
-                <a href="/admin/portal-qr"
-                  className="flex flex-col items-center gap-2 p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-pink-400 hover:shadow-md transition-all group">
-                  <FileText className="h-6 w-6 text-pink-500 group-hover:scale-110 transition-transform" />
-                  <span className="text-sm font-medium text-gray-700 text-center">Portal QR Codes</span>
-                </a>
-              </div>
-            </div>
-
-          </div>
             </div>
           </div>
 
-          {/* Tab Navigation */}
           <div className="flex gap-0 overflow-x-auto">
             {([
               { id: 'orders',          icon: <Package className="h-4 w-4" />,      label: 'Orders' },
@@ -309,7 +267,6 @@ export default function AdminClientView({
         </div>
       </div>
 
-      {/* Tab Content */}
       <div className="container mx-auto px-4 py-6">
 
         {activeTab === 'orders' && <OrdersView supabase={null as any} />}
