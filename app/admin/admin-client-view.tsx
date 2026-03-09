@@ -25,30 +25,29 @@ export default function AdminClientView({
   weekEnd?: string
 }) {
   const [activeTab, setActiveTab] = useState<Tab>('orders')
-  const [testingStandingOrders, setTestingStandingOrders] = useState(false)
+  const [generatingStandingOrders, setGeneratingStandingOrders] = useState(false)
 
-  async function testStandingOrderGeneration() {
-    if (!confirm('This will generate standing orders for the upcoming week. Continue?')) return
-    setTestingStandingOrders(true)
-    try {
-      const response = await fetch('/api/standing-orders/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      })
-      const data = await response.json()
-      if (data.success) {
-        alert(`Success! ${data.ordersCreated} orders created`)
-        if (data.ordersCreated > 0) window.location.reload()
-      } else {
-        throw new Error(data.error || 'Generation failed')
-      }
-    } catch (error: any) {
-      alert(`Error: ${error.message}`)
-    } finally {
-      setTestingStandingOrders(false)
+async function generateStandingOrders() {
+  if (!confirm('This will generate standing orders for the upcoming week. Continue?')) return
+  setGeneratingStandingOrders(true)
+  try {
+    const response = await fetch('/api/standing-orders/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    })
+    const data = await response.json()
+    if (data.success) {
+      alert(`Success! ${data.ordersCreated} orders created`)
+      if (data.ordersCreated > 0) window.location.reload()
+    } else {
+      throw new Error(data.error || 'Generation failed')
     }
+  } catch (error: any) {
+    alert(`Error: ${error.message}`)
+  } finally {
+    setGeneratingStandingOrders(false)
   }
-
+}
   const todayLabel = (() => {
     const brisbane = new Date(Date.now() + 10 * 60 * 60 * 1000)
     const iso = brisbane.toISOString().split('T')[0]
@@ -230,15 +229,15 @@ export default function AdminClientView({
                 <FileText className="h-4 w-4" />Portal QR
               </a>
 
-              <button
-                onClick={testStandingOrderGeneration}
-                disabled={testingStandingOrders}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 shadow-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
-                {testingStandingOrders
-                  ? <><RefreshCw className="h-4 w-4 animate-spin" />Generating...</>
-                  : <><Play className="h-4 w-4" />Test S/O</>
-                }
-              </button>
+            <button
+  onClick={generateStandingOrders}
+  disabled={generatingStandingOrders}
+  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 shadow-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+  {generatingStandingOrders
+    ? <><RefreshCw className="h-4 w-4 animate-spin" />Generating...</>
+    : <><RefreshCw className="h-4 w-4" />Generate S/O</>
+  }
+</button>
 
             </div>
           </div>
@@ -269,7 +268,6 @@ export default function AdminClientView({
 
       <div className="container mx-auto px-4 py-6">
 
-        {activeTab === 'orders' && <OrdersView supabase={null as any} />}
 
         {activeTab === 'standing-orders' && (
           <div className="bg-white rounded-lg shadow-md p-8">
