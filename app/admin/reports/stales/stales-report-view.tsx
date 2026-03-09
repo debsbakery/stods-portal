@@ -30,7 +30,8 @@ interface ProductSummary {
   product_code: string
   total_quantity: number
   total_value: number
-  occurrences: number
+  total_sold: number
+  total_revenue: number
 }
 
 interface CustomerSummary {
@@ -38,7 +39,7 @@ interface CustomerSummary {
   business_name: string
   total_quantity: number
   total_value: number
-  occurrences: number
+  total_sold: number
 }
 
 interface Props {
@@ -53,6 +54,16 @@ interface Props {
 
 type TabType = 'summary' | 'by_product' | 'by_customer' | 'detail'
 
+function stalePercent(staleQty: number, soldQty: number): string {
+  if (soldQty <= 0) return '—'
+  return ((staleQty / soldQty) * 100).toFixed(1) + '%'
+}
+
+function stalePercentNum(staleQty: number, soldQty: number): number {
+  if (soldQty <= 0) return 0
+  return (staleQty / soldQty) * 100
+}
+
 export default function StalesReportView({
   items,
   byProduct,
@@ -63,7 +74,7 @@ export default function StalesReportView({
   toDate,
 }: Props) {
   const router = useRouter()
-  const [tab, setTab] = useState<TabType>('summary')
+  const [tab, setTab]   = useState<TabType>('summary')
   const [from, setFrom] = useState(fromDate)
   const [to, setTo]     = useState(toDate)
 
@@ -86,6 +97,8 @@ export default function StalesReportView({
     { key: 'by_customer', label: 'By Customer' },
     { key: 'detail',      label: 'Detail Lines' },
   ]
+
+  const totalSold = byProduct.reduce((s, p) => s + p.total_sold, 0)
 
   return (
     <div className="space-y-6">
@@ -135,7 +148,7 @@ export default function StalesReportView({
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <div className="bg-white border border-gray-200 rounded-xl p-5">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
             Total Stale Value
@@ -146,7 +159,7 @@ export default function StalesReportView({
         </div>
         <div className="bg-white border border-gray-200 rounded-xl p-5">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-            Total Units Returned
+            Units Returned
           </p>
           <p className="text-3xl font-bold text-gray-800 mt-1">
             {totalQty.toLocaleString()}
@@ -154,10 +167,23 @@ export default function StalesReportView({
         </div>
         <div className="bg-white border border-gray-200 rounded-xl p-5">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-            Products Affected
+            Units Sold
           </p>
           <p className="text-3xl font-bold text-gray-800 mt-1">
-            {byProduct.length}
+            {totalSold.toLocaleString()}
+          </p>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-5">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            Overall Stale Rate
+          </p>
+          <p className={
+            'text-3xl font-bold mt-1 ' +
+            (stalePercentNum(totalQty, totalSold) > 10
+              ? 'text-red-600'
+              : 'text-green-600')
+          }>
+            {stalePercent(totalQty, totalSold)}
           </p>
         </div>
       </div>
@@ -185,7 +211,6 @@ export default function StalesReportView({
       {/* Tab: Summary */}
       {tab === 'summary' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Top products */}
           <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
             <div className="px-5 py-3 bg-gray-50 border-b border-gray-200">
               <h3 className="font-bold text-gray-800">Top Stale Products</h3>
@@ -197,33 +222,48 @@ export default function StalesReportView({
                 <thead className="border-b border-gray-200">
                   <tr>
                     <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-600 uppercase">Product</th>
-                    <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-600 uppercase">Units</th>
-                    <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-600 uppercase">Value</th>
+                    <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-600 uppercase">Sold</th>
+                    <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-600 uppercase">Stale</th>
+                    <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-600 uppercase">Rate</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {byProduct.slice(0, 8).map((p) => (
-                    <tr key={p.product_name} className="hover:bg-gray-50">
-                      <td className="px-4 py-2.5">
-                        <span className="font-medium text-gray-900">{p.product_name}</span>
-                        {p.product_code && (
-                          <span className="ml-2 text-xs text-gray-400 font-mono">#{p.product_code}</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5 text-right text-gray-700 font-mono">
-                        {p.total_quantity.toFixed(0)}
-                      </td>
-                      <td className="px-4 py-2.5 text-right font-semibold text-red-600">
-                        ${p.total_value.toFixed(2)}
-                      </td>
-                    </tr>
-                  ))}
+                  {byProduct.slice(0, 8).map((p) => {
+                    const pct = stalePercentNum(p.total_quantity, p.total_sold)
+                    return (
+                      <tr key={p.product_name} className="hover:bg-gray-50">
+                        <td className="px-4 py-2.5">
+                          <span className="font-medium text-gray-900">{p.product_name}</span>
+                          {p.product_code && (
+                            <span className="ml-2 text-xs text-gray-400 font-mono">#{p.product_code}</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-right text-gray-600 font-mono">
+                          {p.total_sold}
+                        </td>
+                        <td className="px-4 py-2.5 text-right text-gray-700 font-mono">
+                          {p.total_quantity.toFixed(0)}
+                        </td>
+                        <td className="px-4 py-2.5 text-right">
+                          <span className={
+                            'font-bold text-xs px-2 py-0.5 rounded-full ' +
+                            (pct > 20
+                              ? 'bg-red-100 text-red-700'
+                              : pct > 10
+                                ? 'bg-amber-100 text-amber-700'
+                                : 'bg-green-100 text-green-700')
+                          }>
+                            {stalePercent(p.total_quantity, p.total_sold)}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             )}
           </div>
 
-          {/* Top customers */}
           <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
             <div className="px-5 py-3 bg-gray-50 border-b border-gray-200">
               <h3 className="font-bold text-gray-800">Top Customers by Stale Value</h3>
@@ -242,9 +282,7 @@ export default function StalesReportView({
                 <tbody className="divide-y divide-gray-100">
                   {byCustomer.slice(0, 8).map((c) => (
                     <tr key={c.customer_id} className="hover:bg-gray-50">
-                      <td className="px-4 py-2.5 font-medium text-gray-900">
-                        {c.business_name}
-                      </td>
+                      <td className="px-4 py-2.5 font-medium text-gray-900">{c.business_name}</td>
                       <td className="px-4 py-2.5 text-right text-gray-700 font-mono">
                         {c.total_quantity.toFixed(0)}
                       </td>
@@ -268,27 +306,64 @@ export default function StalesReportView({
               <tr>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Code</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Product</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Occurrences</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Total Units</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Total Value</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Sold</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Stale Units</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Stale %</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Stale Value</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {byProduct.map((p) => (
-                <tr key={p.product_name} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-mono text-gray-500 text-xs">{p.product_code || '—'}</td>
-                  <td className="px-4 py-3 font-medium text-gray-900">{p.product_name}</td>
-                  <td className="px-4 py-3 text-right text-gray-600">{p.occurrences}</td>
-                  <td className="px-4 py-3 text-right font-mono text-gray-800">{p.total_quantity.toFixed(0)}</td>
-                  <td className="px-4 py-3 text-right font-bold text-red-600">${p.total_value.toFixed(2)}</td>
-                </tr>
-              ))}
+              {byProduct.map((p) => {
+                const pct = stalePercentNum(p.total_quantity, p.total_sold)
+                return (
+                  <tr key={p.product_name} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 font-mono text-gray-500 text-xs">
+                      {p.product_code || '—'}
+                    </td>
+                    <td className="px-4 py-3 font-medium text-gray-900">{p.product_name}</td>
+                    <td className="px-4 py-3 text-right font-mono text-gray-600">
+                      {p.total_sold}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-gray-800">
+                      {p.total_quantity.toFixed(0)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <span className={
+                        'font-bold text-xs px-2 py-0.5 rounded-full ' +
+                        (pct > 20
+                          ? 'bg-red-100 text-red-700'
+                          : pct > 10
+                            ? 'bg-amber-100 text-amber-700'
+                            : 'bg-green-100 text-green-700')
+                      }>
+                        {stalePercent(p.total_quantity, p.total_sold)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-bold text-red-600">
+                      ${p.total_value.toFixed(2)}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
             <tfoot className="border-t-2 border-gray-300 bg-gray-50">
               <tr>
-                <td colSpan={3} className="px-4 py-3 font-bold text-gray-800">Total</td>
+                <td colSpan={2} className="px-4 py-3 font-bold text-gray-800">Total</td>
                 <td className="px-4 py-3 text-right font-bold font-mono text-gray-900">
-                  {byProduct.reduce((s, p) => s + p.total_quantity, 0).toFixed(0)}
+                  {totalSold}
+                </td>
+                <td className="px-4 py-3 text-right font-bold font-mono text-gray-900">
+                  {totalQty.toFixed(0)}
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <span className={
+                    'font-bold text-xs px-2 py-0.5 rounded-full ' +
+                    (stalePercentNum(totalQty, totalSold) > 10
+                      ? 'bg-red-100 text-red-700'
+                      : 'bg-green-100 text-green-700')
+                  }>
+                    {stalePercent(totalQty, totalSold)}
+                  </span>
                 </td>
                 <td className="px-4 py-3 text-right font-bold text-red-600">
                   ${totalValue.toFixed(2)}
@@ -306,9 +381,8 @@ export default function StalesReportView({
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Customer</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Occurrences</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Total Units</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Total Value</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Stale Units</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Stale Value</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Action</th>
               </tr>
             </thead>
@@ -316,9 +390,12 @@ export default function StalesReportView({
               {byCustomer.map((c) => (
                 <tr key={c.customer_id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 font-medium text-gray-900">{c.business_name}</td>
-                  <td className="px-4 py-3 text-right text-gray-600">{c.occurrences}</td>
-                  <td className="px-4 py-3 text-right font-mono text-gray-800">{c.total_quantity.toFixed(0)}</td>
-                  <td className="px-4 py-3 text-right font-bold text-red-600">${c.total_value.toFixed(2)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-gray-800">
+                    {c.total_quantity.toFixed(0)}
+                  </td>
+                  <td className="px-4 py-3 text-right font-bold text-red-600">
+                    ${c.total_value.toFixed(2)}
+                  </td>
                   <td className="px-4 py-3">
                     <a
                       href={'/admin/ar/' + c.customer_id}
@@ -332,9 +409,9 @@ export default function StalesReportView({
             </tbody>
             <tfoot className="border-t-2 border-gray-300 bg-gray-50">
               <tr>
-                <td colSpan={2} className="px-4 py-3 font-bold text-gray-800">Total</td>
+                <td className="px-4 py-3 font-bold text-gray-800">Total</td>
                 <td className="px-4 py-3 text-right font-bold font-mono text-gray-900">
-                  {byCustomer.reduce((s, c) => s + c.total_quantity, 0).toFixed(0)}
+                  {totalQty.toFixed(0)}
                 </td>
                 <td className="px-4 py-3 text-right font-bold text-red-600">
                   ${totalValue.toFixed(2)}

@@ -9,7 +9,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 async function getStalesData(from?: string, to?: string) {
   const supabase = createAdminClient()
 
-  let query = supabase
+  let staleQuery = supabase
     .from('credit_memo_items')
     .select(`
       id,
@@ -31,20 +31,43 @@ async function getStalesData(from?: string, to?: string) {
     .eq('credit_type', 'stale_return')
     .order('product_name', { ascending: true })
 
-  if (from) query = query.gte('created_at', from)
-  if (to)   query = query.lte('created_at', to + 'T23:59:59')
+  if (from) staleQuery = staleQuery.gte('created_at', from)
+  if (to)   staleQuery = staleQuery.lte('created_at', to + 'T23:59:59')
 
-  const { data, error } = await query
+  const { data: staleItems, error } = await staleQuery
   if (error) throw new Error(error.message)
 
-  const items = data ?? []
+  const items = staleItems ?? []
+
+  // Fetch sales totals for all products that appear in stales
+  const productCodes = [...new Set(
+    items.map((i) => i.product_code).filter(Boolean)
+  )]
+
+  let salesByCode: Record<string, { total_sold: number; total_revenue: number }> = {}
+
+  if (productCodes.length > 0) {
+    const { data: salesData } = await supabase
+      .from('order_items')
+      .select('product_id, quantity, unit_price, products!inner( code )')
+      .in('products.code', productCodes)
+
+    for (const row of salesData ?? []) {
+      const code = (row.products as any)?.code
+      if (!code) continue
+      if (!salesByCode[code]) salesByCode[code] = { total_sold: 0, total_revenue: 0 }
+      salesByCode[code].total_sold    += Number(row.quantity ?? 0)
+      salesByCode[code].total_revenue += Number(row.unit_price ?? 0) * Number(row.quantity ?? 0)
+    }
+  }
 
   const byProduct: Record<string, {
     product_name: string
     product_code: string
     total_quantity: number
     total_value: number
-    occurrences: number
+    total_sold: number
+    total_revenue: number
   }> = {}
 
   const byCustomer: Record<string, {
@@ -52,50 +75,47 @@ async function getStalesData(from?: string, to?: string) {
     business_name: string
     total_quantity: number
     total_value: number
-    occurrences: number
+    total_sold: number
   }> = {}
 
   for (const item of items) {
-    const val = Math.abs(Number(item.line_total ?? 0))
-    const qty = Number(item.quantity ?? 0)
-    const memo = item.credit_memo as any
+    const val    = Math.abs(Number(item.line_total ?? 0))
+    const qty    = Number(item.quantity ?? 0)
+    const memo   = item.credit_memo as any
     const custId = memo?.customer?.id ?? 'unknown'
     const custName = memo?.customer?.business_name ?? 'Unknown'
-    const prodKey = item.product_name ?? 'Unknown'
+    const prodKey  = item.product_name ?? 'Unknown'
+    const code     = item.product_code ?? ''
+    const sales    = salesByCode[code] ?? { total_sold: 0, total_revenue: 0 }
 
     if (!byProduct[prodKey]) {
       byProduct[prodKey] = {
-        product_name: prodKey,
-        product_code: item.product_code ?? '',
+        product_name:  prodKey,
+        product_code:  code,
         total_quantity: 0,
-        total_value: 0,
-        occurrences: 0,
+        total_value:    0,
+        total_sold:     sales.total_sold,
+        total_revenue:  sales.total_revenue,
       }
     }
     byProduct[prodKey].total_quantity += qty
     byProduct[prodKey].total_value    += val
-    byProduct[prodKey].occurrences    += 1
 
     if (!byCustomer[custId]) {
       byCustomer[custId] = {
-        customer_id: custId,
-        business_name: custName,
+        customer_id:    custId,
+        business_name:  custName,
         total_quantity: 0,
-        total_value: 0,
-        occurrences: 0,
+        total_value:    0,
+        total_sold:     0,
       }
     }
     byCustomer[custId].total_quantity += qty
     byCustomer[custId].total_value    += val
-    byCustomer[custId].occurrences    += 1
   }
 
-  const totalValue = items.reduce(
-    (s, i) => s + Math.abs(Number(i.line_total ?? 0)), 0
-  )
-  const totalQty = items.reduce(
-    (s, i) => s + Number(i.quantity ?? 0), 0
-  )
+  const totalValue = items.reduce((s, i) => s + Math.abs(Number(i.line_total ?? 0)), 0)
+  const totalQty   = items.reduce((s, i) => s + Number(i.quantity ?? 0), 0)
 
   return {
     items,
@@ -114,7 +134,7 @@ export default async function StalesReportPage({
   const isAdmin = await checkAdmin()
   if (!isAdmin) redirect('/')
 
-  const sp = await searchParams
+  const sp   = await searchParams
   const from = sp.from
   const to   = sp.to
 
@@ -133,9 +153,7 @@ export default async function StalesReportPage({
 
       <div className="mb-6">
         <h1 className="text-3xl font-bold">Stales Analysis</h1>
-        <p className="text-gray-600 mt-1">
-          Stale returns by product and customer
-        </p>
+        <p className="text-gray-600 mt-1">Stale returns by product and customer</p>
       </div>
 
       <StalesReportView
