@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic'
 import { redirect } from 'next/navigation'
 import { checkAdmin } from '@/lib/auth'
 import { createAdminClient } from '@/lib/supabase/admin'
-
+import { ArrowLeft, Plus, Users, Edit } from 'lucide-react'
 import Link from 'next/link'
 
 export default async function AdminCustomersPage() {  const isAdmin = await checkAdmin()
