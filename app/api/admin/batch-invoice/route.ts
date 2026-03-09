@@ -351,12 +351,12 @@ export async function POST(request: NextRequest) {
     const typedOrders = orders as unknown as Order[]
     console.log(`Found ${typedOrders.length} orders for ${delivery_date} (emailOnly: ${emailOnly})`)
 
-    const orderInvoiceMap = new Map<string, number>()
-
+const orderInvoiceMap = new Map<string, number>()
     if (!emailOnly) {
       // ── STEP 1: Generate invoice numbers ─────────────────────────────────
       for (const order of typedOrders) {
-const invoiceNum = await generateInvoiceNumber(supabase as any, order.id)        orderInvoiceMap.set(order.id, invoiceNum)
+const invoiceNum = await generateInvoiceNumber(supabase as any, order.id)     
+   orderInvoiceMap.set(order.id, invoiceNum)
       }
 
       // ── STEP 2: Write invoice numbers back to orders ──────────────────────
