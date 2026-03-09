@@ -27,11 +27,12 @@ export async function GET(
     return NextResponse.json({ pricing: [] })
   }
 
-  // ✅ Rename contract_price → price so existing code works unchanged
   const pricing = (data ?? []).map((row) => ({
     product_id: row.product_id,
-    price:      row.contract_price,
+    price:      row.contract_price ?? 0,
   }))
+
+  console.log('Contract pricing for customer', id, ':', pricing)
 
   return NextResponse.json({ pricing })
 }
