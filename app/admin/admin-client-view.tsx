@@ -199,7 +199,88 @@ export default function AdminClientView({
                   : <><Play className="h-4 w-4" />Test S/O</>
                 }
               </button>
+          {/* Quick Access Cards */}
+          <div className="py-6 space-y-6">
+            
+            {/* Reports */}
+            <div>
+              <h3 className="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">
+                Reports
+              </h3>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <a href="/admin/reports/stales"
+                  className="flex flex-col items-center gap-2 p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-red-400 hover:shadow-md transition-all group">
+                  <BarChart3 className="h-6 w-6 text-red-500 group-hover:scale-110 transition-transform" />
+                  <span className="text-sm font-medium text-gray-700 text-center">Stales Analysis</span>
+                </a>
 
+                <a href="/admin/reports/accountant"
+                  className="flex flex-col items-center gap-2 p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-blue-400 hover:shadow-md transition-all group">
+                  <FileText className="h-6 w-6 text-blue-500 group-hover:scale-110 transition-transform" />
+                  <span className="text-sm font-medium text-gray-700 text-center">Accountant Summary</span>
+                </a>
+
+                <a href="/admin/reports/sales-history"
+                  className="flex flex-col items-center gap-2 p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-purple-400 hover:shadow-md transition-all group">
+                  <BarChart3 className="h-6 w-6 text-purple-500 group-hover:scale-110 transition-transform" />
+                  <span className="text-sm font-medium text-gray-700 text-center">Sales History</span>
+                </a>
+
+                <a href="/admin/costings"
+                  className="flex flex-col items-center gap-2 p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-yellow-400 hover:shadow-md transition-all group">
+                  <DollarSign className="h-6 w-6 text-yellow-600 group-hover:scale-110 transition-transform" />
+                  <span className="text-sm font-medium text-gray-700 text-center">Cost Settings</span>
+                </a>
+              </div>
+            </div>
+
+            {/* Inventory */}
+            <div>
+              <h3 className="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">
+                Inventory
+              </h3>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <a href="/admin/inventory"
+                  className="flex flex-col items-center gap-2 p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-green-400 hover:shadow-md transition-all group">
+                  <Package className="h-6 w-6 text-green-500 group-hover:scale-110 transition-transform" />
+                  <span className="text-sm font-medium text-gray-700 text-center">Inventory Received</span>
+                </a>
+
+                <a href="/admin/stock-take"
+                  className="flex flex-col items-center gap-2 p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-orange-400 hover:shadow-md transition-all group">
+                  <ClipboardList className="h-6 w-6 text-orange-500 group-hover:scale-110 transition-transform" />
+                  <span className="text-sm font-medium text-gray-700 text-center">Stock Take</span>
+                </a>
+              </div>
+            </div>
+
+            {/* Product Tools */}
+            <div>
+              <h3 className="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">
+                Product Tools
+              </h3>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <a href="/admin/products/bulk-codes"
+                  className="flex flex-col items-center gap-2 p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-indigo-400 hover:shadow-md transition-all group">
+                  <ShoppingCart className="h-6 w-6 text-indigo-500 group-hover:scale-110 transition-transform" />
+                  <span className="text-sm font-medium text-gray-700 text-center">Bulk Codes</span>
+                </a>
+
+                <a href="/admin/products/bulk-weights"
+                  className="flex flex-col items-center gap-2 p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-teal-400 hover:shadow-md transition-all group">
+                  <Package className="h-6 w-6 text-teal-500 group-hover:scale-110 transition-transform" />
+                  <span className="text-sm font-medium text-gray-700 text-center">Bulk Weights</span>
+                </a>
+
+                <a href="/admin/portal-qr"
+                  className="flex flex-col items-center gap-2 p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-pink-400 hover:shadow-md transition-all group">
+                  <FileText className="h-6 w-6 text-pink-500 group-hover:scale-110 transition-transform" />
+                  <span className="text-sm font-medium text-gray-700 text-center">Portal QR Codes</span>
+                </a>
+              </div>
+            </div>
+
+          </div>
             </div>
           </div>
 
