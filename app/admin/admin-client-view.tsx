@@ -268,7 +268,7 @@ async function generateStandingOrders() {
 
       <div className="container mx-auto px-4 py-6">
 
-
+{activeTab === 'orders' && <OrdersView />}
         {activeTab === 'standing-orders' && (
           <div className="bg-white rounded-lg shadow-md p-8">
             <div className="flex items-center justify-between mb-6">
