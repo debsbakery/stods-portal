@@ -500,11 +500,13 @@ export default function DirectInvoicePage() {
               notes:              formData.notes || null,
               reason:             'Direct invoice',
               applied_amount:     0,
-              subtotal:           creditSubtotal,
-              gst_amount:         creditGst,
-              total_amount:       creditTotal,
-              amount:             Math.abs(creditTotal),
-            })
+              total:              Math.abs(lineSubtotal(i)),   // ✅ always positive
+    credit_percent:     i.creditPercent,
+    line_total:         Math.abs(lineTotal(i)),      // ✅ always positive
+    gst_applicable:     i.gstApplicable,
+    gst_amount:         Math.abs(lineGst(i)),        // ✅ always positive
+    credit_type:        i.creditType,
+  }))
             .select()
             .single()
 
