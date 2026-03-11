@@ -192,7 +192,11 @@ async function generateStandingOrders() {
                 style={{ backgroundColor: '#C4A882' }}>
                 <Truck className="h-4 w-4" />Routes
               </a>
-
+<a href="/admin/products"
+  className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
+  style={{ backgroundColor: '#006A4E' }}>
+  <Package className="h-4 w-4" />Products
+</a>
               <a href="/admin/inventory"
                 className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
                 style={{ backgroundColor: '#16a34a' }}>
