@@ -17,7 +17,7 @@ darkMode: "class",
     },
     extend: {
       colors: {
-        // stods bakeryBakery Brand Colors
+        // Stods Bakery Brand Colors
         'debs-red': {
           DEFAULT: '#C4A882',
           50: '#FEE7E9',

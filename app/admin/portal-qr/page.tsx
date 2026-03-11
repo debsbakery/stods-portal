@@ -82,7 +82,7 @@ function Card() {
       {/* Green header */}
       <div className="px-6 py-5 text-white text-center" style={{ backgroundColor: '#3E1F00' }}>
         <p className="text-xs font-semibold uppercase tracking-widest opacity-80 mb-1">Welcome to</p>
-        <h2 className="text-2xl font-bold tracking-tight">{"stods bakeryBakery"}</h2>
+        <h2 className="text-2xl font-bold tracking-tight">{"Stods Bakery"}</h2>
         <p className="text-xs opacity-75 mt-1">Toowoomba QLD</p>
       </div>
 

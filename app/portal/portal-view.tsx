@@ -267,7 +267,7 @@ function OverviewTab({ data, totalOverdue }: { data: PortalData; totalOverdue: n
           <div>
             <p className="font-semibold text-red-800">Overdue Balance: {fmt(totalOverdue)}</p>
             <p className="text-sm text-red-600 mt-1">
-              Please contact stods bakeryBakery to arrange payment. Ph: (03) 9000 0000
+              Please contact Stods Bakery to arrange payment. Ph: (03) 9000 0000
             </p>
           </div>
         </div>
@@ -343,7 +343,7 @@ function StandingOrdersTab({ orders }: { orders: any[] }) {
         <div className="text-center py-12">
           <Package className="h-16 w-16 mx-auto text-gray-300 mb-4" />
           <p className="text-gray-500 text-lg">No standing orders set up</p>
-          <p className="text-gray-400 text-sm mt-2">Contact stods bakeryBakery to set up a standing order</p>
+          <p className="text-gray-400 text-sm mt-2">Contact Stods Bakery to set up a standing order</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -424,7 +424,7 @@ function StandingOrdersTab({ orders }: { orders: any[] }) {
       )}
 
       <p className="mt-6 text-sm text-gray-500">
-        To add, change or pause standing orders please contact stods bakeryBakery directly.
+        To add, change or pause standing orders please contact Stods Bakery directly.
       </p>
     </div>
   );
@@ -723,7 +723,7 @@ function AccountTab({
           )}
         </dl>
         <p className="mt-6 text-sm text-gray-500">
-          To update your account details please contact stods bakeryBakery directly.
+          To update your account details please contact Stods Bakery directly.
         </p>
       </div>
 

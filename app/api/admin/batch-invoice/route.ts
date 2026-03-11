@@ -60,7 +60,7 @@ interface BakeryConfig {
 
 function getBakeryConfig(): BakeryConfig {
   return {
-    name:        process.env.BAKERY_NAME         ?? "stods bakeryBakery",
+    name:        process.env.BAKERY_NAME         ?? "Stods Bakery",
     email:       process.env.BAKERY_EMAIL        ?? 'debs_bakery@outlook.com',
     phone:       process.env.BAKERY_PHONE        ?? '(07) 4632 9475',
     address:     process.env.BAKERY_ADDRESS      ?? '20 Mann St, Toowoomba QLD 4350',

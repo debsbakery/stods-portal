@@ -40,9 +40,9 @@ export async function POST(
   const total        = Math.abs(parseFloat(memo.total_amount || memo.amount || '0'))
 
   const { error: emailError } = await resend.emails.send({
-    from: "stods bakeryBakery <noreply@debsbakery.store>",
+    from: "Stods Bakery <noreply@debsbakery.store>",
     to:   memo.customer.email,
-    subject: `Credit Invoice ${memo.credit_number} — stods bakeryBakery`,
+    subject: `Credit Invoice ${memo.credit_number} — Stods Bakery`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #3E1F00;">Credit Invoice</h2>
@@ -55,7 +55,7 @@ export async function POST(
           ${memo.notes ? `<p style="margin: 5px 0;"><strong>Notes:</strong> ${memo.notes}</p>` : ''}
         </div>
         <p>This credit has been applied to your account balance.</p>
-        <p>Thank you,<br/><strong style="color: #3E1F00;">stods bakeryBakery</strong></p>
+        <p>Thank you,<br/><strong style="color: #3E1F00;">Stods Bakery</strong></p>
       </div>
     `,
     attachments: [{

@@ -67,7 +67,7 @@ async function generateStandingOrders() {
                 Admin Dashboard
               </h1>
               <p className="text-sm text-gray-500 mt-0.5">
-                {todayLabel} — stods bakeryBakery
+                {todayLabel} — Stods Bakery
               </p>{weekRevenue > 0 && (
                 <div className="mt-2 inline-flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-1.5">
                   <BarChart3 className="h-4 w-4 text-green-600" />
