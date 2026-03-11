@@ -15,7 +15,7 @@ export default async function WeeklyReportPage() {
     settings?.find(s => s.setting_key === 'overhead_per_kg')?.value ?? 1.50
   )
 
-  // ── Fetch order items (ex-GST subtotals) ──────────────────
+  // ── Fetch order items ──────────────────────────────────────
   const { data: items } = await supabase
     .from('order_items')
     .select(`
@@ -32,7 +32,7 @@ export default async function WeeklyReportPage() {
     .in('orders.status', ['invoiced', 'pending'])
     .gte('orders.delivery_date', '2026-01-01')
 
-  // ── Fetch weight data ─────────────────────────────────────
+  // ── Fetch weight data ──────────────────────────────────────
   const { data: weightItems } = await supabase
     .from('order_items')
     .select(`
@@ -48,26 +48,21 @@ export default async function WeeklyReportPage() {
     .in('orders.status', ['invoiced', 'pending'])
     .gte('orders.delivery_date', '2026-01-01')
 
-  // ── Group weight by week ──────────────────────────────────
+  // ── Group weight by week ───────────────────────────────────
   const weekWeightMap = new Map<string, number>()
-
   for (const item of weightItems ?? []) {
     const order   = item.orders as any
     const product = item.products as any
-    if (!order?.delivery_date) continue
-    if (!product?.weight_grams) continue
-
+    if (!order?.delivery_date || !product?.weight_grams) continue
     const date = new Date(order.delivery_date + 'T00:00:00Z')
-    const day  = date.getUTCDay()
     const sun  = new Date(date)
-    sun.setUTCDate(date.getUTCDate() - day)
+    sun.setUTCDate(date.getUTCDate() - date.getUTCDay())
     const weekKey = sun.toISOString().split('T')[0]
-
-    const grams = Number(item.quantity) * Number(product.weight_grams)
+    const grams   = Number(item.quantity) * Number(product.weight_grams)
     weekWeightMap.set(weekKey, (weekWeightMap.get(weekKey) ?? 0) + grams)
   }
 
-  // ── Group revenue by week ─────────────────────────────────
+  // ── Group revenue by week ──────────────────────────────────
   const weekMap = new Map<string, {
     week_start:       string
     first_day:        string
@@ -82,11 +77,9 @@ export default async function WeeklyReportPage() {
   for (const item of items ?? []) {
     const order = item.orders as any
     if (!order?.delivery_date) continue
-
     const date = new Date(order.delivery_date + 'T00:00:00Z')
-    const day  = date.getUTCDay()
     const sun  = new Date(date)
-    sun.setUTCDate(date.getUTCDate() - day)
+    sun.setUTCDate(date.getUTCDate() - date.getUTCDay())
     const weekKey = sun.toISOString().split('T')[0]
 
     if (!weekMap.has(weekKey)) {
@@ -104,7 +97,6 @@ export default async function WeeklyReportPage() {
 
     const week     = weekMap.get(weekKey)!
     const subtotal = Number(item.subtotal ?? 0)
-
     week.order_ids.add(order.id)
     week.revenue          += subtotal
     if (order.status === 'invoiced') week.invoiced_revenue += subtotal
@@ -129,10 +121,8 @@ export default async function WeeklyReportPage() {
     .sort((a, b) => b.week_start.localeCompare(a.week_start))
     .slice(0, 12)
 
-  // ── Top products this week ────────────────────────────────
-  const thisWeekStart = weeks[0]?.week_start
-
-  const { data: thisWeekItems } = await supabase
+  // ── Top products per week ──────────────────────────────────
+  const { data: allWeekItems } = await supabase
     .from('order_items')
     .select(`
       product_name,
@@ -141,29 +131,52 @@ export default async function WeeklyReportPage() {
       orders!inner ( delivery_date, status )
     `)
     .in('orders.status', ['invoiced', 'pending'])
-    .gte('orders.delivery_date', thisWeekStart ?? '2026-01-01')
+    .gte('orders.delivery_date', '2026-01-01')
 
-  const productMap = new Map<string, { name: string; qty: number; revenue: number }>()
-  for (const item of thisWeekItems ?? []) {
+  const weekProductMap = new Map<string, Map<string, { name: string; qty: number; revenue: number }>>()
+  for (const item of allWeekItems ?? []) {
+    const order = item.orders as any
+    if (!order?.delivery_date) continue
+    const date = new Date(order.delivery_date + 'T00:00:00Z')
+    const sun  = new Date(date)
+    sun.setUTCDate(date.getUTCDate() - date.getUTCDay())
+    const weekKey = sun.toISOString().split('T')[0]
+
+    if (!weekProductMap.has(weekKey)) weekProductMap.set(weekKey, new Map())
+    const productMap = weekProductMap.get(weekKey)!
     const name = item.product_name ?? 'Unknown'
-    if (!productMap.has(name)) {
-      productMap.set(name, { name, qty: 0, revenue: 0 })
-    }
+    if (!productMap.has(name)) productMap.set(name, { name, qty: 0, revenue: 0 })
     const p = productMap.get(name)!
     p.qty     += Number(item.quantity ?? 0)
     p.revenue += Number(item.subtotal ?? 0)
   }
 
-  const topProductsList = Array.from(productMap.values())
-    .sort((a, b) => b.revenue - a.revenue)
-    .slice(0, 10)
+  const topProductsByWeek: Record<string, { name: string; qty: number; revenue: number }[]> = {}
+  weekProductMap.forEach((productMap, weekKey) => {
+    topProductsByWeek[weekKey] = Array.from(productMap.values())
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 10)
+  })
+
+  // ── Fetch saved wages ──────────────────────────────────────
+  const { data: wagesData } = await supabase
+    .from('weekly_wages')
+    .select('week_start, wages, notes')
+
+  const savedWages: Record<string, number> = {}
+  for (const w of wagesData ?? []) {
+    savedWages[w.week_start] = Number(w.wages)
+  }
+
+  const thisWeekStart = weeks[0]?.week_start
 
   return (
     <WeeklyReportView
       weeks={weeks}
-      topProducts={topProductsList}
+      topProductsByWeek={topProductsByWeek}
       thisWeekStart={thisWeekStart ?? ''}
       overheadPerKg={overheadPerKg}
+      savedWages={savedWages}
     />
   )
 }

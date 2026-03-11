@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import {
   TrendingUp, TrendingDown, DollarSign,
-  ShoppingCart, Users, BarChart3
+  ShoppingCart, Users, BarChart3, Save
 } from 'lucide-react'
 
 interface Week {
@@ -26,9 +26,10 @@ interface TopProduct {
 
 interface Props {
   weeks: Week[]
-  topProducts: TopProduct[]
+  topProductsByWeek: Record<string, TopProduct[]>
   thisWeekStart: string
   overheadPerKg: number
+  savedWages: Record<string, number>
 }
 
 const fmt = (n: number) =>
@@ -44,12 +45,17 @@ const fmtWeek = (start: string, end: string) =>
 
 export default function WeeklyReportView({
   weeks,
-  topProducts,
+  topProductsByWeek,
   thisWeekStart,
   overheadPerKg,
+  savedWages,
 }: Props) {
   const [selectedWeek, setSelectedWeek] = useState(0)
-  const [actualWages, setActualWages]   = useState<Record<string, string>>({})
+  const [wages,        setWages]        = useState<Record<string, string>>(
+    Object.fromEntries(Object.entries(savedWages).map(([k, v]) => [k, String(v)]))
+  )
+  const [savingWages,  setSavingWages]  = useState(false)
+  const [wagesSaved,   setWagesSaved]   = useState<Record<string, boolean>>({})
 
   const current  = weeks[selectedWeek]
   const previous = weeks[selectedWeek + 1]
@@ -62,11 +68,9 @@ export default function WeeklyReportView({
     ? ((current.order_count - previous.order_count) / previous.order_count) * 100
     : null
 
-  const maxRevenue = Math.max(...weeks.map(w => w.revenue))
-
-  // ── Profit estimate ───────────────────────────────────────────
-  const wages         = parseFloat(actualWages[current?.week_start] || '0') || 0
-  const wagesEntered  = wages > 0
+  // ── Profit estimate ────────────────────────────────────────
+  const wagesValue    = parseFloat(wages[current?.week_start] || '0') || 0
+  const wagesEntered  = wagesValue > 0
   const estIngred     = current ? current.revenue * 0.30 : 0
   const weightKg      = current ? current.total_weight_kg : 0
   const hasWeightData = weightKg > 0
@@ -74,7 +78,7 @@ export default function WeeklyReportView({
     ? weightKg * overheadPerKg
     : (current ? current.revenue * 0.30 : 0)
   const labourCost    = wagesEntered
-    ? wages
+    ? wagesValue
     : (current ? current.revenue * 0.30 : 0)
   const totalCosts    = estIngred + labourCost + estOverhead
   const estProfit     = current ? current.revenue - totalCosts : 0
@@ -82,10 +86,36 @@ export default function WeeklyReportView({
     ? (estProfit / current.revenue) * 100
     : 0
 
+  // ── Top products for selected week ────────────────────────
+  const currentTopProducts = current
+    ? (topProductsByWeek[current.week_start] ?? [])
+    : []
+
+  // ── Save wages to Supabase ────────────────────────────────
+  async function saveWages(weekStart: string) {
+    setSavingWages(true)
+    try {
+      const amount = parseFloat(wages[weekStart] || '0') || 0
+      const res = await fetch('/api/admin/weekly-wages', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ week_start: weekStart, wages: amount }),
+      })
+      if (res.ok) {
+        setWagesSaved(prev => ({ ...prev, [weekStart]: true }))
+        setTimeout(() => {
+          setWagesSaved(prev => ({ ...prev, [weekStart]: false }))
+        }, 3000)
+      }
+    } finally {
+      setSavingWages(false)
+    }
+  }
+
   return (
     <div className="space-y-6 max-w-6xl">
 
-      {/* ── Header ───────────────────────────────────────────────── */}
+      {/* ── Header ──────────────────────────────────────────── */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Weekly Revenue Report</h1>
         <p className="text-sm text-gray-500 mt-0.5">
@@ -93,7 +123,7 @@ export default function WeeklyReportView({
         </p>
       </div>
 
-      {/* ── Week Selector ─────────────────────────────────────────── */}
+      {/* ── Week Selector ───────────────────────────────────── */}
       <div className="flex gap-2 flex-wrap">
         {weeks.map((w, i) => (
           <button
@@ -117,7 +147,7 @@ export default function WeeklyReportView({
 
       {current && (
         <>
-          {/* ── Selected Week Header ──────────────────────────────── */}
+          {/* ── Selected Week Header ──────────────────────── */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h2 className="text-lg font-bold text-gray-900">
               Week of {fmtWeek(current.first_day, current.last_day)}
@@ -127,9 +157,8 @@ export default function WeeklyReportView({
             </p>
           </div>
 
-          {/* ── KPI Cards ─────────────────────────────────────────── */}
+          {/* ── KPI Cards ───────────────────────────────────── */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-
             <div className="bg-white rounded-xl border border-gray-200 p-5">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-sm text-gray-500 font-medium">Revenue (ex-GST)</p>
@@ -185,10 +214,9 @@ export default function WeeklyReportView({
               <p className="text-2xl font-bold text-gray-900">{current.customer_count}</p>
               <p className="text-xs text-gray-400 mt-1">active this week</p>
             </div>
-
           </div>
 
-          {/* ── Profit Estimate ───────────────────────────────────── */}
+          {/* ── Profit Estimate ─────────────────────────────── */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h3 className="text-sm font-semibold text-gray-700 mb-4">
               Net Profit Estimate
@@ -197,14 +225,14 @@ export default function WeeklyReportView({
               </span>
             </h3>
 
-            {/* Actual wages input */}
+            {/* Wages input with save button */}
             <div className="mb-5 flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg p-3">
               <div className="flex-1">
                 <label className="block text-xs font-semibold text-blue-700 mb-1">
-                  Actual Wages Paid This Week
+                  Actual Wages Paid — {fmtWeek(current.first_day, current.last_day)}
                 </label>
                 <p className="text-xs text-blue-500">
-                  Enter real wages for accurate profit. Leave blank to use 30% estimate.
+                  Enter real wages for accurate profit. Saved per week.
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -214,28 +242,34 @@ export default function WeeklyReportView({
                   min="0"
                   step="0.01"
                   placeholder="e.g. 3500"
-                  value={actualWages[current.week_start] || ''}
-                  onChange={e => setActualWages(prev => ({
+                  value={wages[current.week_start] || ''}
+                  onChange={e => setWages(prev => ({
                     ...prev,
                     [current.week_start]: e.target.value,
                   }))}
                   className="w-32 border border-blue-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+                <button
+                  onClick={() => saveWages(current.week_start)}
+                  disabled={savingWages}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                    wagesSaved[current.week_start]
+                      ? 'bg-green-500 text-white'
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
+                >
+                  <Save className="h-3.5 w-3.5" />
+                  {wagesSaved[current.week_start] ? 'Saved!' : savingWages ? 'Saving...' : 'Save'}
+                </button>
               </div>
             </div>
 
-            {/* Cost breakdown rows */}
+            {/* Cost breakdown */}
             <div className="space-y-2 mb-4">
-
-              {/* Revenue */}
               <div className="flex justify-between items-center py-2 border-b border-gray-100">
                 <span className="text-sm text-gray-600">Revenue (ex-GST)</span>
-                <span className="font-mono font-semibold text-gray-900">
-                  {fmt(current.revenue)}
-                </span>
+                <span className="font-mono font-semibold text-gray-900">{fmt(current.revenue)}</span>
               </div>
-
-              {/* Ingredients */}
               <div className="flex justify-between items-center py-2 border-b border-gray-100">
                 <span className="text-sm text-gray-600">
                   Est. Ingredients
@@ -244,37 +278,25 @@ export default function WeeklyReportView({
                 <div className="text-right">
                   <span className="font-mono text-amber-600">-{fmt(estIngred)}</span>
                   <span className="text-xs text-amber-500 ml-2">
-                    {current.revenue > 0
-                      ? ((estIngred / current.revenue) * 100).toFixed(1)
-                      : 0}%
+                    {current.revenue > 0 ? ((estIngred / current.revenue) * 100).toFixed(1) : 0}%
                   </span>
                 </div>
               </div>
-
-              {/* Labour */}
               <div className="flex justify-between items-center py-2 border-b border-gray-100">
                 <div>
                   <span className="text-sm text-gray-600">
                     {wagesEntered ? 'Actual Wages' : 'Est. Labour'}
                   </span>
-                  {!wagesEntered && (
-                    <span className="text-xs text-gray-400 ml-1">(30% est.)</span>
-                  )}
-                  {wagesEntered && (
-                    <span className="text-xs text-blue-600 ml-1 font-medium">actual</span>
-                  )}
+                  {!wagesEntered && <span className="text-xs text-gray-400 ml-1">(30% est.)</span>}
+                  {wagesEntered && <span className="text-xs text-blue-600 ml-1 font-medium">actual</span>}
                 </div>
                 <div className="text-right">
                   <span className="font-mono text-blue-600">-{fmt(labourCost)}</span>
                   <span className="text-xs text-blue-500 ml-2">
-                    {current.revenue > 0
-                      ? ((labourCost / current.revenue) * 100).toFixed(1)
-                      : 0}%
+                    {current.revenue > 0 ? ((labourCost / current.revenue) * 100).toFixed(1) : 0}%
                   </span>
                 </div>
               </div>
-
-              {/* Overhead */}
               <div className="flex justify-between items-center py-2 border-b border-gray-100">
                 <span className="text-sm text-gray-600">
                   Est. Overhead
@@ -286,57 +308,13 @@ export default function WeeklyReportView({
                 <div className="text-right">
                   <span className="font-mono text-purple-600">-{fmt(estOverhead)}</span>
                   <span className="text-xs text-purple-500 ml-2">
-                    {current.revenue > 0
-                      ? ((estOverhead / current.revenue) * 100).toFixed(1)
-                      : 0}%
+                    {current.revenue > 0 ? ((estOverhead / current.revenue) * 100).toFixed(1) : 0}%
                   </span>
                 </div>
               </div>
+            </div>
 
-            </div>{/* ← closes space-y-2 mb-4 */}
-
-            {/* Visual bar */}
-            {current.revenue > 0 && (
-              <div>
-                <div className="flex h-4 rounded-full overflow-hidden bg-gray-100">
-                  <div className="bg-amber-400" style={{ width: '30%' }} />
-                  <div
-                    className="bg-blue-400"
-                    style={{
-                      width: `${wagesEntered
-                        ? Math.min((wages / current.revenue) * 100, 100)
-                        : 30}%`,
-                    }}
-                  />
-                  <div className="bg-purple-400" style={{ width: '30%' }} />
-                  <div className={`flex-1 ${estProfit >= 0 ? 'bg-green-400' : 'bg-red-400'}`} />
-                </div>
-                <div className="flex gap-4 mt-2 text-xs text-gray-500 flex-wrap">
-                  <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 bg-amber-400 rounded-full" />
-                    Ingredients 30%
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 bg-blue-400 rounded-full" />
-                    {wagesEntered
-                      ? `Labour ${((wages / current.revenue) * 100).toFixed(1)}% (actual)`
-                      : 'Labour 30% (est)'}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 bg-purple-400 rounded-full" />
-                    Overhead 30%
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className={`w-2 h-2 rounded-full ${
-                      estProfit >= 0 ? 'bg-green-400' : 'bg-red-400'
-                    }`} />
-                    Net Profit {estMargin.toFixed(1)}%
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {/* Net profit total row */}
+            {/* Net profit total */}
             <div className="flex justify-between items-center pt-4 mt-2 border-t-2 border-gray-200">
               <span className="text-sm font-bold text-gray-800">Est. Net Profit</span>
               <div className="text-right">
@@ -352,24 +330,19 @@ export default function WeeklyReportView({
                 </span>
               </div>
             </div>
+          </div>
 
-          </div>{/* ← closes Profit Estimate card */}
-
-          {/* ── Invoiced vs Pending ───────────────────────────────── */}
+          {/* ── Invoiced vs Pending ─────────────────────────── */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h3 className="text-sm font-semibold text-gray-700 mb-3">Revenue Breakdown</h3>
             <div className="flex gap-6 mb-3">
               <div>
                 <p className="text-xs text-gray-500">Invoiced</p>
-                <p className="text-lg font-bold text-green-600">
-                  {fmt(current.invoiced_revenue)}
-                </p>
+                <p className="text-lg font-bold text-green-600">{fmt(current.invoiced_revenue)}</p>
               </div>
               <div>
                 <p className="text-xs text-gray-500">Pending</p>
-                <p className="text-lg font-bold text-amber-600">
-                  {fmt(current.pending_revenue)}
-                </p>
+                <p className="text-lg font-bold text-amber-600">{fmt(current.pending_revenue)}</p>
               </div>
             </div>
             {current.revenue > 0 && (
@@ -388,82 +361,49 @@ export default function WeeklyReportView({
               <span className="flex items-center gap-1">
                 <span className="w-2 h-2 bg-green-500 rounded-full" />
                 Invoiced {current.revenue > 0
-                  ? ((current.invoiced_revenue / current.revenue) * 100).toFixed(0)
-                  : 0}%
+                  ? ((current.invoiced_revenue / current.revenue) * 100).toFixed(0) : 0}%
               </span>
               <span className="flex items-center gap-1">
                 <span className="w-2 h-2 bg-amber-400 rounded-full" />
                 Pending {current.revenue > 0
-                  ? ((current.pending_revenue / current.revenue) * 100).toFixed(0)
-                  : 0}%
+                  ? ((current.pending_revenue / current.revenue) * 100).toFixed(0) : 0}%
               </span>
             </div>
           </div>
 
-        </>
-      )}{/* ← closes {current && ( */}
-
-      {/* ── Weekly Bar Chart ──────────────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <h3 className="text-sm font-semibold text-gray-700 mb-4">Revenue by Week</h3>
-        <div className="flex items-end gap-2 h-40">
-          {[...weeks].reverse().map((w, i) => {
-            const height     = maxRevenue > 0 ? (w.revenue / maxRevenue) * 100 : 0
-            const isSelected = w.week_start === weeks[selectedWeek]?.week_start
-            return (
-              <button
-                key={w.week_start}
-                onClick={() => setSelectedWeek(weeks.length - 1 - i)}
-                className="flex-1 flex flex-col items-center gap-1 group"
-              >
-                <span className="text-xs text-gray-500 opacity-0 group-hover:opacity-100 transition">
-                  {fmt(w.revenue)}
-                </span>
-                <div
-                  className={`w-full rounded-t-md transition-all ${
-                    isSelected ? 'bg-green-600' : 'bg-green-200 hover:bg-green-400'
-                  }`}
-                  style={{ height: `${Math.max(height, 4)}%` }}
-                />
-                <span className="text-xs text-gray-400 truncate w-full text-center">
-                  {fmtDate(w.first_day)}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* ── Top Products This Week ────────────────────────────────── */}
-      {topProducts.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">
-            Top Products — Current Week
-          </h3>
-          <div className="space-y-2">
-            {topProducts.map((p, i) => (
-              <div key={p.name} className="flex items-center gap-3">
-                <span className="text-xs font-bold text-gray-400 w-4">{i + 1}</span>
-                <div className="flex-1">
-                  <div className="flex justify-between text-sm mb-0.5">
-                    <span className="font-medium text-gray-800 truncate">{p.name}</span>
-                    <span className="text-gray-600 font-mono ml-2">{fmt(p.revenue)}</span>
+          {/* ── Top Products for Selected Week ──────────────── */}
+          {currentTopProducts.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h3 className="text-sm font-semibold text-gray-700 mb-4">
+                Top Products — {fmtWeek(current.first_day, current.last_day)}
+              </h3>
+              <div className="space-y-2">
+                {currentTopProducts.map((p, i) => (
+                  <div key={p.name} className="flex items-center gap-3">
+                    <span className="text-xs font-bold text-gray-400 w-4">{i + 1}</span>
+                    <div className="flex-1">
+                      <div className="flex justify-between text-sm mb-0.5">
+                        <span className="font-medium text-gray-800 truncate">{p.name}</span>
+                        <span className="text-gray-600 font-mono ml-2">{fmt(p.revenue)}</span>
+                      </div>
+                      <div className="flex h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="bg-indigo-400 rounded-full"
+                          style={{ width: `${(p.revenue / currentTopProducts[0].revenue) * 100}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5">{p.qty} units</p>
+                    </div>
                   </div>
-                  <div className="flex h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className="bg-indigo-400 rounded-full"
-                      style={{ width: `${(p.revenue / topProducts[0].revenue) * 100}%` }}
-                    />
-                  </div>
-                  <p className="text-xs text-gray-400 mt-0.5">{p.qty} units</p>
-                </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
+            </div>
+          )}
+
+        </>
       )}
 
-      {/* ── All Weeks Table ───────────────────────────────────────── */}
+      {/* ── All Weeks Table ──────────────────────────────────── */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100">
           <h3 className="text-sm font-semibold text-gray-700">All Weeks Summary</h3>
@@ -475,6 +415,7 @@ export default function WeeklyReportView({
               <th className="text-right px-4 py-3 font-semibold text-gray-600">Orders</th>
               <th className="text-right px-4 py-3 font-semibold text-gray-600">Customers</th>
               <th className="text-right px-4 py-3 font-semibold text-gray-600">Avg Order</th>
+              <th className="text-right px-4 py-3 font-semibold text-gray-600">Wages</th>
               <th className="text-right px-4 py-3 font-semibold text-gray-600">Revenue</th>
               <th className="text-right px-4 py-3 font-semibold text-gray-600">vs Prior</th>
             </tr>
@@ -485,6 +426,7 @@ export default function WeeklyReportView({
               const change = prior
                 ? ((w.revenue - prior.revenue) / prior.revenue) * 100
                 : null
+              const weekWages = savedWages[w.week_start]
               return (
                 <tr
                   key={w.week_start}
@@ -507,6 +449,9 @@ export default function WeeklyReportView({
                   <td className="px-4 py-3 text-right text-gray-600">{w.customer_count}</td>
                   <td className="px-4 py-3 text-right font-mono text-gray-600">
                     {fmt(w.order_count > 0 ? w.revenue / w.order_count : 0)}
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono text-blue-600">
+                    {weekWages ? fmt(weekWages) : <span className="text-gray-300">—</span>}
                   </td>
                   <td className="px-4 py-3 text-right font-mono font-semibold text-gray-900">
                     {fmt(w.revenue)}
@@ -543,6 +488,9 @@ export default function WeeklyReportView({
                   weeks.reduce((s, w) => s + w.revenue, 0) /
                   Math.max(weeks.reduce((s, w) => s + w.order_count, 0), 1)
                 )}
+              </td>
+              <td className="px-4 py-3 text-right font-mono text-blue-600 font-semibold">
+                {fmt(Object.values(savedWages).reduce((s, v) => s + v, 0))}
               </td>
               <td className="px-4 py-3 text-right font-mono font-bold text-green-700 text-base">
                 {fmt(weeks.reduce((s, w) => s + w.revenue, 0))}
