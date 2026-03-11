@@ -17,7 +17,7 @@ darkMode: "class",
     },
     extend: {
       colors: {
-        // Norbake Bakery Brand Colors
+        // stods bakeryBakery Brand Colors
         'debs-red': {
           DEFAULT: '#C4A882',
           50: '#FEE7E9',

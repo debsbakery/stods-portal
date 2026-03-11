@@ -129,13 +129,13 @@ export async function GET(request: NextRequest) {
           })
 
           await resend.emails.send({
-            from:    "Norbake Bakery <noreply@debsbakery.store>",
+            from:    "stods bakeryBakery <noreply@debsbakery.store>",
             to:      customer.email!,
             subject: `Account Statement — ${monthLabel}`,
             html: `
               <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
                 <div style="background:#3E1F00;padding:24px;border-radius:8px 8px 0 0;">
-                  <h1 style="color:white;margin:0;font-size:22px;">Norbake Bakery</h1>
+                  <h1 style="color:white;margin:0;font-size:22px;">stods bakeryBakery</h1>
                   <p style="color:#a7f3d0;margin:4px 0 0;font-size:13px;">Monthly Account Statement</p>
                 </div>
                 <div style="padding:24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px;">
@@ -154,7 +154,7 @@ export async function GET(request: NextRequest) {
                   </p>
                   <p style="margin-top:24px;">
                     Kind regards,<br/>
-                    <strong style="color:#3E1F00;">Norbake Bakery Accounts Team</strong>
+                    <strong style="color:#3E1F00;">stods bakeryBakery Accounts Team</strong>
                   </p>
                 </div>
               </div>

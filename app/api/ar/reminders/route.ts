@@ -88,7 +88,7 @@ export async function POST() {
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
               <div style="background-color: #C4A882; color: white; padding: 20px; text-align: center;">
-                <h1 style="margin: 0;">Norbake Bakery</h1>
+                <h1 style="margin: 0;">stods bakeryBakery</h1>
                 <p style="margin: 5px 0 0 0;">Payment Reminder</p>
               </div>
               
@@ -113,7 +113,7 @@ export async function POST() {
                 </ul>
                 
                 <p>Thank you for your business!</p>
-                <p><strong>Norbake Bakery</strong><br/>
+                <p><strong>stods bakeryBakery</strong><br/>
                 ${process.env.BAKERY_ADDRESS}</p>
               </div>
             </div>

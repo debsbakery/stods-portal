@@ -41,7 +41,7 @@ export function Header() {
 <Link href="/" className="flex items-center space-x-3">
   <img 
     src="/logo.svg"
-    alt="Norbake Bakery" 
+    alt="stods bakeryBakery" 
     className="h-14 w-auto"
   />
   <div className="flex flex-col leading-none">

@@ -2,7 +2,7 @@ import { Resend } from 'resend'
 
 const resend = new Resend(process.env.RESEND_API_KEY || "re_placeholder")
 
-const BAKERY_NAME = process.env.BAKERY_NAME || "Norbake Bakery"
+const BAKERY_NAME = process.env.BAKERY_NAME || "stods bakeryBakery"
 const BAKERY_EMAIL = process.env.BAKERY_EMAIL || 'noreply@example.com'
 const BAKERY_PHONE = process.env.BAKERY_PHONE || ''
 const BAKERY_ADDRESS = process.env.BAKERY_ADDRESS || ''

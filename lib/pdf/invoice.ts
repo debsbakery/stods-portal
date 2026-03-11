@@ -65,7 +65,7 @@ export async function generateInvoicePDF(order: InvoiceData): Promise<Buffer> {
   let y = height - 50
 
   // ── Header ──────────────────────────────────────────────
-  drawText("Norbake Bakery", 50, y, { size: 24, bold: true, color: [0, 0.416, 0.306] })
+  drawText("stods bakeryBakery", 50, y, { size: 24, bold: true, color: [0, 0.416, 0.306] })
   y -= 20
   drawText('TAX INVOICE', 50, y, { size: 10, color: [0.2, 0.2, 0.2] })
 
@@ -148,7 +148,7 @@ export async function generateInvoicePDF(order: InvoiceData): Promise<Buffer> {
   // ── Footer ───────────────────────────────────────────────
   drawText('Payment Terms: Due on receipt', 50, 60, { size: 9, color: [0.4, 0.4, 0.4] })
   drawText('Thank you for your business!',  50, 45, { size: 9, color: [0.4, 0.4, 0.4] })
-  drawText("Norbake Bakery | ABN: [Your ABN]", width / 2 - 80, 30, { size: 8, color: [0.5, 0.5, 0.5] })
+  drawText("stods bakeryBakery | ABN: [Your ABN]", width / 2 - 80, 30, { size: 8, color: [0.5, 0.5, 0.5] })
 
   const pdfBytes = await pdfDoc.save()
   return Buffer.from(pdfBytes)

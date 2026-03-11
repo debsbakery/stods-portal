@@ -191,7 +191,7 @@ export default function RegisterForm() {
       </button>
 
       <p className="text-xs text-center text-gray-400">
-        By submitting you agree to be contacted by Norbake Bakery regarding your trade account application.
+        By submitting you agree to be contacted by stods bakeryBakery regarding your trade account application.
       </p>
     </form>
   )

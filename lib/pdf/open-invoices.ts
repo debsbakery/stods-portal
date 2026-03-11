@@ -60,7 +60,7 @@ export async function generateOpenInvoicesPDF(data: OpenInvoicesData): Promise<B
 
   // Header bar
   page.drawRectangle({ x: 0, y: height - 75, width, height: 75, color: rgb(...GREEN) })
-  page.drawText("Norbake Bakery", {
+  page.drawText("stods bakeryBakery", {
     x: 50, y: height - 35, size: 22, font: fontBold, color: rgb(1, 1, 1),
   })
   page.drawText('OPEN INVOICE STATEMENT', {
@@ -170,7 +170,7 @@ export async function generateOpenInvoicesPDF(data: OpenInvoicesData): Promise<B
     { x: 50, y, size: 8, font, color: rgb(...GREY) }
   )
   page.drawText(
-    "Norbake Bakery  |  noreply@debsbakery.store",
+    "stods bakeryBakery  |  noreply@debsbakery.store",
     { x: RIGHT_MARGIN - 250, y, size: 8, font, color: rgb(...GREY) }
   )
 

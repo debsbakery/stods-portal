@@ -6,7 +6,7 @@ export default function HomePage() {
       <div className="text-center space-y-8 p-8">
         <div>
           <h1 className="text-6xl font-bold mb-2" style={{ color: "#3E1F00" }}>
-            Norbake Bakery
+            stods bakeryBakery
           </h1>
           <p className="text-xl text-gray-600">
             Wholesale Bread & Bakery Products

@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
       }
 
       // Header
-      drawText("Norbake Bakery", 50, y, { size: 20, bold: true, color: [0, 0.416, 0.306] })
+      drawText("stods bakeryBakery", 50, y, { size: 20, bold: true, color: [0, 0.416, 0.306] })
       y -= 22
       drawText('Customer Ledger', 50, y, { size: 12 })
       y -= 20
