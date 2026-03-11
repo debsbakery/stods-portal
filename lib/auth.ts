@@ -8,7 +8,7 @@ const ADMIN_EMAILS = [
   'debs_bakery@outlook.com',
   'admin@allstarsbakery.com',
   'admin@stodsbakery.com',
- 'Stodsbakery@outlook.com',
+ 'stodsbakery@outlook.com',
 ];
 
 /**
