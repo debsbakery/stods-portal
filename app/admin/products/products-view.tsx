@@ -171,7 +171,7 @@ export default function ProductsView() {
             <p className="text-sm text-gray-600 mb-3 line-clamp-2">{product.description}</p>
           )}
           <div className="flex items-center justify-between mt-1">
-            <p className="text-2xl font-bold" style={{ color: "#006A4E" }}>
+            <p className="text-2xl font-bold" style={{ color: "#3E1F00" }}>
               {formatCurrency(product.price)}
             </p>
             <button
@@ -193,7 +193,7 @@ export default function ProductsView() {
           <Link
             href={`/admin/products/${product.id}`}
             className="flex-1 text-center px-3 py-2 rounded-md text-white text-sm font-semibold hover:opacity-90"
-            style={{ backgroundColor: "#006A4E" }}
+            style={{ backgroundColor: "#3E1F00" }}
           >
             <Edit className="h-4 w-4 inline mr-1" />
             Edit
@@ -218,7 +218,7 @@ export default function ProductsView() {
         <Link
           href="/admin/products/create"
           className="inline-block mt-4 px-6 py-2 rounded-md text-white font-semibold hover:opacity-90"
-          style={{ backgroundColor: "#006A4E" }}
+          style={{ backgroundColor: "#3E1F00" }}
         >
           + Add First Product
         </Link>

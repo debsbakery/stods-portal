@@ -194,7 +194,7 @@ async function generateStandingOrders() {
               </a>
 <a href="/admin/products"
   className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
-  style={{ backgroundColor: '#006A4E' }}>
+  style={{ backgroundColor: '#3E1F00' }}>
   <Package className="h-4 w-4" />Products
 </a>
               <a href="/admin/inventory"
