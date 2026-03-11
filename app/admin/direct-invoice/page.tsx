@@ -488,49 +488,50 @@ export default function DirectInvoicePage() {
           const creditTotal    = creditSubtotal + creditGst
           const allStale       = creditLines.every(i => i.creditType === 'stale_return')
 
-          const { data: memo, error: memoError } = await supabase
-            .from('credit_memos')
-            .insert({
-              customer_id:        formData.customerId,
-              reference_order_id: newOrder.id,
-              credit_type:        allStale ? 'stale_return' : 'product_credit',
-              credit_number:      `CM-${Date.now().toString().slice(-6)}`,
-              credit_date:        formData.deliveryDate,
-              status:             'issued',
-              notes:              formData.notes || null,
-              reason:             'Direct invoice',
-              applied_amount:     0,
-              total:              Math.abs(lineSubtotal(i)),   // ✅ always positive
-    credit_percent:     i.creditPercent,
-    line_total:         Math.abs(lineTotal(i)),      // ✅ always positive
-    gst_applicable:     i.gstApplicable,
-    gst_amount:         Math.abs(lineGst(i)),        // ✅ always positive
-    credit_type:        i.creditType,
-  }))
-            .select()
-            .single()
+      const { data: memo, error: memoError } = await supabase
+  .from('credit_memos')
+  .insert({
+    customer_id:        formData.customerId,
+    reference_order_id: newOrder.id,
+    credit_type:        allStale ? 'stale_return' : 'product_credit',
+    credit_number:      `CM-${Date.now().toString().slice(-6)}`,
+     memo_number:        Date.now(),
+    credit_date:        formData.deliveryDate,
+    status:             'issued',
+    notes:              formData.notes || null,
+    reason:             'Direct invoice',
+    applied_amount:     0,
+    subtotal:           creditSubtotal,
+    gst_amount:         creditGst,
+    total_amount:       creditTotal,
+    amount:             Math.abs(creditTotal),
+  })
+  .select()
+  .single()
 
-          if (memoError) {
-            console.error('Credit memo failed:', memoError.message)
-          } else if (memo) {
-           await supabase.from('credit_memo_items').insert(
-  creditLines.map(i => ({
-    credit_memo_id:     memo.id,
-    product_id:         i.productId,
-    product_name:       i.productName,
-    product_code:       i.productCode,
-    custom_description: i.productName,
-    quantity:           i.quantity,
-    unit_price:         i.unitPrice,
-    total:              Math.abs(lineSubtotal(i)),   // ✅ always positive
-    credit_percent:     i.creditPercent,
-    line_total:         Math.abs(lineTotal(i)),      // ✅ always positive
-    gst_applicable:     i.gstApplicable,
-    gst_amount:         Math.abs(lineGst(i)),        // ✅ always positive
-    credit_type:        i.creditType,
-  }))
-)
-          }
+if (memoError) {
+  console.error('Credit memo failed:', memoError.message)
+} else if (memo) {
+  await supabase.from('credit_memo_items').insert(
+    creditLines.map(i => ({
+      credit_memo_id:     memo.id,
+      product_id:         i.productId,
+      product_name:       i.productName,
+      product_code:       i.productCode,
+      custom_description: i.productName,
+      quantity:           i.quantity,
+      unit_price:         i.unitPrice,
+      total:              Math.abs(lineSubtotal(i)),
+      credit_percent:     i.creditPercent,
+      line_total:         Math.abs(lineTotal(i)),
+      gst_applicable:     i.gstApplicable,
+      gst_amount:         Math.abs(lineGst(i)),
+      credit_type:        i.creditType,
+    }))
+  )
+}
+
+          
         } catch (memoErr) {
           console.error('Credit memo exception:', memoErr)
         }
