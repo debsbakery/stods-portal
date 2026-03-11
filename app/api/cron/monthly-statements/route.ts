@@ -129,7 +129,7 @@ export async function GET(request: NextRequest) {
           })
 
           await resend.emails.send({
-            from:    "Stods Bakery <noreply@debsbakery.store>",
+            from:    "Stods Bakery <orders@stodsbakery.com>",
             to:      customer.email!,
             subject: `Account Statement — ${monthLabel}`,
             html: `

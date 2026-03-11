@@ -40,7 +40,7 @@ export async function POST(
   const total        = Math.abs(parseFloat(memo.total_amount || memo.amount || '0'))
 
   const { error: emailError } = await resend.emails.send({
-    from: "Stods Bakery <noreply@debsbakery.store>",
+    from: "Stods Bakery <orders@stodsbakery.com>",
     to:   memo.customer.email,
     subject: `Credit Invoice ${memo.credit_number} — Stods Bakery`,
     html: `

@@ -305,7 +305,7 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
     { size: 8, color: GREY }
   )
   drawText(
-    "Stods Bakery  |  noreply@debsbakery.store",
+    "Stods Bakery  |  orders@stodsbakery.com",
     RIGHT_MARGIN - 250, y,
     { size: 8, color: GREY }
   )

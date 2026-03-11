@@ -212,7 +212,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     // ── Send via Resend ───────────────────────────────────────
     const { error: sendError } = await resend.emails.send({
-      from:    "Stods Bakery <noreply@debsbakery.store>",
+      from:    "Stods Bakery <orders@stodsbakery.com>",
       to:      customer.email,
       subject: `Account Statement - ${customerName}`,
       html: `

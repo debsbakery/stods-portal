@@ -148,7 +148,7 @@ export async function generateInvoicePDF(order: InvoiceData): Promise<Buffer> {
   // ── Footer ───────────────────────────────────────────────
   drawText('Payment Terms: Due on receipt', 50, 60, { size: 9, color: [0.4, 0.4, 0.4] })
   drawText('Thank you for your business!',  50, 45, { size: 9, color: [0.4, 0.4, 0.4] })
-  drawText("Stods Bakery | ABN: [Your ABN]", width / 2 - 80, 30, { size: 8, color: [0.5, 0.5, 0.5] })
+  drawText("Stods Bakery | ABN: 55 105 023 327", width / 2 - 80, 30, { size: 8, color: [0.5, 0.5, 0.5] })
 
   const pdfBytes = await pdfDoc.save()
   return Buffer.from(pdfBytes)

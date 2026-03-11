@@ -135,7 +135,7 @@ export async function GET(
   }
 
   // ── Footer ───────────────────────────────────────────────
-  drawText("Stods Bakery | ABN: [Your ABN]", width / 2 - 80, 30, {
+  drawText("Stods Bakery | ABN: 55 105 023 327", width / 2 - 80, 30, {
     size: 8, color: [0.5, 0.5, 0.5]
   })
 

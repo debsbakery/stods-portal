@@ -170,7 +170,7 @@ export async function generateOpenInvoicesPDF(data: OpenInvoicesData): Promise<B
     { x: 50, y, size: 8, font, color: rgb(...GREY) }
   )
   page.drawText(
-    "Stods Bakery  |  noreply@debsbakery.store",
+    "Stods Bakery  |  orders@stodsbakery.com",
     { x: RIGHT_MARGIN - 250, y, size: 8, font, color: rgb(...GREY) }
   )
 

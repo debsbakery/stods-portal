@@ -267,7 +267,7 @@ function OverviewTab({ data, totalOverdue }: { data: PortalData; totalOverdue: n
           <div>
             <p className="font-semibold text-red-800">Overdue Balance: {fmt(totalOverdue)}</p>
             <p className="text-sm text-red-600 mt-1">
-              Please contact Stods Bakery to arrange payment. Ph: (03) 9000 0000
+              Please contact Stods Bakery to arrange payment. Ph: 0414748716
             </p>
           </div>
         </div>
