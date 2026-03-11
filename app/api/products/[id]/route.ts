@@ -54,9 +54,9 @@ export async function PUT(
       category,
       image_url,
       code,
-      weight_grams,   // ✅ added
-      labour_pct,     // ✅ added
-      gst_applicable, // ✅ added
+      weight_grams,
+      labour_pct,
+      gst_applicable,
     } = body
 
     if (!name || price === undefined || price === null) {
@@ -75,9 +75,9 @@ export async function PUT(
         category:       category       || null,
         image_url:      image_url      || null,
         code:           code           || null,
-        weight_grams:   weight_grams   ?? null,  // ✅
-        labour_pct:     labour_pct     ?? null,  // ✅
-        gst_applicable: gst_applicable ?? false, // ✅
+        weight_grams:   weight_grams   ?? null,
+        labour_pct:     labour_pct     ?? null,
+        gst_applicable: gst_applicable ?? false,
         updated_at:     new Date().toISOString(),
       })
       .eq('id', id)
@@ -91,6 +91,35 @@ export async function PUT(
     return NextResponse.json({ product })
   } catch (error: any) {
     console.error('Error updating product:', error)
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+}
+
+// PATCH - Update single field (e.g. gst_applicable toggle)
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params
+    const supabase = await createServiceClient()
+    const body = await request.json()
+
+    const { data: product, error } = await supabase
+      .from('products')
+      .update({
+        ...body,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (error) throw error
+
+    return NextResponse.json({ product })
+  } catch (error: any) {
+    console.error('Error patching product:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }

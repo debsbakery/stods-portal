@@ -14,9 +14,9 @@ interface Product {
   code: string | null;
   allow_custom_description?: boolean;
   allow_custom_price?: boolean;
+  gst_applicable: boolean;
 }
 
-// ✅ REPLACE WITH THIS
 const CODE_RANGES = [
   { min: 1000, max: 1999, label: '🎂 Cakes',  color: 'bg-pink-50 border-pink-200' },
   { min: 2000, max: 2750, label: '🍞 Bread',  color: 'bg-amber-50 border-amber-200' },
@@ -26,96 +26,100 @@ const CODE_RANGES = [
 ]
 
 function getCodeRangeInfo(code: string | null) {
-  if (!code) return { label: '❓ No Code', color: 'bg-gray-100 border-gray-300', range: 'none' };
-  if (code === '900') return { label: '⚙️ Administrative', color: 'bg-blue-50 border-blue-200', range: 'admin' };
-  
-  const codeNum = parseInt(code);
-  const range = CODE_RANGES.find(r => codeNum >= r.min && codeNum <= r.max);
-  
-  return range 
+  if (!code) return { label: '❓ No Code', color: 'bg-gray-100 border-gray-300', range: 'none' }
+  if (code === '900') return { label: '⚙️ Administrative', color: 'bg-blue-50 border-blue-200', range: 'admin' }
+  const codeNum = parseInt(code)
+  const range = CODE_RANGES.find(r => codeNum >= r.min && codeNum <= r.max)
+  return range
     ? { ...range, range: `${range.min}-${range.max}` }
-    : { label: '❓ Uncategorized', color: 'bg-gray-100 border-gray-300', range: 'other' };
+    : { label: '❓ Uncategorized', color: 'bg-gray-100 border-gray-300', range: 'other' }
 }
 
 export default function ProductsView() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [viewMode, setViewMode] = useState<'grid' | 'grouped'>('grid');
+  const [products, setProducts] = useState<Product[]>([])
+  const [loading,  setLoading]  = useState(true)
+  const [error,    setError]    = useState('')
+  const [viewMode, setViewMode] = useState<'grid' | 'grouped'>('grid')
 
-  useEffect(() => {
-    fetchProducts();
-  }, []);
+  useEffect(() => { fetchProducts() }, [])
 
   const fetchProducts = async () => {
-    setLoading(true);
-    setError('');
-
+    setLoading(true)
+    setError('')
     try {
-      const response = await fetch('/api/products');
-      const data = await response.json();
-
-      if (data.error) throw new Error(data.error);
-
-      setProducts(data.products || []);
+      const response = await fetch('/api/products')
+      const data = await response.json()
+      if (data.error) throw new Error(data.error)
+      setProducts(data.products || [])
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return
+    try {
+      const response = await fetch(`/api/products/${id}`, { method: 'DELETE' })
+      if (!response.ok) throw new Error('Failed to delete product')
+      fetchProducts()
+    } catch (err: any) {
+      alert(`Error: ${err.message}`)
+    }
+  }
+
+  const toggleGst = async (product: Product) => {
+    const newValue = !product.gst_applicable
+
+    // Optimistic update
+    setProducts(prev => prev.map(p =>
+      p.id === product.id ? { ...p, gst_applicable: newValue } : p
+    ))
 
     try {
-      const response = await fetch(`/api/products/${id}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) throw new Error('Failed to delete product');
-
-      fetchProducts();
+      const res = await fetch(`/api/products/${product.id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ gst_applicable: newValue }),
+      })
+      if (!res.ok) throw new Error('Failed to update GST')
     } catch (err: any) {
-      alert(`Error: ${err.message}`);
+      // Revert on error
+      setProducts(prev => prev.map(p =>
+        p.id === product.id ? { ...p, gst_applicable: !newValue } : p
+      ))
+      alert('Failed to update GST status')
     }
-  };
+  }
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-AU', {
-      style: 'currency',
-      currency: 'AUD',
-    }).format(amount);
-  };
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(amount)
 
   // Group products by code range
   const groupedProducts = products.reduce((acc: any, product) => {
-    const rangeInfo = getCodeRangeInfo(product.code);
-    const key = rangeInfo.range;
-    
-    if (!acc[key]) {
-      acc[key] = { ...rangeInfo, products: [] };
-    }
-    acc[key].products.push(product);
-    return acc;
-  }, {});
+    const rangeInfo = getCodeRangeInfo(product.code)
+    const key = rangeInfo.range
+    if (!acc[key]) acc[key] = { ...rangeInfo, products: [] }
+    acc[key].products.push(product)
+    return acc
+  }, {})
 
-  // Sort products by code within each group
   Object.values(groupedProducts).forEach((group: any) => {
     group.products.sort((a: Product, b: Product) => {
-      const codeA = parseInt(a.code || '99999');
-      const codeB = parseInt(b.code || '99999');
-      return codeA - codeB;
-    });
-  });
+      const codeA = parseInt(a.code || '99999')
+      const codeB = parseInt(b.code || '99999')
+      return codeA - codeB
+    })
+  })
 
   if (loading) {
     return (
       <div className="bg-white rounded-lg shadow-md p-8 text-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto" />
         <p className="mt-3 text-gray-500">Loading products...</p>
       </div>
-    );
+    )
   }
 
   if (error) {
@@ -124,14 +128,14 @@ export default function ProductsView() {
         <p className="text-red-700 font-semibold">❌ Error loading products</p>
         <p className="text-red-600 text-sm mt-1">{error}</p>
       </div>
-    );
+    )
   }
 
   const ProductCard = ({ product }: { product: Product }) => {
-    const rangeInfo = getCodeRangeInfo(product.code);
-    
+    const rangeInfo = getCodeRangeInfo(product.code)
     return (
       <div className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden">
+
         {/* Product Code Badge */}
         {product.code && (
           <div className={`px-3 py-1 text-xs font-mono font-bold ${rangeInfo.color} border-b flex justify-between items-center`}>
@@ -164,13 +168,24 @@ export default function ProductsView() {
             <p className="text-xs text-gray-500 mb-2">{product.category}</p>
           )}
           {product.description && (
-            <p className="text-sm text-gray-600 mb-3 line-clamp-2">
-              {product.description}
-            </p>
+            <p className="text-sm text-gray-600 mb-3 line-clamp-2">{product.description}</p>
           )}
-          <p className="text-2xl font-bold" style={{ color: "#3E1F00" }}>
-            {formatCurrency(product.price)}
-          </p>
+          <div className="flex items-center justify-between mt-1">
+            <p className="text-2xl font-bold" style={{ color: "#006A4E" }}>
+              {formatCurrency(product.price)}
+            </p>
+            <button
+              onClick={e => { e.preventDefault(); toggleGst(product) }}
+              title="Click to toggle GST"
+              className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold border transition-colors ${
+                product.gst_applicable
+                  ? 'bg-green-100 text-green-700 border-green-300 hover:bg-green-200'
+                  : 'bg-gray-100 text-gray-500 border-gray-300 hover:bg-gray-200'
+              }`}
+            >
+              {product.gst_applicable ? '✓ GST' : '✗ No GST'}
+            </button>
+          </div>
         </div>
 
         {/* Actions */}
@@ -178,7 +193,7 @@ export default function ProductsView() {
           <Link
             href={`/admin/products/${product.id}`}
             className="flex-1 text-center px-3 py-2 rounded-md text-white text-sm font-semibold hover:opacity-90"
-            style={{ backgroundColor: "#3E1F00" }}
+            style={{ backgroundColor: "#006A4E" }}
           >
             <Edit className="h-4 w-4 inline mr-1" />
             Edit
@@ -192,8 +207,8 @@ export default function ProductsView() {
           </button>
         </div>
       </div>
-    );
-  };
+    )
+  }
 
   if (products.length === 0) {
     return (
@@ -203,12 +218,12 @@ export default function ProductsView() {
         <Link
           href="/admin/products/create"
           className="inline-block mt-4 px-6 py-2 rounded-md text-white font-semibold hover:opacity-90"
-          style={{ backgroundColor: "#3E1F00" }}
+          style={{ backgroundColor: "#006A4E" }}
         >
           + Add First Product
         </Link>
       </div>
-    );
+    )
   }
 
   return (
@@ -241,11 +256,8 @@ export default function ProductsView() {
       <div className="mb-6 bg-white rounded-lg shadow p-4">
         <h3 className="font-semibold mb-3 text-sm text-gray-700">📋 Product Code Ranges</h3>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
-          {CODE_RANGES.map((range) => (
-            <div
-              key={range.label}
-              className={`p-2 rounded border text-center text-xs ${range.color}`}
-            >
+          {CODE_RANGES.map(range => (
+            <div key={range.label} className={`p-2 rounded border text-center text-xs ${range.color}`}>
               <div className="font-mono font-bold">{range.min}-{range.max}</div>
               <div className="text-[10px] mt-0.5">{range.label}</div>
             </div>
@@ -261,14 +273,9 @@ export default function ProductsView() {
       {viewMode === 'grid' ? (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {products
-            .sort((a, b) => {
-              const codeA = parseInt(a.code || '99999');
-              const codeB = parseInt(b.code || '99999');
-              return codeA - codeB;
-            })
-            .map((product) => (
-              <ProductCard key={product.id} product={product} />
-            ))}
+            .sort((a, b) => parseInt(a.code || '99999') - parseInt(b.code || '99999'))
+            .map(product => <ProductCard key={product.id} product={product} />)
+          }
         </div>
       ) : (
         <div className="space-y-6">
@@ -294,5 +301,5 @@ export default function ProductsView() {
         </div>
       )}
     </div>
-  );
+  )
 }
