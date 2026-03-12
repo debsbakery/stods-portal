@@ -210,14 +210,14 @@ function SearchableSelect({
 export default function DirectInvoicePage() {
   const supabase = createClient()
 
-  const [customers,        setCustomers]        = useState<Customer[]>([])
-  const [products,         setProducts]         = useState<Product[]>([])
-  const [lineItems,        setLineItems]         = useState<LineItem[]>([])
-  const [loading,          setLoading]           = useState(false)
-  const [error,            setError]             = useState<string | null>(null)
-  const [selectedCustomer, setSelectedCustomer]  = useState<Customer | null>(null)
-  const [contractPricing,  setContractPricing]   = useState<Record<string, number>>({}) // ✅ NEW
-  const [formData,         setFormData]          = useState({
+  const [customers,        setCustomers]       = useState<Customer[]>([])
+  const [products,         setProducts]        = useState<Product[]>([])
+  const [lineItems,        setLineItems]       = useState<LineItem[]>([])
+  const [loading,          setLoading]         = useState(false)
+  const [error,            setError]           = useState<string | null>(null)
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
+  const [contractPricing,  setContractPricing] = useState<Record<string, number>>({})
+  const [formData,         setFormData]        = useState({
     customerId:          '',
     deliveryDate:        new Date().toISOString().split('T')[0],
     purchaseOrderNumber: '',
@@ -244,20 +244,19 @@ export default function DirectInvoicePage() {
   const customerOptions: SelectOption[] = customers.map(c => ({
     value:    c.id,
     label:    c.business_name || c.email,
-    sublabel: `Balance: $${(c.balance || 0).toFixed(2)}`,
+    sublabel: `Balance: ${fmt(c.balance || 0)}`,
   }))
 
-  // ✅ Show contract price in dropdown if available
   const productOptions: SelectOption[] = products.map(p => {
-    const code       = p.code || p.product_number || p.product_code?.toString() || ''
-    const is900      = p.code === '900' || p.product_code === 900
-    const contract   = contractPricing[p.id]
-    const stdPrice   = p.unit_price || p.price || 0
+    const code     = p.code || p.product_number || p.product_code?.toString() || ''
+    const is900    = p.code === '900' || p.product_code === 900
+    const contract = contractPricing[p.id]
+    const stdPrice = p.unit_price || p.price || 0
     const priceLabel = is900
       ? 'Enter custom description + amount'
       : contract !== undefined
-        ? `Contract: $${contract.toFixed(2)} | Std: $${stdPrice.toFixed(2)} | ${p.gst_applicable ? 'GST' : 'No GST'}`
-        : `$${stdPrice.toFixed(2)} | ${p.gst_applicable ? 'GST' : 'No GST'}`
+        ? `Contract: ${fmt(contract)} | Std: ${fmt(stdPrice)} | ${p.gst_applicable ? 'GST' : 'No GST'}`
+        : `${fmt(stdPrice)} | ${p.gst_applicable ? 'GST' : 'No GST'}`
     return {
       value:    p.id,
       label:    is900 ? 'Manual Adjustment' : p.name,
@@ -268,7 +267,6 @@ export default function DirectInvoicePage() {
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
-  // ✅ Load contract pricing when customer changes
   async function handleCustomerChange(id: string) {
     const c = customers.find(c => c.id === id) || null
     setSelectedCustomer(c)
@@ -291,7 +289,6 @@ export default function DirectInvoicePage() {
       setContractPricing({})
     }
 
-    // Clear lines — prices must reset for new customer
     setLineItems([])
   }
 
@@ -318,12 +315,13 @@ export default function DirectInvoicePage() {
       if (field === 'productId') {
         if (!value) return {
           ...item,
-          productId:    '',
-          productName:  '',
-          productCode:  '',
-          unitPrice:    0,
-          isCustom:     false,
-          hasContract:  false,
+          productId:     '',
+          productName:   '',
+          productCode:   '',
+          unitPrice:     0,
+          gstApplicable: true,
+          isCustom:      false,
+          hasContract:   false,
         }
         const p = products.find(p => p.id === value)
         if (!p) return item
@@ -332,7 +330,6 @@ export default function DirectInvoicePage() {
         const contractPrice = contractPricing[p.id]
         const resolvedPrice = is900 ? 0 : (contractPrice ?? stdPrice)
         const hasContract   = !is900 && contractPrice !== undefined
-
         return {
           ...item,
           productId:     p.id,
@@ -432,15 +429,12 @@ export default function DirectInvoicePage() {
 
       if (orderError) throw new Error(`Order creation failed: ${orderError.message}`)
 
-      // ✅ Build product_name with credit % label for credit lines
       const { error: itemsError } = await supabase
         .from('order_items')
         .insert(sortedItems.map(item => {
           const creditLabel = item.isCredit && item.creditPercent < 100
             ? ` (${item.creditPercent}% Credit)`
-            : item.isCredit
-              ? ' (100% Credit)'
-              : ''
+            : item.isCredit ? ' (100% Credit)' : ''
           return {
             order_id:       newOrder.id,
             product_id:     item.productId,
@@ -475,11 +469,11 @@ export default function DirectInvoicePage() {
 
       if (arError) throw new Error(`AR transaction failed: ${arError.message}`)
 
-           // ✅ Atomic increment — never uses stale React state
       await supabase.rpc('increment_customer_balance', {
         p_customer_id: formData.customerId,
         p_amount:      grandTotal,
       })
+
       if (hasCredits) {
         try {
           const creditLines    = lineItems.filter(i => i.isCredit)
@@ -488,56 +482,52 @@ export default function DirectInvoicePage() {
           const creditTotal    = creditSubtotal + creditGst
           const allStale       = creditLines.every(i => i.creditType === 'stale_return')
 
-      const { data: memo, error: memoError } = await supabase
-  .from('credit_memos')
-  .insert({
-    customer_id:        formData.customerId,
-    reference_order_id: newOrder.id,
-    credit_type:        allStale ? 'stale_return' : 'product_credit',
-    credit_number:      `CM-${Date.now().toString().slice(-6)}`,
-     memo_number:        Date.now(),
-    credit_date:        formData.deliveryDate,
-    status:             'issued',
-    notes:              formData.notes || null,
-    reason:             'Direct invoice',
-    applied_amount:     0,
-    subtotal:           creditSubtotal,
-    gst_amount:         creditGst,
-    total_amount:       creditTotal,
-    amount:             Math.abs(creditTotal),
-  })
-  .select()
-  .single()
+          const { data: memo, error: memoError } = await supabase
+            .from('credit_memos')
+            .insert({
+              customer_id:        formData.customerId,
+              reference_order_id: newOrder.id,
+              credit_type:        allStale ? 'stale_return' : 'product_credit',
+              credit_number:      `CM-${Date.now().toString().slice(-6)}`,
+              credit_date:        formData.deliveryDate,
+              status:             'issued',
+              notes:              formData.notes || null,
+              reason:             'Direct invoice',
+              applied_amount:     0,
+              subtotal:           creditSubtotal,
+              gst_amount:         creditGst,
+              total_amount:       creditTotal,
+              amount:             Math.abs(creditTotal),
+            })
+            .select()
+            .single()
 
-if (memoError) {
-  console.error('Credit memo failed:', memoError.message)
-} else if (memo) {
-  await supabase.from('credit_memo_items').insert(
-    creditLines.map(i => ({
-      credit_memo_id:     memo.id,
-      product_id:         i.productId,
-      product_name:       i.productName,
-      product_code:       i.productCode,
-      custom_description: i.productName,
-      quantity:           i.quantity,
-      unit_price:         i.unitPrice,
-      total:              Math.abs(lineSubtotal(i)),
-      credit_percent:     i.creditPercent,
-      line_total:         Math.abs(lineTotal(i)),
-      gst_applicable:     i.gstApplicable,
-      gst_amount:         Math.abs(lineGst(i)),
-      credit_type:        i.creditType,
-    }))
-  )
-}
-
-          
+          if (memoError) {
+            console.error('Credit memo failed:', memoError.message)
+          } else if (memo) {
+            await supabase.from('credit_memo_items').insert(
+              creditLines.map(i => ({
+                credit_memo_id:     memo.id,
+                product_id:         i.productId,
+                product_name:       i.productName,
+                product_code:       i.productCode,
+                custom_description: i.productName,
+                quantity:           i.quantity,
+                unit_price:         i.unitPrice,
+                total:              Math.abs(lineSubtotal(i)),
+                credit_percent:     i.creditPercent,
+                line_total:         Math.abs(lineTotal(i)),
+                gst_applicable:     i.gstApplicable,
+                gst_amount:         Math.abs(lineGst(i)),
+                credit_type:        i.creditType,
+              }))
+            )
+          }
         } catch (memoErr) {
           console.error('Credit memo exception:', memoErr)
         }
       }
 
-      // ✅ Assign invoice number immediately
       const invRes = await fetch('/api/admin/assign-invoice-number', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -569,13 +559,13 @@ if (memoError) {
       <a
         href="/admin"
         className="flex items-center gap-1 text-sm mb-4 hover:opacity-80"
-        style={{ color: '#C4A882' }}
+        style={{ color: '#CE1126' }}
       >
         <ArrowLeft className="h-4 w-4" /> Back to Admin Dashboard
       </a>
 
       <div className="mb-8">
-        <h1 className="text-3xl font-bold flex items-center gap-2" style={{ color: '#3E1F00' }}>
+        <h1 className="text-3xl font-bold flex items-center gap-2" style={{ color: '#006A4E' }}>
           <FileText className="h-8 w-8" /> Direct Invoice
         </h1>
         <p className="text-gray-600 mt-1">Create invoices with optional credit lines</p>
@@ -589,7 +579,7 @@ if (memoError) {
 
       <form onSubmit={handleSubmit} className="space-y-6">
 
-        {/* Customer Details */}
+        {/* ── Customer Details ── */}
         <div className="bg-white rounded-lg shadow-md p-6">
           <h2 className="text-xl font-bold mb-4">Customer Details</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -610,8 +600,7 @@ if (memoError) {
                   <span className={selectedCustomer.balance > 0 ? 'text-red-600 font-semibold' : 'text-green-600 font-semibold'}>
                     {fmt(selectedCustomer.balance || 0)}
                   </span>
-                  {' | '}
-                  Terms: {selectedCustomer.payment_terms || 30} days
+                  {' | '}Terms: {selectedCustomer.payment_terms || 30} days
                   {Object.keys(contractPricing).length > 0 && (
                     <span className="ml-2 text-blue-600 font-semibold text-xs">
                       {Object.keys(contractPricing).length} contract price{Object.keys(contractPricing).length !== 1 ? 's' : ''} active
@@ -668,7 +657,7 @@ if (memoError) {
           </div>
         </div>
 
-        {/* Line Items */}
+        {/* ── Line Items ── */}
         <div className="bg-white rounded-lg shadow-md p-6">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-bold">Line Items</h2>
@@ -677,7 +666,7 @@ if (memoError) {
                 type="button"
                 onClick={() => addLineItem(false)}
                 className="flex items-center gap-2 px-4 py-2 rounded text-white text-sm hover:opacity-90"
-                style={{ backgroundColor: '#3E1F00' }}
+                style={{ backgroundColor: '#006A4E' }}
               >
                 <Plus className="h-4 w-4" /> Add Charge
               </button>
@@ -731,7 +720,7 @@ if (memoError) {
                     </span>
                   </div>
 
-                  {/* Product select + custom fields */}
+                  {/* ── Product select + GST toggle ── */}
                   <div className="col-span-4">
                     <SearchableSelect
                       options={productOptions}
@@ -739,33 +728,34 @@ if (memoError) {
                       onChange={val => updateLineItem(item.id, 'productId', val)}
                       placeholder="Select product..."
                     />
-                    {/* ✅ GST toggle for code 900 */}
+
+                    {/* Custom description for code 900 */}
                     {item.isCustom && (
-                      <div className="space-y-1 mt-1">
+                      <input
+                        type="text"
+                        placeholder="Enter description..."
+                        value={item.productName}
+                        onChange={e => updateLineItem(item.id, 'productName', e.target.value)}
+                        className="w-full border rounded px-2 py-1 text-sm border-orange-300 mt-1 focus:outline-none focus:border-green-600"
+                      />
+                    )}
+
+                    {/* ✅ GST toggle — shows for ALL items once product selected */}
+                    {item.productId && (
+                      <label className="flex items-center gap-1.5 cursor-pointer select-none mt-1">
                         <input
-                          type="text"
-                          placeholder="Enter description..."
-                          value={item.productName}
-                          onChange={e => updateLineItem(item.id, 'productName', e.target.value)}
-                          className="w-full border rounded px-2 py-1 text-sm border-orange-300 focus:outline-none focus:border-green-600"
+                          type="checkbox"
+                          checked={item.gstApplicable}
+                          onChange={e => updateLineItem(item.id, 'gstApplicable', e.target.checked)}
+                          className="rounded accent-green-600"
                         />
-                        <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                          <input
-                            type="checkbox"
-                            checked={item.gstApplicable}
-                            onChange={e => updateLineItem(item.id, 'gstApplicable', e.target.checked)}
-                            className="rounded"
-                          />
-                          <span className="text-xs text-gray-600 font-medium">
-                            GST applicable (10%)
+                        <span className="text-xs text-gray-600 font-medium">GST (10%)</span>
+                        {item.gstApplicable && item.unitPrice > 0 && (
+                          <span className="text-xs text-green-700 bg-green-50 px-1.5 py-0.5 rounded font-mono">
+                            +{fmt(item.quantity * item.unitPrice * 0.1)}
                           </span>
-                          {item.gstApplicable && item.unitPrice > 0 && (
-                            <span className="text-xs text-green-700 bg-green-50 px-1.5 py-0.5 rounded font-mono">
-                              +{fmt(item.quantity * item.unitPrice * 0.1)} GST
-                            </span>
-                          )}
-                        </label>
-                      </div>
+                        )}
+                      </label>
                     )}
                   </div>
 
@@ -791,7 +781,6 @@ if (memoError) {
                       onChange={e => updateLineItem(item.id, 'unitPrice', parseFloat(e.target.value) || 0)}
                       className="w-full border rounded px-2 py-1.5 text-sm"
                     />
-                    {/* ✅ Contract price indicator */}
                     {item.hasContract && (
                       <span className="text-xs text-blue-600 font-semibold">Contract</span>
                     )}
@@ -836,7 +825,6 @@ if (memoError) {
                     {item.isCredit
                       ? `(${fmt(Math.abs(lineTotal(item)))})`
                       : fmt(lineTotal(item))}
-                    {/* ✅ Show credit % on the line total */}
                     {item.isCredit && (
                       <div className="text-xs text-orange-500 font-normal">
                         {item.creditPercent}% CR
@@ -859,7 +847,7 @@ if (memoError) {
               ))}
 
               {/* Totals */}
-                           <div className="border-t-2 pt-4 mt-2 space-y-1 text-right">
+              <div className="border-t-2 pt-4 mt-2 space-y-1 text-right">
                 <div className="text-sm text-gray-600">
                   Subtotal: <span className="font-medium ml-2">{fmt(subtotal)}</span>
                 </div>
@@ -868,7 +856,7 @@ if (memoError) {
                 </div>
                 <div
                   className="text-xl font-bold"
-                  style={{ color: grandTotal < 0 ? '#C4A882' : '#3E1F00' }}
+                  style={{ color: grandTotal < 0 ? '#b5ce11a8' : '#006A4E' }}
                 >
                   Total: {grandTotal < 0 ? `(${fmt(Math.abs(grandTotal))})` : fmt(grandTotal)}
                 </div>
@@ -883,7 +871,7 @@ if (memoError) {
           )}
         </div>
 
-        {/* Submit */}
+        {/* ── Submit ── */}
         <div className="flex justify-end gap-3 pb-8">
           <button
             type="button"
@@ -896,7 +884,7 @@ if (memoError) {
             type="submit"
             disabled={loading || !lineItems.length}
             className="flex items-center gap-2 px-6 py-3 rounded text-white font-semibold hover:opacity-90 disabled:opacity-50"
-            style={{ backgroundColor: '#C4A882' }}
+            style={{ backgroundColor: '#ce112775' }}
           >
             <DollarSign className="h-5 w-5" />
             {loading ? 'Creating...' : 'Create Invoice'}
