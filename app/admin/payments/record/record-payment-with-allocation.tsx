@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Save, DollarSign, Search, FileText } from 'lucide-react';
+import { ArrowLeft, Save, DollarSign, Search, FileText, CheckCircle } from 'lucide-react';
 
 const PAYMENT_METHODS = [
   { value: 'cash',          label: '💵 Cash' },
@@ -25,7 +25,7 @@ interface Invoice {
   total_amount:   number;
   amount_paid:    number | null;
   customer_id:    string;
-  invoice_number: number | null; // ✅ Added
+  invoice_number: number | null;
 }
 
 interface RecordPaymentWithAllocationProps {
@@ -52,6 +52,7 @@ export default function RecordPaymentWithAllocation({
   const [searchTerm,  setSearchTerm]  = useState('');
   const [saving,      setSaving]      = useState(false);
   const [error,       setError]       = useState<string | null>(null);
+  const [success,     setSuccess]     = useState<string | null>(null);  // ✅ NEW
 
   // ── Filtering ──────────────────────────────────────────────────────────────
   const filteredCustomers = Array.isArray(customers)
@@ -108,7 +109,6 @@ export default function RecordPaymentWithAllocation({
         remaining -= allocate;
       }
     }
-
     setAllocations(newAllocations);
   }
 
@@ -143,10 +143,27 @@ export default function RecordPaymentWithAllocation({
     });
   }
 
+  // ── Tick box toggle ────────────────────────────────────────────────────────
+  function handleTickInvoice(invoice: Invoice) {
+    const total     = parseFloat(String(invoice.total_amount)) || 0;
+    const paid      = parseFloat(String(invoice.amount_paid))  || 0;
+    const due       = total - paid;
+    const allocated = allocations.find(a => a.invoice_id === invoice.id)?.amount || 0;
+
+    if (allocated > 0) {
+      // ✅ Untick — remove allocation
+      handleManualAllocate(invoice.id, 0);
+    } else {
+      // ✅ Tick — auto fill the due amount
+      handleManualAllocate(invoice.id, due);
+    }
+  }
+
   // ── Submit ─────────────────────────────────────────────────────────────────
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setSuccess(null);
 
     if (!formData.customer_id || !formData.amount || parseFloat(formData.amount) <= 0) {
       setError('⚠️ Please select a customer and enter a valid amount');
@@ -173,16 +190,26 @@ export default function RecordPaymentWithAllocation({
         const customerName = data?.payment?.customer    || 'Customer';
         const amount       = parseFloat(String(data?.payment?.amount))      || 0;
         const newBalance   = parseFloat(String(data?.payment?.new_balance)) || 0;
-        const allocatedMsg = Array.isArray(allocations) && allocations.length > 0
-          ? `\nAllocated to ${allocations.length} invoice(s): $${allocatedAmount.toFixed(2)}`
+        const allocatedMsg = allocations.length > 0
+          ? ` | Allocated to ${allocations.length} invoice(s): $${allocatedAmount.toFixed(2)}`
           : '';
 
-        alert(
-          `✅ Payment Recorded!\n\nCustomer: ${customerName}\nAmount: $${amount.toFixed(2)}` +
-          `${allocatedMsg}\nNew Balance: $${newBalance.toFixed(2)}`
+        // ✅ Stay on page — show success banner, reset form
+        setSuccess(
+          `✅ Payment recorded for ${customerName} — $${amount.toFixed(2)}${allocatedMsg} | New balance: $${newBalance.toFixed(2)}`
         );
-        router.push('/admin/ar');
-        router.refresh();
+
+        setFormData({
+          customer_id:      '',
+          amount:           '',
+          payment_date:     new Date().toISOString().split('T')[0],
+          payment_method:   'bank_transfer',
+          reference_number: '',
+          notes:            '',
+        });
+        setAllocations([]);
+        setSearchTerm('');
+
       } else {
         setError(data?.error || 'Failed to record payment');
       }
@@ -209,6 +236,22 @@ export default function RecordPaymentWithAllocation({
           <DollarSign className="h-6 w-6 text-green-600" />
           Record Payment
         </h1>
+
+        {/* ✅ Success banner */}
+        {success && (
+          <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-green-800 flex justify-between items-center">
+            <span className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5 text-green-600 shrink-0" />
+              {success}
+            </span>
+            <button
+              onClick={() => setSuccess(null)}
+              className="text-green-600 hover:text-green-800 font-bold ml-4 text-lg"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {error && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">
@@ -324,35 +367,54 @@ export default function RecordPaymentWithAllocation({
                 </button>
               </div>
 
-              <div className="space-y-2 max-h-60 overflow-y-auto">
+              <div className="space-y-2 max-h-72 overflow-y-auto">
                 {customerInvoices.map((invoice) => {
                   const total     = parseFloat(String(invoice?.total_amount)) || 0;
                   const paid      = parseFloat(String(invoice?.amount_paid))  || 0;
                   const due       = total - paid;
-                  const allocated = Array.isArray(allocations)
-                    ? allocations.find((a) => a?.invoice_id === invoice.id)?.amount || 0
-                    : 0;
+                  const allocated = allocations.find((a) => a?.invoice_id === invoice.id)?.amount || 0;
+                  const isTicked  = allocated > 0;
+
+                  if (due <= 0) return null; // ✅ Hide fully paid invoices
 
                   return (
-                    <div key={invoice.id} className="flex items-center gap-3 bg-white p-3 rounded border">
-                      {/* ✅ Invoice number + date + amounts */}
+                    <div
+                      key={invoice.id}
+                      className={[
+                        'flex items-center gap-3 p-3 rounded border cursor-pointer transition-colors',
+                        isTicked ? 'bg-green-50 border-green-300' : 'bg-white hover:bg-gray-50 border-gray-200',
+                      ].join(' ')}
+                      onClick={() => handleTickInvoice(invoice)}
+                    >
+                      {/* ✅ Tick box */}
+                      <input
+                        type="checkbox"
+                        checked={isTicked}
+                        onChange={() => {}}
+                        className="w-5 h-5 accent-green-600 shrink-0 cursor-pointer"
+                      />
+
+                      {/* Invoice details */}
                       <div className="flex-1">
                         <p className="font-mono text-sm font-semibold text-gray-800">
-                          Invoice #{invoice.invoice_number
+                          Invoice #{invoice.invoice_number != null
                             ? String(invoice.invoice_number).padStart(6, '0')
                             : 'PENDING'}
                         </p>
                         <p className="text-xs text-gray-500">
                           {new Date(invoice.delivery_date + 'T00:00:00').toLocaleDateString('en-AU')}
                           {' • '}Total: ${total.toFixed(2)}
-                          {' • '}Due: ${due.toFixed(2)}
+                          {' • '}
+                          <span className={due > 0 ? 'text-red-600 font-medium' : ''}>
+                            Due: ${due.toFixed(2)}
+                          </span>
                         </p>
                       </div>
-                      <div className="w-32">
+
+                      {/* Amount input */}
+                      <div className="w-32" onClick={e => e.stopPropagation()}>
                         <div className="relative">
-                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-500">
-                            $
-                          </span>
+                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-500">$</span>
                           <input
                             type="number"
                             step="0.01"
@@ -363,7 +425,7 @@ export default function RecordPaymentWithAllocation({
                               handleManualAllocate(invoice.id, parseFloat(e.target.value) || 0)
                             }
                             placeholder="0.00"
-                            className="w-full pl-5 pr-2 py-1 text-sm border rounded"
+                            className="w-full pl-5 pr-2 py-1 text-sm border rounded focus:outline-none focus:border-green-500"
                           />
                         </div>
                       </div>
@@ -372,7 +434,7 @@ export default function RecordPaymentWithAllocation({
                 })}
               </div>
 
-              {unallocatedAmount > 0 && (
+              {unallocatedAmount > 0.01 && (
                 <div className="mt-3 p-2 rounded text-sm bg-yellow-50 text-yellow-800">
                   💡 Unallocated: ${unallocatedAmount.toFixed(2)} (will reduce overall balance)
                 </div>
@@ -454,7 +516,7 @@ export default function RecordPaymentWithAllocation({
               onClick={() => router.push('/admin/ar')}
               className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
             >
-              Cancel
+              Back to AR
             </button>
           </div>
 

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'  // ✅ ADD THIS
+
 import RecordPaymentWithAllocation from './record-payment-with-allocation';
 
 async function createServiceClient() {
@@ -19,7 +21,6 @@ export default async function RecordPaymentPage() {
     .select('id, business_name, contact_name, balance')
     .order('business_name');
 
-  // ✅ Now includes invoice_number
   const { data: invoices } = await supabase
     .from('orders')
     .select('id, delivery_date, total_amount, amount_paid, customer_id, invoice_number')
