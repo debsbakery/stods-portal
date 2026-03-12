@@ -63,7 +63,7 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<jsPDF> {
 
   if (logoBase64) {
     try {
-      doc.addImage(logoBase64, 'PNG', margin, yPos + 2, 25, 25)
+      doc.addImage(logoBase64, 'PNG', margin, yPos + 2, 80, 25)
     } catch {
       drawFallbackLogo(doc, logoColor, margin, yPos)
     }
@@ -73,25 +73,23 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<jsPDF> {
 
   // Company name and details
   doc.setTextColor(...textColor)
-  doc.setFontSize(24)
-  doc.setFont('helvetica', 'bold')
-  doc.text(bakery.name, margin + 30, yPos + 12)
+ 
 
   doc.setFontSize(8)
   doc.setFont('helvetica', 'normal')
-  doc.text(bakery.email,   margin + 30, yPos + 20)
-  doc.text(bakery.phone,   margin + 30, yPos + 25)
-  doc.text(bakery.address, margin + 30, yPos + 30)
+  doc.text(bakery.email,   margin + 70, yPos + 20)
+  doc.text(bakery.phone,   margin + 70, yPos + 25)
+  doc.text(bakery.address, margin + 70, yPos + 30)
   if (bakery.abn) {
     doc.setFont('helvetica', 'bold')
-    doc.text('ABN: ' + bakery.abn, margin + 30, yPos + 36)
+    doc.text('ABN: ' + bakery.abn, margin + 70, yPos + 36)
   }
 
   // TAX INVOICE title
   doc.setTextColor(...textColor)
-  doc.setFontSize(28)
+  doc.setFontSize(18)
   doc.setFont('helvetica', 'bold')
-  doc.text('TAX INVOICE', 210 - margin, 25, { align: 'right' })
+  doc.text('TAX INVOICE', 210 - margin, 22,{ align: 'right' })
 
   // Resolve invoice number once — used in details box AND payment reference
   const invoiceNum = order.invoice_number
