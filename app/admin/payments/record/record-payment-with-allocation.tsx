@@ -5,101 +5,104 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, Save, DollarSign, Search, FileText } from 'lucide-react';
 
 const PAYMENT_METHODS = [
-  { value: 'cash', label: '💵 Cash' },
-  { value: 'check', label: '📝 Check' },
+  { value: 'cash',          label: '💵 Cash' },
+  { value: 'check',         label: '📝 Check' },
   { value: 'bank_transfer', label: '🏦 Bank Transfer' },
-  { value: 'card', label: '💳 Card' },
-  { value: 'eft', label: '🔄 EFT' },
+  { value: 'card',          label: '💳 Card' },
+  { value: 'eft',           label: '🔄 EFT' },
 ];
 
 interface Customer {
   id: string;
   business_name: string | null;
-  contact_name: string | null;
-  balance: number | null;
+  contact_name:  string | null;
+  balance:       number | null;
 }
 
 interface Invoice {
-  id: string;
-   delivery_date: string;
-  total_amount: number;
-  amount_paid: number | null;
-  customer_id: string;
+  id:             string;
+  delivery_date:  string;
+  total_amount:   number;
+  amount_paid:    number | null;
+  customer_id:    string;
+  invoice_number: number | null; // ✅ Added
 }
 
 interface RecordPaymentWithAllocationProps {
   customers: Customer[];
-  invoices: Invoice[];
+  invoices:  Invoice[];
 }
 
 export default function RecordPaymentWithAllocation({ 
   customers = [], 
-  invoices = [] 
+  invoices  = [],
 }: RecordPaymentWithAllocationProps) {
   const router = useRouter();
-  const [formData, setFormData] = useState({
-    customer_id: '',
-    amount: '',
-    payment_date: new Date().toISOString().split('T')[0],
-    payment_method: 'bank_transfer',
-    reference_number: '',
-    notes: '',
-  });
-  const [allocations, setAllocations] = useState<{ invoice_id: string; amount: number }[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  // ✅ ULTRA SAFE filtering
-  const filteredCustomers = Array.isArray(customers) 
+  const [formData, setFormData] = useState({
+    customer_id:      '',
+    amount:           '',
+    payment_date:     new Date().toISOString().split('T')[0],
+    payment_method:   'bank_transfer',
+    reference_number: '',
+    notes:            '',
+  });
+
+  const [allocations, setAllocations] = useState<{ invoice_id: string; amount: number }[]>([]);
+  const [searchTerm,  setSearchTerm]  = useState('');
+  const [saving,      setSaving]      = useState(false);
+  const [error,       setError]       = useState<string | null>(null);
+
+  // ── Filtering ──────────────────────────────────────────────────────────────
+  const filteredCustomers = Array.isArray(customers)
     ? customers.filter((c) => {
         if (!c || typeof c !== 'object') return false;
-        const searchLower = String(searchTerm || '').toLowerCase();
-        const businessName = String(c.business_name || '').toLowerCase();
-        const contactName = String(c.contact_name || '').toLowerCase();
-        return businessName.includes(searchLower) || contactName.includes(searchLower);
+        const q = String(searchTerm || '').toLowerCase();
+        return (
+          String(c.business_name || '').toLowerCase().includes(q) ||
+          String(c.contact_name  || '').toLowerCase().includes(q)
+        );
       })
     : [];
-// ✅ ADD THIS DEBUG LOG
-console.log('Customers:', customers?.length, 'Filtered:', filteredCustomers.length, 'Search:', searchTerm);
-  const selectedCustomer = Array.isArray(customers) 
+
+  const selectedCustomer = Array.isArray(customers)
     ? customers.find((c) => c?.id === formData.customer_id)
     : null;
-  
+
   const customerInvoices = Array.isArray(invoices)
     ? invoices.filter((inv) => inv?.customer_id === formData.customer_id)
     : [];
-// ✅ ADD THIS
-console.log('All invoices:', invoices?.length, 'Customer invoices:', customerInvoices.length, 'Customer ID:', formData.customer_id);
-  // ✅ ULTRA SAFE calculations
-  const currentBalance = (selectedCustomer && typeof selectedCustomer.balance === 'number') 
-    ? selectedCustomer.balance 
+
+  // ── Calculations ───────────────────────────────────────────────────────────
+  const currentBalance = (selectedCustomer && typeof selectedCustomer.balance === 'number')
+    ? selectedCustomer.balance
     : 0;
-  
+
   const paymentAmount = parseFloat(formData.amount) || 0;
-  const allocatedAmount = Array.isArray(allocations) 
+
+  const allocatedAmount = Array.isArray(allocations)
     ? allocations.reduce((sum, a) => sum + (parseFloat(String(a?.amount)) || 0), 0)
     : 0;
+
   const unallocatedAmount = paymentAmount - allocatedAmount;
 
+  // ── Auto allocate ──────────────────────────────────────────────────────────
   function handleAutoAllocate() {
     if (paymentAmount <= 0 || !Array.isArray(customerInvoices)) return;
 
     const newAllocations: { invoice_id: string; amount: number }[] = [];
     let remaining = paymentAmount;
 
-    const sortedInvoices = [...customerInvoices].sort(
+    const sorted = [...customerInvoices].sort(
       (a, b) => new Date(a.delivery_date).getTime() - new Date(b.delivery_date).getTime()
     );
 
-    for (const invoice of sortedInvoices) {
+    for (const invoice of sorted) {
       if (remaining <= 0) break;
-
-      const total = parseFloat(String(invoice?.total_amount)) || 0;
-      const paid = parseFloat(String(invoice?.amount_paid)) || 0;
-      const due = total - paid;
+      const total    = parseFloat(String(invoice?.total_amount)) || 0;
+      const paid     = parseFloat(String(invoice?.amount_paid))  || 0;
+      const due      = total - paid;
       const allocate = Math.min(remaining, due);
-
       if (allocate > 0 && invoice?.id) {
         newAllocations.push({ invoice_id: invoice.id, amount: allocate });
         remaining -= allocate;
@@ -109,31 +112,27 @@ console.log('All invoices:', invoices?.length, 'Customer invoices:', customerInv
     setAllocations(newAllocations);
   }
 
+  // ── Manual allocate ────────────────────────────────────────────────────────
   function handleManualAllocate(invoiceId: string, amount: number) {
     if (!invoiceId || !Array.isArray(customerInvoices)) return;
-    
+
     const invoice = customerInvoices.find((i) => i?.id === invoiceId);
     if (!invoice) return;
 
-    const total = parseFloat(String(invoice.total_amount)) || 0;
-    const paid = parseFloat(String(invoice.amount_paid)) || 0;
-    const due = total - paid;
-    
-    const currentAllocation = Array.isArray(allocations)
+    const total    = parseFloat(String(invoice.total_amount)) || 0;
+    const paid     = parseFloat(String(invoice.amount_paid))  || 0;
+    const due      = total - paid;
+    const current  = Array.isArray(allocations)
       ? allocations.find(a => a?.invoice_id === invoiceId)?.amount || 0
       : 0;
-    
-    const maxAllowable = paymentAmount - allocatedAmount + currentAllocation;
-    const validAmount = Math.max(0, Math.min(amount, due, maxAllowable));
+    const maxAllowable = paymentAmount - allocatedAmount + current;
+    const validAmount  = Math.max(0, Math.min(amount, due, maxAllowable));
 
     setAllocations((prev) => {
       if (!Array.isArray(prev)) return [];
-      
       const existing = prev.find((a) => a?.invoice_id === invoiceId);
       if (existing) {
-        if (validAmount === 0) {
-          return prev.filter((a) => a?.invoice_id !== invoiceId);
-        }
+        if (validAmount === 0) return prev.filter((a) => a?.invoice_id !== invoiceId);
         return prev.map((a) =>
           a?.invoice_id === invoiceId ? { invoice_id: invoiceId, amount: validAmount } : a
         );
@@ -144,6 +143,7 @@ console.log('All invoices:', invoices?.length, 'Customer invoices:', customerInv
     });
   }
 
+  // ── Submit ─────────────────────────────────────────────────────────────────
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -158,11 +158,11 @@ console.log('All invoices:', invoices?.length, 'Customer invoices:', customerInv
 
     try {
       const response = await fetch('/api/admin/payments', {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...formData,
-          amount: parseFloat(formData.amount),
+          amount:      parseFloat(formData.amount),
           allocations: Array.isArray(allocations) ? allocations : [],
         }),
       });
@@ -170,28 +170,31 @@ console.log('All invoices:', invoices?.length, 'Customer invoices:', customerInv
       const data = await response.json();
 
       if (response.ok) {
-        const customerName = data?.payment?.customer || 'Customer';
-        const amount = parseFloat(String(data?.payment?.amount)) || 0;
-        const newBalance = parseFloat(String(data?.payment?.new_balance)) || 0;
-        
+        const customerName = data?.payment?.customer    || 'Customer';
+        const amount       = parseFloat(String(data?.payment?.amount))      || 0;
+        const newBalance   = parseFloat(String(data?.payment?.new_balance)) || 0;
         const allocatedMsg = Array.isArray(allocations) && allocations.length > 0
           ? `\nAllocated to ${allocations.length} invoice(s): $${allocatedAmount.toFixed(2)}`
           : '';
-        
-        alert(`✅ Payment Recorded!\n\nCustomer: ${customerName}\nAmount: $${amount.toFixed(2)}${allocatedMsg}\nNew Balance: $${newBalance.toFixed(2)}`);
+
+        alert(
+          `✅ Payment Recorded!\n\nCustomer: ${customerName}\nAmount: $${amount.toFixed(2)}` +
+          `${allocatedMsg}\nNew Balance: $${newBalance.toFixed(2)}`
+        );
         router.push('/admin/ar');
         router.refresh();
       } else {
         setError(data?.error || 'Failed to record payment');
       }
-    } catch (error) {
+    } catch (err) {
       setError('❌ Error recording payment');
-      console.error(error);
+      console.error(err);
     } finally {
       setSaving(false);
     }
   }
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="max-w-5xl mx-auto p-6">
       <button
@@ -214,13 +217,14 @@ console.log('All invoices:', invoices?.length, 'Customer invoices:', customerInv
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Customer Selection */}
+
+          {/* ── Customer Selection ── */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Customer *
             </label>
             <div className="relative mb-2">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
               <input
                 type="text"
                 placeholder="Search customers..."
@@ -229,7 +233,6 @@ console.log('All invoices:', invoices?.length, 'Customer invoices:', customerInv
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
               />
             </div>
-
             <select
               value={formData.customer_id}
               onChange={(e) => {
@@ -241,14 +244,11 @@ console.log('All invoices:', invoices?.length, 'Customer invoices:', customerInv
             >
               <option value="">Select a customer</option>
               {filteredCustomers.map((customer) => {
-                const balance = (customer && typeof customer.balance === 'number') 
-                  ? customer.balance 
-                  : 0;
-                const name = customer?.business_name || customer?.contact_name || 'Unknown';
-                
+                const balance = typeof customer.balance === 'number' ? customer.balance : 0;
+                const name    = customer?.business_name || customer?.contact_name || 'Unknown';
                 return (
                   <option key={customer.id} value={customer.id}>
-                    {name} - Balance: ${balance.toFixed(2)}
+                    {name} — Balance: ${balance.toFixed(2)}
                   </option>
                 );
               })}
@@ -282,13 +282,13 @@ console.log('All invoices:', invoices?.length, 'Customer invoices:', customerInv
             )}
           </div>
 
-          {/* Amount */}
+          {/* ── Payment Amount ── */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Payment Amount *
             </label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-semibold">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-semibold">
                 $
               </span>
               <input
@@ -307,7 +307,7 @@ console.log('All invoices:', invoices?.length, 'Customer invoices:', customerInv
             </div>
           </div>
 
-          {/* Invoice Allocation */}
+          {/* ── Invoice Allocation ── */}
           {formData.customer_id && customerInvoices.length > 0 && paymentAmount > 0 && (
             <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
               <div className="flex justify-between items-center mb-3">
@@ -326,26 +326,31 @@ console.log('All invoices:', invoices?.length, 'Customer invoices:', customerInv
 
               <div className="space-y-2 max-h-60 overflow-y-auto">
                 {customerInvoices.map((invoice) => {
-                  const total = parseFloat(String(invoice?.total_amount)) || 0;
-                  const paid = parseFloat(String(invoice?.amount_paid)) || 0;
-                  const due = total - paid;
+                  const total     = parseFloat(String(invoice?.total_amount)) || 0;
+                  const paid      = parseFloat(String(invoice?.amount_paid))  || 0;
+                  const due       = total - paid;
                   const allocated = Array.isArray(allocations)
                     ? allocations.find((a) => a?.invoice_id === invoice.id)?.amount || 0
                     : 0;
 
                   return (
                     <div key={invoice.id} className="flex items-center gap-3 bg-white p-3 rounded border">
+                      {/* ✅ Invoice number + date + amounts */}
                       <div className="flex-1">
-        <p className="font-mono text-sm font-semibold">
-  {new Date(invoice.delivery_date).toLocaleDateString()}
-</p>
-                        <p className="text-xs text-gray-600">
-                          {new Date(invoice.delivery_date).toLocaleDateString()} • Due: ${due.toFixed(2)}
+                        <p className="font-mono text-sm font-semibold text-gray-800">
+                          Invoice #{invoice.invoice_number
+                            ? String(invoice.invoice_number).padStart(6, '0')
+                            : 'PENDING'}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {new Date(invoice.delivery_date + 'T00:00:00').toLocaleDateString('en-AU')}
+                          {' • '}Total: ${total.toFixed(2)}
+                          {' • '}Due: ${due.toFixed(2)}
                         </p>
                       </div>
                       <div className="w-32">
                         <div className="relative">
-                          <span className="absolute left-2 top-1/2 transform -translate-y-1/2 text-xs text-gray-500">
+                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-500">
                             $
                           </span>
                           <input
@@ -375,7 +380,7 @@ console.log('All invoices:', invoices?.length, 'Customer invoices:', customerInv
             </div>
           )}
 
-          {/* Payment Date */}
+          {/* ── Payment Date ── */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Payment Date *
@@ -389,7 +394,7 @@ console.log('All invoices:', invoices?.length, 'Customer invoices:', customerInv
             />
           </div>
 
-          {/* Payment Method */}
+          {/* ── Payment Method ── */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Payment Method *
@@ -408,7 +413,7 @@ console.log('All invoices:', invoices?.length, 'Customer invoices:', customerInv
             </select>
           </div>
 
-          {/* Reference Number */}
+          {/* ── Reference Number ── */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Reference Number
@@ -422,7 +427,7 @@ console.log('All invoices:', invoices?.length, 'Customer invoices:', customerInv
             />
           </div>
 
-          {/* Notes */}
+          {/* ── Notes ── */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
             <textarea
@@ -434,7 +439,7 @@ console.log('All invoices:', invoices?.length, 'Customer invoices:', customerInv
             />
           </div>
 
-          {/* Buttons */}
+          {/* ── Buttons ── */}
           <div className="flex gap-3 pt-4">
             <button
               type="submit"
@@ -452,6 +457,7 @@ console.log('All invoices:', invoices?.length, 'Customer invoices:', customerInv
               Cancel
             </button>
           </div>
+
         </form>
       </div>
     </div>
