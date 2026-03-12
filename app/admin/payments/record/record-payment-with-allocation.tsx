@@ -26,6 +26,7 @@ interface Invoice {
   amount_paid:    number | null;
   customer_id:    string;
   invoice_number: number | null;
+  status:         string | null;  // ✅ ADD THIS
 }
 
 interface RecordPaymentWithAllocationProps {
@@ -375,8 +376,12 @@ export default function RecordPaymentWithAllocation({
                   const allocated = allocations.find((a) => a?.invoice_id === invoice.id)?.amount || 0;
                   const isTicked  = allocated > 0;
 
-                  if (due <= 0) return null; // ✅ Hide fully paid invoices
+// ✅ Already exists — extend it
+if (due <= 0) return null;
 
+// ✅ ADD THIS — hide cancelled and pending
+if (invoice.status === 'cancelled') return null;
+if (invoice.invoice_number == null) return null;  // hides PENDING invoices
                   return (
                     <div
                       key={invoice.id}

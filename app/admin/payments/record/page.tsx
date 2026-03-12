@@ -21,10 +21,12 @@ export default async function RecordPaymentPage() {
     .select('id, business_name, contact_name, balance')
     .order('business_name');
 
-  const { data: invoices } = await supabase
-    .from('orders')
-    .select('id, delivery_date, total_amount, amount_paid, customer_id, invoice_number')
-    .order('delivery_date', { ascending: false });
+  // ✅ Exclude cancelled orders
+const { data: invoices } = await supabase
+  .from('orders')
+  .select('id, delivery_date, total_amount, amount_paid, customer_id, invoice_number, status')
+  .not('status', 'eq', 'cancelled')
+  .order('delivery_date', { ascending: false });
 
   return (
     <RecordPaymentWithAllocation 
