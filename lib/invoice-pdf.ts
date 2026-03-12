@@ -63,7 +63,7 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<jsPDF> {
 
   if (logoBase64) {
     try {
-      doc.addImage(logoBase64, 'PNG', margin, yPos + 4, 80, 25)
+      doc.addImage(logoBase64, 'PNG', margin, yPos + 4, 90, 40)
     } catch {
       drawFallbackLogo(doc, logoColor, margin, yPos)
     }
