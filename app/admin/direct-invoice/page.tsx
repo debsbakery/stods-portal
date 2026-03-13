@@ -759,14 +759,14 @@ export default function DirectInvoicePage() {
                     )}
                   </div>
 
-                  {/* Quantity */}
+                                  {/* Quantity */}
                   <div className="col-span-1">
                     <input
                       type="number"
-                      min="0.1"
-                      step="0.1"
+                      min="1"
+                      step="1"
                       value={item.quantity}
-                      onChange={e => updateLineItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
+                      onChange={e => updateLineItem(item.id, 'quantity', parseInt(e.target.value) || 1)}
                       className="w-full border rounded px-2 py-1.5 text-sm"
                     />
                   </div>
