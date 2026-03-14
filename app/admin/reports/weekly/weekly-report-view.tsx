@@ -7,15 +7,22 @@ import {
 } from 'lucide-react'
 
 interface Week {
-  week_start: string
-  first_day: string
-  last_day: string
-  order_count: number
-  revenue: number
-  invoiced_revenue: number
-  pending_revenue: number
-  customer_count: number
-  total_weight_kg: number
+  week_start:        string
+  first_day:         string
+  last_day:          string
+  order_count:       number
+  revenue:           number
+  invoiced_revenue:  number
+  pending_revenue:   number
+  customer_count:    number
+  total_weight_kg:   number
+  ingredient_actual: number
+  ingredient_est:    number
+  ingredient_total:  number
+  has_any_actual:    boolean
+  all_actual:        boolean
+  actual_item_count: number
+  item_count:        number
 }
 
 interface TopProduct {
@@ -68,10 +75,17 @@ export default function WeeklyReportView({
     ? ((current.order_count - previous.order_count) / previous.order_count) * 100
     : null
 
-  // ── Profit estimate ────────────────────────────────────────
-  const wagesValue    = parseFloat(wages[current?.week_start] || '0') || 0
-  const wagesEntered  = wagesValue > 0
-  const estIngred     = current ? current.revenue * 0.30 : 0
+  // ── Profit estimate ──────────────────────────────────────────
+  const wagesValue   = parseFloat(wages[current?.week_start] || '0') || 0
+  const wagesEntered = wagesValue > 0
+
+  const ingredientCost  = current ? (Number(current.ingredient_total) || 0) : 0
+  const ingredientLabel = current?.all_actual
+    ? 'Ingredient Cost (actual)'
+    : current?.has_any_actual
+      ? `Ingredient Cost (${current.actual_item_count}/${current.item_count} actual, rest est.)`
+      : 'Est. Ingredients (30% — no recipes)'
+
   const weightKg      = current ? current.total_weight_kg : 0
   const hasWeightData = weightKg > 0
   const estOverhead   = hasWeightData
@@ -80,18 +94,18 @@ export default function WeeklyReportView({
   const labourCost    = wagesEntered
     ? wagesValue
     : (current ? current.revenue * 0.30 : 0)
-  const totalCosts    = estIngred + labourCost + estOverhead
+  const totalCosts    = ingredientCost + labourCost + estOverhead
   const estProfit     = current ? current.revenue - totalCosts : 0
   const estMargin     = current && current.revenue > 0
     ? (estProfit / current.revenue) * 100
     : 0
 
-  // ── Top products for selected week ────────────────────────
+  // ── Top products for selected week ──────────────────────────
   const currentTopProducts = current
     ? (topProductsByWeek[current.week_start] ?? [])
     : []
 
-  // ── Save wages to Supabase ────────────────────────────────
+  // ── Save wages ───────────────────────────────────────────────
   async function saveWages(weekStart: string) {
     setSavingWages(true)
     try {
@@ -115,7 +129,7 @@ export default function WeeklyReportView({
   return (
     <div className="space-y-6 max-w-6xl">
 
-      {/* ── Header ──────────────────────────────────────────── */}
+      {/* ── Header ────────────────────────────────────────────── */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Weekly Revenue Report</h1>
         <p className="text-sm text-gray-500 mt-0.5">
@@ -123,7 +137,7 @@ export default function WeeklyReportView({
         </p>
       </div>
 
-      {/* ── Week Selector ───────────────────────────────────── */}
+      {/* ── Week Selector ─────────────────────────────────────── */}
       <div className="flex gap-2 flex-wrap">
         {weeks.map((w, i) => (
           <button
@@ -147,7 +161,7 @@ export default function WeeklyReportView({
 
       {current && (
         <>
-          {/* ── Selected Week Header ──────────────────────── */}
+          {/* ── Selected Week Header ──────────────────────────── */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h2 className="text-lg font-bold text-gray-900">
               Week of {fmtWeek(current.first_day, current.last_day)}
@@ -157,7 +171,7 @@ export default function WeeklyReportView({
             </p>
           </div>
 
-          {/* ── KPI Cards ───────────────────────────────────── */}
+          {/* ── KPI Cards ─────────────────────────────────────── */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-white rounded-xl border border-gray-200 p-5">
               <div className="flex items-center justify-between mb-2">
@@ -216,16 +230,20 @@ export default function WeeklyReportView({
             </div>
           </div>
 
-          {/* ── Profit Estimate ─────────────────────────────── */}
+          {/* ── Profit Estimate ───────────────────────────────── */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h3 className="text-sm font-semibold text-gray-700 mb-4">
               Net Profit Estimate
-              <span className="ml-2 text-xs font-normal text-gray-400">
-                Ingredients + overhead = 30% estimate until recipes complete
-              </span>
+              {!current.all_actual && (
+                <span className="ml-2 text-xs font-normal text-gray-400">
+                  {current.has_any_actual
+                    ? `${current.actual_item_count}/${current.item_count} products have recipes`
+                    : 'Add recipes for actual ingredient costs'}
+                </span>
+              )}
             </h3>
 
-            {/* Wages input with save button */}
+            {/* Wages input */}
             <div className="mb-5 flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg p-3">
               <div className="flex-1">
                 <label className="block text-xs font-semibold text-blue-700 mb-1">
@@ -266,37 +284,56 @@ export default function WeeklyReportView({
 
             {/* Cost breakdown */}
             <div className="space-y-2 mb-4">
+
               <div className="flex justify-between items-center py-2 border-b border-gray-100">
                 <span className="text-sm text-gray-600">Revenue (ex-GST)</span>
                 <span className="font-mono font-semibold text-gray-900">{fmt(current.revenue)}</span>
               </div>
+
               <div className="flex justify-between items-center py-2 border-b border-gray-100">
                 <span className="text-sm text-gray-600">
-                  Est. Ingredients
-                  <span className="text-xs text-gray-400 ml-1">(30% est.)</span>
+                  {ingredientLabel}
                 </span>
                 <div className="text-right">
-                  <span className="font-mono text-amber-600">-{fmt(estIngred)}</span>
-                  <span className="text-xs text-amber-500 ml-2">
-                    {current.revenue > 0 ? ((estIngred / current.revenue) * 100).toFixed(1) : 0}%
+                  <span className={`font-mono ${current.all_actual ? 'text-green-600' : 'text-amber-600'}`}>
+                    -{fmt(ingredientCost)}
                   </span>
+                  <span className={`text-xs ml-2 ${current.all_actual ? 'text-green-500' : 'text-amber-500'}`}>
+                    {current.revenue > 0
+                      ? ((ingredientCost / current.revenue) * 100).toFixed(1)
+                      : '0'}%
+                  </span>
+                  {current.all_actual && (
+                    <span className="block text-xs text-green-500 font-medium">actual ✓</span>
+                  )}
+                  {current.has_any_actual && !current.all_actual && (
+                    <span className="block text-xs text-amber-500">partial actual</span>
+                  )}
                 </div>
               </div>
+
               <div className="flex justify-between items-center py-2 border-b border-gray-100">
                 <div>
                   <span className="text-sm text-gray-600">
                     {wagesEntered ? 'Actual Wages' : 'Est. Labour'}
                   </span>
-                  {!wagesEntered && <span className="text-xs text-gray-400 ml-1">(30% est.)</span>}
-                  {wagesEntered && <span className="text-xs text-blue-600 ml-1 font-medium">actual</span>}
+                  {!wagesEntered && (
+                    <span className="text-xs text-gray-400 ml-1">(30% est.)</span>
+                  )}
+                  {wagesEntered && (
+                    <span className="text-xs text-blue-600 ml-1 font-medium">actual</span>
+                  )}
                 </div>
                 <div className="text-right">
                   <span className="font-mono text-blue-600">-{fmt(labourCost)}</span>
                   <span className="text-xs text-blue-500 ml-2">
-                    {current.revenue > 0 ? ((labourCost / current.revenue) * 100).toFixed(1) : 0}%
+                    {current.revenue > 0
+                      ? ((labourCost / current.revenue) * 100).toFixed(1)
+                      : '0'}%
                   </span>
                 </div>
               </div>
+
               <div className="flex justify-between items-center py-2 border-b border-gray-100">
                 <span className="text-sm text-gray-600">
                   Est. Overhead
@@ -308,13 +345,16 @@ export default function WeeklyReportView({
                 <div className="text-right">
                   <span className="font-mono text-purple-600">-{fmt(estOverhead)}</span>
                   <span className="text-xs text-purple-500 ml-2">
-                    {current.revenue > 0 ? ((estOverhead / current.revenue) * 100).toFixed(1) : 0}%
+                    {current.revenue > 0
+                      ? ((estOverhead / current.revenue) * 100).toFixed(1)
+                      : '0'}%
                   </span>
                 </div>
               </div>
+
             </div>
 
-            {/* Net profit total */}
+            {/* Net profit */}
             <div className="flex justify-between items-center pt-4 mt-2 border-t-2 border-gray-200">
               <span className="text-sm font-bold text-gray-800">Est. Net Profit</span>
               <div className="text-right">
@@ -332,7 +372,7 @@ export default function WeeklyReportView({
             </div>
           </div>
 
-          {/* ── Invoiced vs Pending ─────────────────────────── */}
+          {/* ── Invoiced vs Pending ───────────────────────────── */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h3 className="text-sm font-semibold text-gray-700 mb-3">Revenue Breakdown</h3>
             <div className="flex gap-6 mb-3">
@@ -371,7 +411,7 @@ export default function WeeklyReportView({
             </div>
           </div>
 
-          {/* ── Top Products for Selected Week ──────────────── */}
+          {/* ── Top Products ──────────────────────────────────── */}
           {currentTopProducts.length > 0 && (
             <div className="bg-white rounded-xl border border-gray-200 p-5">
               <h3 className="text-sm font-semibold text-gray-700 mb-4">
@@ -399,11 +439,10 @@ export default function WeeklyReportView({
               </div>
             </div>
           )}
-
         </>
       )}
 
-      {/* ── All Weeks Table ──────────────────────────────────── */}
+      {/* ── All Weeks Table ───────────────────────────────────── */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100">
           <h3 className="text-sm font-semibold text-gray-700">All Weeks Summary</h3>
