@@ -17,7 +17,7 @@ export async function GET(
     const { searchParams } = new URL(request.url)
     const download = searchParams.get('download') === 'true'
 
-    // ── Fetch order WITHOUT customers join ────────────────────────────────
+    // ── Fetch order WITHOUT invoice_numbers join ───────────────
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .select(`
@@ -36,10 +36,6 @@ export async function GET(
             name,
             description
           )
-        ),
-        invoice_numbers (
-          invoice_number,
-          created_at
         )
       `)
       .eq('id', orderId)
@@ -48,7 +44,16 @@ export async function GET(
     if (orderError) throw orderError
     if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
 
-    // ── Fetch customer separately ─────────────────────────────────────────
+    // ── Fetch invoice number separately ───────────────────────
+    const { data: invRecord } = await supabase
+      .from('invoice_numbers')
+      .select('invoice_number, created_at')
+      .eq('order_id', orderId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    // ── Fetch customer separately ─────────────────────────────
     let customer: any = null
     if (order.customer_id) {
       const { data: customerData } = await supabase
@@ -61,14 +66,14 @@ export async function GET(
 
     const rawItems = (order.order_items || []) as any[]
 
-    // ── Sort by product code ──────────────────────────────────────────────
+    // ── Sort by product code ──────────────────────────────────
     const sortedItems = [...rawItems].sort((a, b) => {
       const codeA = parseInt(a.products?.code?.toString() || '9999')
       const codeB = parseInt(b.products?.code?.toString() || '9999')
       return codeA - codeB
     })
 
-    // ── Build order object ────────────────────────────────────────────────
+    // ── Build order object ────────────────────────────────────
     const orderWithItems = {
       id:                     order.id,
       invoice_number:         order.invoice_number,
@@ -108,7 +113,7 @@ export async function GET(
       }),
     }
 
-    // ── Bakery config — from env only, no hardcoded fallbacks ─────────────
+    // ── Bakery config ─────────────────────────────────────────
     const bakeryInfo = {
       name:        process.env.BAKERY_NAME         || '',
       email:       process.env.BAKERY_EMAIL        || '',
@@ -120,15 +125,14 @@ export async function GET(
       bankAccount: process.env.BAKERY_BANK_ACCOUNT || '',
     }
 
-    // ── Resolve invoice number ────────────────────────────────────────────
-    const invRecord  = (order.invoice_numbers as any[])?.[0]
+    // ── Resolve invoice number ────────────────────────────────
     const invoiceNum = invRecord?.invoice_number
       ? String(invRecord.invoice_number).padStart(6, '0')
       : order.invoice_number
         ? String(order.invoice_number).padStart(6, '0')
         : `TEMP-${order.id.slice(0, 8).toUpperCase()}`
 
-    // ── Generate PDF ──────────────────────────────────────────────────────
+    // ── Generate PDF ──────────────────────────────────────────
     const pdf = await generateInvoicePDF({
       order:  orderWithItems as any,
       bakery: bakeryInfo,
