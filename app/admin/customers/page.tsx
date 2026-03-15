@@ -3,13 +3,14 @@ export const dynamic = 'force-dynamic'
 import { redirect } from 'next/navigation'
 import { checkAdmin } from '@/lib/auth'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { ArrowLeft, Plus, Users, Edit } from 'lucide-react'
+import { ArrowLeft, Plus, Users, Edit, Clock } from 'lucide-react'
 import Link from 'next/link'
 
-export default async function AdminCustomersPage() {  const isAdmin = await checkAdmin()
+export default async function AdminCustomersPage() {
+  const isAdmin = await checkAdmin()
   if (!isAdmin) redirect('/')
 
-const supabase = createAdminClient()
+  const supabase = createAdminClient()
   const { data: customers, error } = await supabase
     .from('customers')
     .select('id, business_name, contact_name, email, phone, status, balance, payment_terms')
@@ -114,14 +115,24 @@ const supabase = createAdminClient()
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <Link
-                        href={`/admin/customers/${c.id}/edit`}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90"
-                        style={{ backgroundColor: '#3E1F00' }}
-                      >
-                        <Edit className="h-3 w-3" />
-                        Edit
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        <Link
+                          href={`/admin/customers/${c.id}/edit`}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90"
+                          style={{ backgroundColor: '#3E1F00' }}
+                        >
+                          <Edit className="h-3 w-3" />
+                          Edit
+                        </Link>
+                        <Link
+                          href={`/admin/customers/${c.id}/cutoff-settings`}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded text-white text-xs font-semibold hover:opacity-90"
+                          style={{ backgroundColor: '#1d4ed8' }}
+                        >
+                          <Clock className="h-3 w-3" />
+                          Cutoff
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))
