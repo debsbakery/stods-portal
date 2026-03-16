@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic'
-
 import { NextResponse, NextRequest } from 'next/server'
 import { generatePackingSlip } from '@/lib/packing-slip'
 
@@ -17,23 +15,25 @@ export async function GET(
       { auth: { persistSession: false, autoRefreshToken: false } }
     )
 
+    // ── Fetch order ───────────────────────────────────────────
     const { data: order, error } = await supabase
       .from('orders')
       .select(`
         *,
-        order_items (
-          id,
-          quantity,
-          unit_price,
-          subtotal,
-          product_name,
-          gst_applicable,
-          products (
-            id,
-            code,
-            name
-          )
-        )
+     order_items (
+  id,
+  quantity,
+  unit_price,
+  subtotal,
+  product_name,
+  custom_description,
+  gst_applicable,
+  products (
+    id,
+    code,
+    name
+  )
+)
       `)
       .eq('id', orderId)
       .single()
@@ -42,7 +42,7 @@ export async function GET(
       return NextResponse.json({ error: 'Order not found' }, { status: 404 })
     }
 
-    // ✅ Block cancelled orders
+    // ── Block cancelled orders ────────────────────────────────
     if (order.status === 'cancelled') {
       return new NextResponse(
         `<html><body style="font-family:sans-serif;padding:2rem;text-align:center">
@@ -57,22 +57,35 @@ export async function GET(
       )
     }
 
+    // ── Fetch customer invoice_brand ──────────────────────────
+    const { data: customer } = await supabase
+      .from('customers')
+      .select('invoice_brand')
+      .eq('id', order.customer_id)
+      .single()
+
+    // ── Brand config ──────────────────────────────────────────
+    const isStods = customer?.invoice_brand === 'stods'
+
+    const bakeryInfo = {
+      name:    (isStods ? process.env.STODS_BAKERY_NAME    : process.env.BAKERY_NAME)    ?? "Deb's Bakery",
+      phone:   (isStods ? process.env.STODS_BAKERY_PHONE   : process.env.BAKERY_PHONE)   ?? '(07) 4632 9475',
+      address: (isStods ? process.env.STODS_BAKERY_ADDRESS : process.env.BAKERY_ADDRESS) ?? '20 Mann St, Toowoomba QLD 4350',
+    }
+
+    // ── Build order items with product codes ──────────────────
     const orderWithCodes = {
       ...order,
       order_items: (order.order_items || []).map((item: any) => ({
         ...item,
         product_code: item.products?.code || null,
-        product_name: item.product_name || item.products?.name || '—',
-      })),
+product_name: item.custom_description || item.product_name || item.products?.name || '—',      })),
     }
 
+    // ── Generate PDF ──────────────────────────────────────────
     const pdf = await generatePackingSlip({
       order: orderWithCodes as any,
-      bakeryInfo: {
-        name:    process.env.BAKERY_NAME    ?? "Stods Bakery",
-        phone:   process.env.BAKERY_PHONE   ?? '(07) 4632 9475',
-        address: process.env.BAKERY_ADDRESS ?? '20 Mann St, Toowoomba QLD 4350',
-      },
+      bakeryInfo,
       invoiceNumber: order.invoice_number
         ? String(order.invoice_number).padStart(6, '0')
         : undefined,
