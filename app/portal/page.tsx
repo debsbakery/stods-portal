@@ -42,7 +42,7 @@ export default async function CustomerPortalPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="max-w-md bg-white rounded-lg shadow-lg p-8 text-center">
-          <h2 className="text-2xl font-bold mb-2" style={{ color: "#C4A882" }}>
+          <h2 className="text-2xl font-bold mb-2" style={{ color: "#CE1126" }}>
             Customer Account Not Found
           </h2>
           <p className="text-gray-600 mb-2">
@@ -53,7 +53,7 @@ export default async function CustomerPortalPage() {
             <Link href="/login" className="px-6 py-2 border rounded-md hover:bg-gray-50">
               Try Different Account
             </Link>
-            <Link href="/" className="px-6 py-2 text-white rounded-md" style={{ backgroundColor: "#3E1F00" }}>
+            <Link href="/" className="px-6 py-2 text-white rounded-md" style={{ backgroundColor: "#006A4E" }}>
               Back to Home
             </Link>
           </div>
@@ -66,13 +66,13 @@ export default async function CustomerPortalPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="max-w-md bg-white rounded-lg shadow-lg p-8 text-center">
-          <h2 className="text-2xl font-bold mb-2" style={{ color: "#C4A882" }}>
+          <h2 className="text-2xl font-bold mb-2" style={{ color: "#CE1126" }}>
             Portal Access Disabled
           </h2>
           <p className="text-gray-600 mb-4">
             Portal access for <strong>{customer.business_name}</strong> is currently disabled.
           </p>
-          <Link href="/" className="inline-block px-6 py-2 text-white rounded-md" style={{ backgroundColor: "#3E1F00" }}>
+          <Link href="/" className="inline-block px-6 py-2 text-white rounded-md" style={{ backgroundColor: "#006A4E" }}>
             Back to Home
           </Link>
         </div>

@@ -436,13 +436,14 @@ export default function DirectInvoicePage() {
             ? ` (${item.creditPercent}% Credit)`
             : item.isCredit ? ' (100% Credit)' : ''
           return {
-            order_id:       newOrder.id,
-            product_id:     item.productId,
-            product_name:   item.productName + creditLabel,
-            quantity:       item.isCredit ? -item.quantity : item.quantity,
-            unit_price:     item.unitPrice,
-            subtotal:       lineSubtotal(item),
-            gst_applicable: item.gstApplicable,
+                        order_id:           newOrder.id,
+              product_id:         item.productId,
+              product_name:       item.isCustom ? 'Manual Adjustment' : item.productName + creditLabel,
+              custom_description: item.isCustom ? item.productName + creditLabel : null,
+              quantity:           item.isCredit ? -item.quantity : item.quantity,
+              unit_price:         item.unitPrice,
+              subtotal:           lineSubtotal(item),
+              gst_applicable:     item.gstApplicable,
           }
         }))
 
@@ -759,7 +760,7 @@ export default function DirectInvoicePage() {
                     )}
                   </div>
 
-                                  {/* Quantity */}
+                                   {/* Quantity */}
                   <div className="col-span-1">
                     <input
                       type="number"
@@ -856,7 +857,7 @@ export default function DirectInvoicePage() {
                 </div>
                 <div
                   className="text-xl font-bold"
-                  style={{ color: grandTotal < 0 ? '#b5ce11a8' : '#006A4E' }}
+                  style={{ color: grandTotal < 0 ? '#CE1126' : '#006A4E' }}
                 >
                   Total: {grandTotal < 0 ? `(${fmt(Math.abs(grandTotal))})` : fmt(grandTotal)}
                 </div>
@@ -884,7 +885,7 @@ export default function DirectInvoicePage() {
             type="submit"
             disabled={loading || !lineItems.length}
             className="flex items-center gap-2 px-6 py-3 rounded text-white font-semibold hover:opacity-90 disabled:opacity-50"
-            style={{ backgroundColor: '#ce112775' }}
+            style={{ backgroundColor: '#CE1126' }}
           >
             <DollarSign className="h-5 w-5" />
             {loading ? 'Creating...' : 'Create Invoice'}

@@ -11,7 +11,23 @@ export default function LoginForm() {
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
   const supabase = createClient();
-
+const handleForgotPassword = async () => {
+  if (!email) {
+    setError('Please enter your email address first')
+    return
+  }
+  setIsLoading(true)
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/auth/callback?next=/portal/set-password`,
+  })
+  if (error) {
+    setError(error.message)
+  } else {
+    setError('')
+    alert(`Password reset email sent to ${email} — check your inbox!`)
+  }
+  setIsLoading(false)
+}
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
@@ -71,7 +87,16 @@ export default function LoginForm() {
             {error}
           </div>
         )}
-
+{/* Forgot Password */}
+<div className="text-center">
+  <button
+    type="button"
+    onClick={handleForgotPassword}
+    className="text-sm text-green-700 hover:underline"
+  >
+    Forgot password or first time logging in?
+  </button>
+</div>
         {/* Email Field */}
         <div>
           <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
@@ -111,7 +136,7 @@ export default function LoginForm() {
           type="submit"
           disabled={isLoading}
           className="w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-white bg-green-700 hover:bg-green-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ backgroundColor: isLoading ? '#9CA3AF' : '#3E1F00' }}
+          style={{ backgroundColor: isLoading ? '#9CA3AF' : '#006A4E' }}
         >
           {isLoading ? 'Signing in...' : 'Sign In'}
         </button>
