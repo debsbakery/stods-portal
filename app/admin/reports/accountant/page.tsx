@@ -14,7 +14,7 @@ async function getAccountantData(month: string) {
   endOfMonth.setMonth(endOfMonth.getMonth() + 1)
   const endStr = endOfMonth.toISOString().split('T')[0]
 
-  // Sales
+  // ── Sales ─────────────────────────────────────────────────────────────────
   const { data: salesData } = await supabase
     .from('orders')
     .select('total_amount')
@@ -24,15 +24,15 @@ async function getAccountantData(month: string) {
 
   const totalSales = salesData?.reduce((s, o) => s + Number(o.total_amount ?? 0), 0) ?? 0
 
-  // GST
+  // ── GST ───────────────────────────────────────────────────────────────────
   const { data: gstData } = await supabase.rpc('get_monthly_gst', {
     start_date: startOfMonth,
-    end_date: endStr,
+    end_date:   endStr,
   }).single()
 
   const gstCollected = Number(gstData?.gst_collected ?? 0)
 
-  // AR Summary
+  // ── AR Transactions (invoices + credits only) ─────────────────────────────
   const { data: arData } = await supabase
     .from('ar_transactions')
     .select('type, amount')
@@ -47,18 +47,23 @@ async function getAccountantData(month: string) {
     ?.filter((t) => t.type === 'credit')
     .reduce((s, t) => s + Number(t.amount ?? 0), 0) ?? 0
 
-  const payments = arData
-    ?.filter((t) => t.type === 'payment')
-    .reduce((s, t) => s + Number(t.amount ?? 0), 0) ?? 0
+  // ── Payments — from payments table ✅ ─────────────────────────────────────
+  const { data: paymentsData } = await supabase
+    .from('payments')
+    .select('amount')
+    .gte('payment_date', startOfMonth)
+    .lt('payment_date', endStr)
 
-  // AR Balance (current)
+  const payments = paymentsData?.reduce((s, p) => s + Number(p.amount ?? 0), 0) ?? 0
+
+  // ── AR Balance (current total across all customers) ───────────────────────
   const { data: customers } = await supabase
     .from('customers')
     .select('balance')
 
   const arBalance = customers?.reduce((s, c) => s + Number(c.balance ?? 0), 0) ?? 0
 
-  // Ingredient receipts (purchases)
+  // ── Ingredient Purchases ──────────────────────────────────────────────────
   const { data: receipts } = await supabase
     .from('ingredient_receipts')
     .select('total_cost')
@@ -67,7 +72,7 @@ async function getAccountantData(month: string) {
 
   const ingredientCost = receipts?.reduce((s, r) => s + Number(r.total_cost ?? 0), 0) ?? 0
 
-  // Latest stock value
+  // ── Latest Stock Value ────────────────────────────────────────────────────
   const { data: latestStock } = await supabase
     .from('stock_takes')
     .select(`
@@ -83,12 +88,12 @@ async function getAccountantData(month: string) {
     .single()
 
   let stockValue = 0
-  let stockDate = null
+  let stockDate  = null
 
   if (latestStock) {
-    stockDate = latestStock.take_date
+    stockDate  = latestStock.take_date
     stockValue = (latestStock.items ?? []).reduce((sum, item: any) => {
-      const kg = Number(item.total_kg ?? 0)
+      const kg   = Number(item.total_kg ?? 0)
       const cost = Number(item.ingredients?.unit_cost ?? 0)
       return sum + kg * cost
     }, 0)
@@ -116,29 +121,26 @@ export default async function AccountantSummaryPage({
   const isAdmin = await checkAdmin()
   if (!isAdmin) redirect('/')
 
-  const sp = await searchParams
+  const sp    = await searchParams
   const month = sp.month ?? new Date().toISOString().slice(0, 7)
-
-  const data = await getAccountantData(month)
+  const data  = await getAccountantData(month)
 
   return (
     <div className="container mx-auto px-4 py-8">
       <a
         href="/admin/reports"
         className="flex items-center gap-1 text-sm mb-4 hover:opacity-80"
-        style={{ color: '#C4A882' }}
+        style={{ color: '#CE1126' }}
       >
         <ArrowLeft className="h-4 w-4" />
         Back to Reports
       </a>
-
       <div className="mb-6">
         <h1 className="text-3xl font-bold">Accountant Monthly Summary</h1>
         <p className="text-gray-600 mt-1">
           Sales, AR, costs, and stock for month-end reporting
         </p>
       </div>
-
       <AccountantSummaryView data={data} />
     </div>
   )
