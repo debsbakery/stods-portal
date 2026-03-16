@@ -14,60 +14,57 @@ import {
 } from "lucide-react";
 import { addDays, format } from "date-fns";
 
-const GST_RATE = 0.10; // 10% Australian GST
+const GST_RATE = 0.10;
 
 export default function OrderPage() {
   const router = useRouter();
   const [supabase, setSupabase] = useState<any>(null);
 
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [deliveryDate, setDeliveryDate] = useState<Date>();
-  const [notes, setNotes] = useState("");
-  const [customer, setCustomer] = useState<Customer | null>(null);
-  const [businessName, setBusinessName] = useState("");
-  
-  // ✅ ADD: PO and Docket state
+  const [cart, setCart]                           = useState<CartItem[]>([]);
+  const [deliveryDate, setDeliveryDate]           = useState<Date>();
+  const [notes, setNotes]                         = useState("");
+  const [customer, setCustomer]                   = useState<Customer | null>(null);
+  const [businessName, setBusinessName]           = useState("");
   const [purchaseOrderNumber, setPurchaseOrderNumber] = useState("");
-  const [docketNumber, setDocketNumber] = useState("");
-  
-  const [loading, setLoading] = useState(false);
-  const [pageLoading, setPageLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [showCalendar, setShowCalendar] = useState(false);
+  const [docketNumber, setDocketNumber]           = useState("");
+  const [loading, setLoading]                     = useState(false);
+  const [pageLoading, setPageLoading]             = useState(true);
+  const [error, setError]                         = useState<string | null>(null);
+  const [showCalendar, setShowCalendar]           = useState(false);
 
-  // Initialize Supabase
   useEffect(() => {
     setSupabase(createClient());
   }, []);
 
-  // Load cart + customer on mount
   useEffect(() => {
     if (!supabase) return;
 
     const init = async () => {
-      // Load cart
       const savedCart = localStorage.getItem("cart");
       if (savedCart) {
-        try {
-          setCart(JSON.parse(savedCart));
-        } catch (e) {
-          console.error("Error loading cart:", e);
-        }
+        try { setCart(JSON.parse(savedCart)); } catch (e) { console.error(e); }
       }
 
-      // Load customer profile
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
-          const { data: cust } = await supabase
+          // ✅ Try by ID first then email
+          const { data: custById } = await supabase
             .from("customers")
             .select("*")
             .eq("id", user.id)
-            .single();
+            .maybeSingle();
 
-          if (cust) {
-            setCustomer(cust);
-            setBusinessName(cust.business_name || "");
+          const finalCust = custById ?? (await supabase
+            .from("customers")
+            .select("*")
+            .eq("email", user.email)
+            .single()
+          ).data;
+
+          if (finalCust) {
+            setCustomer(finalCust);
+            setBusinessName(finalCust.business_name || "");
           }
         }
       } catch (e) {
@@ -97,17 +94,14 @@ export default function OrderPage() {
     saveCart(newCart);
   };
 
-  // GST Calculation
   const orderTotals = cart.reduce(
     (acc, item) => {
       const lineTotal = Number(item.product.price) * item.quantity;
-      const lineGST = item.product.gst_applicable
-        ? lineTotal * GST_RATE
-        : 0;
+      const lineGST   = item.product.gst_applicable ? lineTotal * GST_RATE : 0;
       return {
-        subtotal: acc.subtotal + lineTotal,
+        subtotal:  acc.subtotal  + lineTotal,
         gstAmount: acc.gstAmount + lineGST,
-        total: acc.total + lineTotal + lineGST,
+        total:     acc.total     + lineTotal + lineGST,
       };
     },
     { subtotal: 0, gstAmount: 0, total: 0 }
@@ -115,108 +109,78 @@ export default function OrderPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!supabase) return;
-
-    if (cart.length === 0) {
-      setError("Your cart is empty");
-      return;
-    }
-
-    if (!deliveryDate) {
-      setError("Please select a delivery date");
-      return;
-    }
+    if (!supabase)        return;
+    if (cart.length === 0)   { setError("Your cart is empty");           return; }
+    if (!deliveryDate)        { setError("Please select a delivery date"); return; }
 
     setLoading(true);
     setError(null);
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { router.push("/auth/login"); return; }
 
-      if (!user) {
-        router.push("/auth/login");
-        return;
-      }
+      const customerId = customer?.id ?? user.id
 
-      // Upsert customer profile
-      await supabase.from("customers").upsert({
-        id: user.id,
-        email: user.email,
-        business_name: businessName || null,
-      });
-
-      // ✅ CREATE ORDER with PO and Docket numbers
       const { data: order, error: orderError } = await supabase
         .from("orders")
         .insert({
-          customer_id: user.id,
-          customer_email: user.email!,
+          customer_id:            customerId,
+          customer_email:         user.email!,
           customer_business_name: businessName || null,
-          customer_address: customer?.address || null,
-          customer_abn: customer?.abn || null,
-delivery_date: format(deliveryDate, 'yyyy-MM-dd'),
-          notes: notes || null,
-          purchase_order_number: purchaseOrderNumber || null,  // ✅ ADD
-          docket_number: docketNumber || null,                 // ✅ ADD
-          total_amount: orderTotals.total,
-          status: "pending",
-          source: "online",
+          customer_address:       customer?.address || null,
+          customer_abn:           customer?.abn    || null,
+          delivery_date:          format(deliveryDate, 'yyyy-MM-dd'),
+          notes:                  notes                || null,
+          purchase_order_number:  purchaseOrderNumber  || null,
+          docket_number:          docketNumber         || null,
+          total_amount:           orderTotals.total,
+          status:                 "pending",
+          source:                 "online",
         })
         .select()
         .single();
 
       if (orderError) throw orderError;
 
-      // Create order items
       const orderItems = cart.map((item) => {
         const lineTotal = Number(item.product.price) * item.quantity;
-        const lineGST = item.product.gst_applicable
-          ? lineTotal * GST_RATE
-          : 0;
-
+        const lineGST   = item.product.gst_applicable ? lineTotal * GST_RATE : 0;
         return {
-          order_id: order.id,
-          product_id: item.product.id,
-          product_name: item.product.name,
-          quantity: item.quantity,
-          unit_price: Number(item.product.price),
-          subtotal: lineTotal + lineGST,
+          order_id:       order.id,
+          product_id:     item.product.id,
+          product_name:   item.product.name,
+          quantity:       item.quantity,
+          unit_price:     Number(item.product.price),
+          subtotal:       lineTotal + lineGST,
           gst_applicable: item.product.gst_applicable || false,
         };
       });
 
-      const { error: itemsError } = await supabase
-        .from("order_items")
-        .insert(orderItems);
-
+      const { error: itemsError } = await supabase.from("order_items").insert(orderItems);
       if (itemsError) throw itemsError;
 
-      // ✅ Send confirmation emails via API route
       try {
         const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
-        
         await fetch(`${siteUrl}/api/orders/send-confirmation`, {
-          method: "POST",
+          method:  "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            orderId: order.id,
+          body: JSON.stringify({
+            orderId:       order.id,
             customerEmail: user.email,
-            businessName: businessName || null,
-            deliveryDate: deliveryDate.toISOString().split("T")[0],
-            total: orderTotals.total
+            businessName:  businessName || null,
+            deliveryDate:  format(deliveryDate, 'yyyy-MM-dd'),
+            total:         orderTotals.total,
           }),
         });
-        
-        console.log('✅ Confirmation email request sent');
       } catch (emailErr) {
         console.error("⚠️ Email error (non-fatal):", emailErr);
       }
 
-      // Clear cart and redirect
       localStorage.removeItem("cart");
       setCart([]);
       window.location.href = `/order/success?id=${order.id}`;
+
     } catch (err: any) {
       console.error("Order error:", err);
       setError("Failed to submit order. Please try again.");
@@ -225,30 +189,41 @@ delivery_date: format(deliveryDate, 'yyyy-MM-dd'),
     }
   };
 
-  // Available delivery dates
-  const getAvailableDates = () => {
-    const dates = [];
-    let currentDate = addDays(new Date(), 2);
+  // ── Available delivery dates — respects customer cutoff time ─────────────
+  const getAvailableDates = (cutoffTime?: string) => {
+    const dates = []
+
+    // Parse cutoff hour from e.g. "14:00:00" → 14, default 2pm
+    const cutoffHour = cutoffTime
+      ? parseInt(cutoffTime.split(':')[0], 10)
+      : 14
+
+    // Brisbane time
+    const nowBrisbane = new Date(
+      new Date().toLocaleString('en-AU', { timeZone: 'Australia/Brisbane' })
+    )
+
+    const todayHour = nowBrisbane.getHours()
+
+    // Before cutoff → tomorrow available; after cutoff → day after tomorrow
+    const daysToAdd = todayHour < cutoffHour ? 1 : 2
+    let currentDate = addDays(nowBrisbane, daysToAdd)
+
     for (let i = 0; i < 14; i++) {
       if (currentDate.getDay() !== 0) {
-        dates.push(new Date(currentDate));
+        dates.push(new Date(currentDate))
       }
-      currentDate = addDays(currentDate, 1);
+      currentDate = addDays(currentDate, 1)
     }
-    return dates;
-  };
-
-  const availableDates = getAvailableDates();
-
-  if (!supabase) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <Loader2 className="h-12 w-12 animate-spin" style={{ color: "#CE1126" }} />
-      </div>
-    );
+    return dates
   }
 
-  if (pageLoading) {
+  // ✅ Pass customer cutoff — recalculates when customer loads
+  const availableDates = getAvailableDates(
+    (customer as any)?.cutoff_time ?? (customer as any)?.default_cutoff_time ?? undefined
+  )
+
+  if (!supabase || pageLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <Loader2 className="h-12 w-12 animate-spin" style={{ color: "#CE1126" }} />
@@ -260,10 +235,7 @@ delivery_date: format(deliveryDate, 'yyyy-MM-dd'),
     <div className="min-h-screen bg-gray-50">
       <div className="container mx-auto px-4 py-8">
         <Link href="/catalog">
-          <button
-            className="flex items-center hover:opacity-80 mb-6"
-            style={{ color: "#CE1126" }}
-          >
+          <button className="flex items-center hover:opacity-80 mb-6" style={{ color: "#CE1126" }}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Catalog
           </button>
@@ -271,19 +243,17 @@ delivery_date: format(deliveryDate, 'yyyy-MM-dd'),
 
         <div className="mb-8">
           <h1 className="text-3xl font-bold">Complete Your Order</h1>
-          <p className="text-gray-600">
-            Review your items and select a delivery date
-          </p>
+          <p className="text-gray-600">Review your items and select a delivery date</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid gap-6 lg:grid-cols-2">
-            {/* LEFT COLUMN: Delivery Details */}
+
+            {/* LEFT — Delivery Details */}
             <div className="space-y-6">
               <div className="bg-white rounded-lg shadow-md p-6">
                 <h2 className="text-xl font-bold mb-4">📅 Delivery Details</h2>
 
-                {/* Business Name */}
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Business Name
@@ -297,52 +267,42 @@ delivery_date: format(deliveryDate, 'yyyy-MM-dd'),
                   />
                 </div>
 
-                {/* Customer info display */}
                 {customer && (
                   <div className="mb-4 p-3 bg-gray-50 rounded-md text-sm text-gray-600">
-                    {customer.address && <p>📍 {customer.address}</p>}
-                    {customer.phone && <p>📞 {customer.phone}</p>}
-                    {customer.abn && <p>🏢 ABN: {customer.abn}</p>}
-                    {customer.payment_terms && (
-                      <p>💳 Payment terms: {customer.payment_terms} days</p>
-                    )}
+                    {customer.address       && <p>📍 {customer.address}</p>}
+                    {customer.phone         && <p>📞 {customer.phone}</p>}
+                    {customer.abn           && <p>🏢 ABN: {customer.abn}</p>}
+                    {customer.payment_terms && <p>💳 Payment terms: {customer.payment_terms} days</p>}
                   </div>
                 )}
 
-                {/* ✅ Purchase Order & Docket Numbers */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   <div>
-                    <label htmlFor="po_number" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
                       Purchase Order Number (Optional)
                     </label>
                     <input
                       type="text"
-                      id="po_number"
-                      name="purchase_order_number"
                       placeholder="e.g., PO-2024-1234"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
                       value={purchaseOrderNumber}
                       onChange={(e) => setPurchaseOrderNumber(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
                     />
                   </div>
-
                   <div>
-                    <label htmlFor="docket_number" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
                       Docket Number (Optional)
                     </label>
                     <input
                       type="text"
-                      id="docket_number"
-                      name="docket_number"
                       placeholder="e.g., DOC-5678"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
                       value={docketNumber}
                       onChange={(e) => setDocketNumber(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
                     />
                   </div>
                 </div>
 
-                {/* Delivery Date */}
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Delivery Date *
@@ -354,9 +314,7 @@ delivery_date: format(deliveryDate, 'yyyy-MM-dd'),
                       className="w-full px-3 py-2 border border-gray-300 rounded-md text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-red-500"
                     >
                       <span className={deliveryDate ? "text-gray-900" : "text-gray-400"}>
-                        {deliveryDate
-                          ? format(deliveryDate, "EEEE, MMMM d, yyyy")
-                          : "Select delivery date"}
+                        {deliveryDate ? format(deliveryDate, "EEEE, MMMM d, yyyy") : "Select delivery date"}
                       </span>
                       <CalendarIcon className="h-5 w-5 text-gray-400" />
                     </button>
@@ -368,19 +326,14 @@ delivery_date: format(deliveryDate, 'yyyy-MM-dd'),
                             <button
                               key={date.toISOString()}
                               type="button"
-                              onClick={() => {
-                                setDeliveryDate(date);
-                                setShowCalendar(false);
-                              }}
+                              onClick={() => { setDeliveryDate(date); setShowCalendar(false); }}
                               className={`px-4 py-2 text-left rounded-md transition-colors ${
-                                deliveryDate &&
-                                date.toDateString() === deliveryDate.toDateString()
+                                deliveryDate && date.toDateString() === deliveryDate.toDateString()
                                   ? "text-white"
                                   : "hover:bg-gray-100"
                               }`}
                               style={
-                                deliveryDate &&
-                                date.toDateString() === deliveryDate.toDateString()
+                                deliveryDate && date.toDateString() === deliveryDate.toDateString()
                                   ? { backgroundColor: "#CE1126" }
                                   : {}
                               }
@@ -393,11 +346,10 @@ delivery_date: format(deliveryDate, 'yyyy-MM-dd'),
                     )}
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    Orders require 2 days lead time. No Sunday deliveries.
+                    No Sunday deliveries.
                   </p>
                 </div>
 
-                {/* Notes */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Order Notes (Optional)
@@ -413,7 +365,7 @@ delivery_date: format(deliveryDate, 'yyyy-MM-dd'),
               </div>
             </div>
 
-            {/* RIGHT COLUMN: Order Summary */}
+            {/* RIGHT — Order Summary */}
             <div className="space-y-6">
               <div className="bg-white rounded-lg shadow-md p-6">
                 <h2 className="text-xl font-bold mb-4">
@@ -428,11 +380,7 @@ delivery_date: format(deliveryDate, 'yyyy-MM-dd'),
                     <div className="text-4xl mb-2">🛒</div>
                     <p>Your cart is empty.</p>
                     <Link href="/catalog">
-                      <button
-                        type="button"
-                        className="mt-4 font-medium"
-                        style={{ color: "#CE1126" }}
-                      >
+                      <button type="button" className="mt-4 font-medium" style={{ color: "#CE1126" }}>
                         Browse Catalog
                       </button>
                     </Link>
@@ -441,70 +389,45 @@ delivery_date: format(deliveryDate, 'yyyy-MM-dd'),
                   <div className="space-y-4">
                     {cart.map((item) => {
                       const lineTotal = Number(item.product.price) * item.quantity;
-                      const lineGST = item.product.gst_applicable
-                        ? lineTotal * GST_RATE
-                        : 0;
-
+                      const lineGST   = item.product.gst_applicable ? lineTotal * GST_RATE : 0;
                       return (
-                        <div
-                          key={item.product.id}
-                          className="flex items-center gap-3 pb-3 border-b"
-                        >
+                        <div key={item.product.id} className="flex items-center gap-3 pb-3 border-b">
                           <div className="flex-1">
                             <p className="font-medium text-sm">
                               {item.product.name}
                               {item.product.gst_applicable && (
-                                <span className="ml-1 text-xs text-orange-600 font-normal">
-                                  (incl. GST)
-                                </span>
+                                <span className="ml-1 text-xs text-orange-600 font-normal">(incl. GST)</span>
                               )}
                             </p>
                             <p className="text-xs text-gray-500">
                               {formatCurrency(Number(item.product.price))} × {item.quantity}
                               {lineGST > 0 && (
-                                <span className="text-orange-600">
-                                  {" "}+ {formatCurrency(lineGST)} GST
-                                </span>
+                                <span className="text-orange-600"> + {formatCurrency(lineGST)} GST</span>
                               )}
                             </p>
                           </div>
-
                           <div className="flex items-center gap-1">
                             <button
                               type="button"
-                              onClick={() =>
-                                handleUpdateQuantity(
-                                  item.product.id,
-                                  item.quantity - 1
-                                )
-                              }
+                              onClick={() => handleUpdateQuantity(item.product.id, item.quantity - 1)}
                               disabled={item.quantity <= item.product.min_quantity}
                               className="p-1 hover:bg-gray-100 rounded disabled:opacity-50"
                             >
                               <Minus className="h-3 w-3" />
                             </button>
-                            <span className="w-8 text-center text-sm">
-                              {item.quantity}
-                            </span>
+                            <span className="w-8 text-center text-sm">{item.quantity}</span>
                             <button
                               type="button"
-                              onClick={() =>
-                                handleUpdateQuantity(
-                                  item.product.id,
-                                  item.quantity + 1
-                                )
-                              }
+                              onClick={() => handleUpdateQuantity(item.product.id, item.quantity + 1)}
                               disabled={item.quantity >= item.product.max_quantity}
                               className="p-1 hover:bg-gray-100 rounded disabled:opacity-50"
                             >
                               <Plus className="h-3 w-3" />
                             </button>
                           </div>
-
                           <p className="w-20 text-right font-medium text-sm">
                             {formatCurrency(lineTotal + lineGST)}
                           </p>
-
                           <button
                             type="button"
                             onClick={() => handleRemoveItem(item.product.id)}
@@ -516,24 +439,18 @@ delivery_date: format(deliveryDate, 'yyyy-MM-dd'),
                       );
                     })}
 
-                    {/* Totals */}
                     <div className="pt-2 space-y-1">
                       <div className="flex justify-between text-sm text-gray-600">
                         <span>Subtotal</span>
                         <span>{formatCurrency(orderTotals.subtotal)}</span>
                       </div>
-
                       {orderTotals.gstAmount > 0 && (
                         <div className="flex justify-between text-sm text-orange-600">
                           <span>GST (10%)</span>
                           <span>{formatCurrency(orderTotals.gstAmount)}</span>
                         </div>
                       )}
-
-                      <div
-                        className="flex justify-between items-center text-lg font-bold pt-2 border-t"
-                        style={{ color: "#CE1126" }}
-                      >
+                      <div className="flex justify-between items-center text-lg font-bold pt-2 border-t" style={{ color: "#CE1126" }}>
                         <span>Total</span>
                         <span>{formatCurrency(orderTotals.total)}</span>
                       </div>
@@ -542,14 +459,12 @@ delivery_date: format(deliveryDate, 'yyyy-MM-dd'),
                 )}
               </div>
 
-              {/* Error */}
               {error && (
                 <div className="p-3 rounded-md bg-red-50 text-red-700 border border-red-200 text-sm">
                   {error}
                 </div>
               )}
 
-              {/* Submit */}
               <button
                 type="submit"
                 disabled={loading || cart.length === 0}
@@ -557,15 +472,9 @@ delivery_date: format(deliveryDate, 'yyyy-MM-dd'),
                 style={{ backgroundColor: "#CE1126" }}
               >
                 {loading ? (
-                  <>
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                    Submitting...
-                  </>
+                  <><Loader2 className="h-5 w-5 animate-spin" /> Submitting...</>
                 ) : (
-                  <>
-                    <Send className="h-5 w-5" />
-                    Submit Order
-                  </>
+                  <><Send className="h-5 w-5" /> Submit Order</>
                 )}
               </button>
             </div>
