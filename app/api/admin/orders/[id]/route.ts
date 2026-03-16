@@ -36,13 +36,14 @@ export async function PATCH(
     if (updates.items?.length > 0) {
       await supabase.from('order_items').insert(
         updates.items.map((item: any) => ({
-          order_id:        id,
-          product_id:      item.product_id,
-          product_name:    item.product_name,
-          quantity:        item.quantity,
-          unit_price:      item.unit_price,
-          subtotal:        item.quantity * item.unit_price,
-          gst_applicable:  item.gst_applicable || false,
+          order_id:           id,
+          product_id:         item.product_id,
+          product_name:       item.product_name,
+          custom_description: item.custom_description ?? null,  // ✅ ADDED
+          quantity:           item.quantity,
+          unit_price:         item.unit_price,
+          subtotal:           item.quantity * item.unit_price,
+          gst_applicable:     item.gst_applicable || false,
         }))
       )
     }
