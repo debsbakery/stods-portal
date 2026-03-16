@@ -7,10 +7,22 @@ export async function POST(request: NextRequest) {
   try {
     const supabase = createAdminClient()
     const body = await request.json()
-    const { customer_id, amount, payment_date, payment_method, reference_number, notes, allocations = [] } = body
+
+    const {
+      customer_id,
+      amount,
+      payment_date,
+      payment_method,
+      reference_number,
+      notes,
+      allocations = [],
+    } = body
 
     if (!customer_id || !amount) {
-      return NextResponse.json({ error: 'customer_id and amount are required' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'customer_id and amount are required' },
+        { status: 400 }
+      )
     }
 
     const { data: customer } = await supabase
@@ -27,11 +39,11 @@ export async function POST(request: NextRequest) {
       .from('payments')
       .insert({
         customer_id,
-        amount: parseFloat(amount),
-        payment_date: payment_date || new Date().toISOString().split('T')[0],
-        payment_method: payment_method || null,
+        amount:           parseFloat(amount),
+        payment_date:     payment_date || new Date().toISOString().split('T')[0],
+        payment_method:   payment_method   || null,
         reference_number: reference_number || null,
-        notes: notes || null,
+        notes:            notes            || null,
         allocated_amount: allocations.reduce((sum: number, a: any) => sum + (a.amount || 0), 0),
       })
       .select()
@@ -43,12 +55,15 @@ export async function POST(request: NextRequest) {
       for (const allocation of allocations) {
         if (!allocation.invoice_id || !allocation.amount) continue
 
+        // ── Link payment to invoice ─────────────────────────────────────
         await supabase.from('invoice_payments').insert({
           invoice_id: allocation.invoice_id,
           payment_id: payment.id,
-          amount: allocation.amount,
+          amount:     allocation.amount,
         })
 
+        // ── Update ar_transactions.amount_paid ──────────────────────────
+        // invoice_id on ar_transactions = orders.id
         const { data: arTx } = await supabase
           .from('ar_transactions')
           .select('id, amount, amount_paid')
@@ -57,45 +72,43 @@ export async function POST(request: NextRequest) {
 
         if (arTx) {
           const newAmountPaid = Number(arTx.amount_paid || 0) + Number(allocation.amount)
-          const isFullyPaid = newAmountPaid >= Number(arTx.amount)
+          const isFullyPaid   = newAmountPaid >= Number(arTx.amount)
           const updateData: any = { amount_paid: newAmountPaid }
           if (isFullyPaid) {
             updateData.paid_date = payment_date || new Date().toISOString().split('T')[0]
           }
-          await supabase.from('ar_transactions').update(updateData).eq('id', arTx.id)
+          await supabase
+            .from('ar_transactions')
+            .update(updateData)
+            .eq('id', arTx.id)
         }
 
-        const { data: invNum } = await supabase
-          .from('invoice_numbers')
-          .select('order_id')
+        // ── Update orders.amount_paid ───────────────────────────────────
+        // allocation.invoice_id IS the orders.id
+        const { data: order } = await supabase
+          .from('orders')
+          .select('amount_paid')
           .eq('id', allocation.invoice_id)
           .single()
 
-        if (invNum?.order_id) {
-          const { data: order } = await supabase
-            .from('orders')
-            .select('amount_paid')
-            .eq('id', invNum.order_id)
-            .single()
-
+        if (order) {
           await supabase
             .from('orders')
-            .update({ amount_paid: (Number(order?.amount_paid) || 0) + Number(allocation.amount) })
-            .eq('id', invNum.order_id)
+            .update({
+              amount_paid: (Number(order.amount_paid) || 0) + Number(allocation.amount),
+            })
+            .eq('id', allocation.invoice_id)
         }
       }
     }
 
+    // ── Update customer balance ─────────────────────────────────────────
     const newBalance = (Number(customer.balance) || 0) - parseFloat(amount)
 
-    const { error: balanceError } = await supabase
+    await supabase
       .from('customers')
       .update({ balance: newBalance })
       .eq('id', customer_id)
-
-    if (balanceError) {
-      console.error('Balance update failed:', balanceError.message)
-    }
 
     const { data: updated } = await supabase
       .from('customers')
@@ -107,9 +120,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       payment: {
-        id: payment.id,
-        customer: customerName,
-        amount: parseFloat(amount),
+        id:          payment.id,
+        customer:    customerName,
+        amount:      parseFloat(amount),
         new_balance: updated?.balance ?? 0,
         allocations: allocations.length,
       },

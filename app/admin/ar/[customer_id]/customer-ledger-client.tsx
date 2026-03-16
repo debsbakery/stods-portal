@@ -161,7 +161,7 @@ function buildManualAllocations() {
         <button
           onClick={() => setShowPayment(true)}
           className="flex items-center gap-2 px-4 py-2 text-white text-sm font-medium rounded-lg"
-          style={{ backgroundColor: '#3E1F00' }}
+          style={{ backgroundColor: '#006A4E' }}
         >
           <Plus className="h-4 w-4" /> Record Payment
         </button>
@@ -262,7 +262,7 @@ function buildManualAllocations() {
                     </td>
                     <td
                       className="px-4 py-3 text-right font-mono font-semibold"
-                      style={{ color: entry.balance > 0 ? '#C4A882' : '#3E1F00' }}
+                      style={{ color: entry.balance > 0 ? '#CE1126' : '#006A4E' }}
                     >
                       {formatCurrency(entry.balance)}
                     </td>
@@ -405,7 +405,7 @@ function buildManualAllocations() {
                         <p className="text-xs text-gray-400">Enter an amount above to preview allocation</p>
                       ) : (
                         fifoPreview.map(a => {
-                          const inv = unpaidInvoices.find(e => e.invoice_id === a.invoice_id)
+const inv = unpaidInvoices.find(e => e.order_id === a.invoice_id || e.invoice_id === a.invoice_id)
                           return (
                             <div key={a.invoice_id} className="flex justify-between items-center p-2 bg-green-50 rounded text-xs">
                               <span className="text-gray-700">{inv?.description || a.invoice_id}</span>
@@ -494,7 +494,7 @@ onChange={e => setManualAlloc(prev => ({
                 onClick={handleRecordPayment}
                 disabled={saving}
                 className="flex-1 px-4 py-2 text-white text-sm font-medium rounded-lg flex items-center justify-center gap-2 disabled:opacity-50"
-                style={{ backgroundColor: '#3E1F00' }}
+                style={{ backgroundColor: '#006A4E' }}
               >
                 {saving ? (
                   <><Loader2 className="h-4 w-4 animate-spin" /> Saving...</>

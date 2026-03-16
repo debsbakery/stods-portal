@@ -46,14 +46,14 @@ export async function GET(request: NextRequest) {
         amount:      parseFloat(tx.amount),
         amount_paid: parseFloat(tx.amount_paid || 0),
         invoice_id:  tx.invoice_id,
-        order_id:    tx.order_id ?? null,
+        order_id:    tx.invoice_id,
         isPayment:   false,
       })),
       ...(payments || []).map((p: any) => ({
         id:          p.id,
         date:        p.payment_date + 'T00:00:00',
         type:        'payment',
-        description: 'Payment - ' + (p.payment_method ?? 'bank transfer') + (p.reference_number ? ' #' + p.reference_number : ''),
+        description: 'Payment - ' + (p.payment_method || 'bank transfer') + (p.reference_number ? ' #' + p.reference_number : ''),
         amount:      parseFloat(p.amount),
         amount_paid: 0,
         invoice_id:  null,
@@ -68,9 +68,9 @@ export async function GET(request: NextRequest) {
       if (isDebit) runningBalance += tx.amount
       else         runningBalance -= tx.amount
 
-      const paidStatus = tx.isPayment ? 'na'
-        : tx.amount_paid >= tx.amount  ? 'paid'
-        : tx.amount_paid > 0           ? 'partial'
+      const paidStatus = tx.isPayment    ? 'na'
+        : tx.amount_paid >= tx.amount    ? 'paid'
+        : tx.amount_paid > 0             ? 'partial'
         : 'unpaid'
 
       return {
@@ -100,14 +100,21 @@ export async function GET(request: NextRequest) {
 
       const drawText = (text: string, x: number, yPos: number, opts: any = {}) => {
         page.drawText(String(text), {
-          x, y: yPos,
-          size: opts.size ?? 9,
+          x,
+          y: yPos,
+          size: opts.size || 9,
           font: opts.bold ? fontBold : font,
           color: opts.color ? rgb(...opts.color) : rgb(0.2, 0.2, 0.2),
         })
       }
+
       const drawLine = (x1: number, y1: number, x2: number, y2: number) => {
-        page.drawLine({ start: { x: x1, y: y1 }, end: { x: x2, y: y2 }, thickness: 0.5, color: rgb(0.7, 0.7, 0.7) })
+        page.drawLine({
+          start: { x: x1, y: y1 },
+          end:   { x: x2, y: y2 },
+          thickness: 0.5,
+          color: rgb(0.7, 0.7, 0.7),
+        })
       }
 
       drawText("Deb's Bakery", 50, y, { size: 20, bold: true, color: [0, 0.416, 0.306] })
@@ -135,14 +142,19 @@ export async function GET(request: NextRequest) {
           page = pdfDoc.addPage([595, 842])
           y = height - 50
         }
-        const dateStr = new Date(tx.date).toLocaleDateString('en-AU', { day: '2-digit', month: '2-digit', year: 'numeric' })
-        const desc = (tx.description || '-').length > 28 ? tx.description.slice(0, 26) + '..' : (tx.description || '-')
-        drawText(dateStr,                                              50,  y, { size: 8 })
-        drawText(desc,                                                130, y, { size: 8 })
-        drawText(tx.type,                                             330, y, { size: 8 })
-        drawText(tx.debit  > 0 ? '$' + tx.debit.toFixed(2)  : '',   400, y, { size: 8 })
-        drawText(tx.credit > 0 ? '$' + tx.credit.toFixed(2) : '',   455, y, { size: 8 })
-        drawText('$' + tx.balance.toFixed(2),                        510, y, { size: 8 })
+        const dateStr = new Date(tx.date).toLocaleDateString('en-AU', {
+          day: '2-digit', month: '2-digit', year: 'numeric',
+        })
+        const desc = (tx.description || '-').length > 28
+          ? tx.description.slice(0, 26) + '..'
+          : (tx.description || '-')
+
+        drawText(dateStr,                                             50,  y, { size: 8 })
+        drawText(desc,                                               130, y, { size: 8 })
+        drawText(tx.type,                                            330, y, { size: 8 })
+        drawText(tx.debit  > 0 ? '$' + tx.debit.toFixed(2)  : '',  400, y, { size: 8 })
+        drawText(tx.credit > 0 ? '$' + tx.credit.toFixed(2) : '',  455, y, { size: 8 })
+        drawText('$' + tx.balance.toFixed(2),                       510, y, { size: 8 })
         y -= 14
       }
 
@@ -151,8 +163,8 @@ export async function GET(request: NextRequest) {
       y -= 16
       const totalCharges  = ledger.reduce((s: number, t: any) => s + t.debit,  0)
       const totalPayments = ledger.reduce((s: number, t: any) => s + t.credit, 0)
-      drawText('Total Charges: $'  + totalCharges.toFixed(2),  50,  y, { size: 9, bold: true })
-      drawText('Total Payments: $' + totalPayments.toFixed(2), 200, y, { size: 9, bold: true })
+      drawText('Total Charges: $'   + totalCharges.toFixed(2),   50,  y, { size: 9, bold: true })
+      drawText('Total Payments: $'  + totalPayments.toFixed(2),  200, y, { size: 9, bold: true })
       drawText('Closing Balance: $' + runningBalance.toFixed(2), 380, y, {
         size: 9, bold: true,
         color: runningBalance > 0 ? [0.808, 0.067, 0.149] : [0, 0.416, 0.306],
@@ -161,7 +173,7 @@ export async function GET(request: NextRequest) {
       const pdfBytes = await pdfDoc.save()
       return new NextResponse(Buffer.from(pdfBytes), {
         headers: {
-          'Content-Type': 'application/pdf',
+          'Content-Type':        'application/pdf',
           'Content-Disposition': 'attachment; filename="ledger-' + (customer.business_name || customer.id) + '.pdf"',
         },
       })
