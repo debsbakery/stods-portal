@@ -32,7 +32,7 @@ export async function GET(request: Request) {
 
       console.log("✅ OTP verified successfully!");
       console.log("✅ User:", data.user?.email);
-      return NextResponse.redirect(`${origin}/catalog`);
+      return NextResponse.redirect(`${origin}/portal`);
     } catch (err) {
       console.error("🔴 OTP error:", err);
       return NextResponse.redirect(`${origin}/auth/login?error=Authentication failed`);
@@ -52,7 +52,7 @@ export async function GET(request: Request) {
 
       console.log("✅ Session created!");
       console.log("✅ User:", data.user?.email);
-      return NextResponse.redirect(`${origin}/catalog`);
+      return NextResponse.redirect(`${origin}/portal`);
     } catch (err) {
       console.error("🔴 Code exchange error:", err);
       return NextResponse.redirect(`${origin}/auth/login?error=Authentication failed`);
