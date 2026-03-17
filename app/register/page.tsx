@@ -38,9 +38,7 @@ export default function RegisterPage() {
       })
 
       const data = await res.json()
-
       if (!res.ok) throw new Error(data.error || 'Registration failed')
-
       setSubmitted(true)
     } catch (err: any) {
       setError(err.message)
@@ -53,8 +51,8 @@ export default function RegisterPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
         <div className="bg-white rounded-xl shadow-lg p-10 max-w-md w-full text-center">
-          <CheckCircle className="h-16 w-16 mx-auto mb-4" style={{ color: '#3E1F00' }} />
-          <h1 className="text-2xl font-bold mb-3" style={{ color: '#3E1F00' }}>
+          <CheckCircle className="h-16 w-16 mx-auto mb-4" style={{ color: '#2c2c2c' }} />
+          <h1 className="text-2xl font-bold mb-3" style={{ color: '#2c2c2c' }}>
             Application Received!
           </h1>
           <p className="text-gray-600 mb-2">
@@ -65,8 +63,8 @@ export default function RegisterPage() {
             <strong>{form.email}</strong> within 1-2 business days.
           </p>
           <div className="mt-6 pt-6 border-t text-xs text-gray-400">
-            <p>Deb&apos;s Bakery — Toowoomba QLD</p>
-            <p>debs_bakery@outlook.com</p>
+            <p>Stods Bakery — Toowoomba QLD</p>
+            <p>stodsbakery@outlook.com</p>
           </div>
         </div>
       </div>
@@ -81,13 +79,13 @@ export default function RegisterPage() {
           <div className="flex justify-center mb-3">
             <div
               className="w-14 h-14 rounded-full flex items-center justify-center"
-              style={{ backgroundColor: '#3E1F00' }}
+              style={{ backgroundColor: '#2c2c2c' }}
             >
               <ShoppingBag className="h-7 w-7 text-white" />
             </div>
           </div>
-          <h1 className="text-3xl font-bold" style={{ color: '#3E1F00' }}>
-            Deb&apos;s Bakery
+          <h1 className="text-3xl font-bold" style={{ color: '#2c2c2c' }}>
+            Stods Bakery
           </h1>
           <p className="text-gray-500 mt-1">Wholesale Account Application</p>
         </div>
@@ -112,7 +110,7 @@ export default function RegisterPage() {
               value={form.business_name}
               onChange={handleChange}
               placeholder="e.g. Sunrise Cafe"
-              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm"
             />
           </div>
 
@@ -127,7 +125,7 @@ export default function RegisterPage() {
               value={form.contact_name}
               onChange={handleChange}
               placeholder="e.g. Jane Smith"
-              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm"
             />
           </div>
 
@@ -142,7 +140,7 @@ export default function RegisterPage() {
               value={form.email}
               onChange={handleChange}
               placeholder="jane@sunrise.com.au"
-              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm"
             />
           </div>
 
@@ -155,8 +153,8 @@ export default function RegisterPage() {
               name="phone"
               value={form.phone}
               onChange={handleChange}
-              placeholder="(07) 1234 5678"
-              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+              placeholder="07 4639 1615"
+              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm"
             />
           </div>
 
@@ -170,7 +168,7 @@ export default function RegisterPage() {
               value={form.address}
               onChange={handleChange}
               placeholder="123 Main St, Toowoomba QLD 4350"
-              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm"
             />
           </div>
 
@@ -184,7 +182,7 @@ export default function RegisterPage() {
               value={form.abn}
               onChange={handleChange}
               placeholder="12 345 678 901"
-              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm"
             />
           </div>
 
@@ -198,7 +196,7 @@ export default function RegisterPage() {
               onChange={handleChange}
               rows={3}
               placeholder="Any special delivery instructions..."
-              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+              className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm"
             />
           </div>
 
@@ -206,21 +204,21 @@ export default function RegisterPage() {
             type="submit"
             disabled={loading}
             className="w-full py-3 rounded-lg text-white font-semibold text-sm hover:opacity-90 disabled:opacity-50 transition-opacity"
-            style={{ backgroundColor: '#C4A882' }}
+            style={{ backgroundColor: '#8B0000' }}
           >
             {loading ? 'Submitting...' : 'Submit Application'}
           </button>
 
           <p className="text-xs text-gray-400 text-center pt-1">
             Already a customer?{' '}
-            <a href="/portal" className="underline" style={{ color: '#3E1F00' }}>
+            <a href="/portal" className="underline" style={{ color: '#2c2c2c' }}>
               Sign in to the portal
             </a>
           </p>
         </form>
 
         <p className="text-center text-xs text-gray-400 mt-6">
-          Questions? Call us on (07) 4632 9475
+          Questions? Call us on 07 4639 1615
         </p>
       </div>
     </div>
