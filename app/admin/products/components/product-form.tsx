@@ -11,6 +11,7 @@ interface ProductFormProps {
     price: number;
     description?: string;
     category?: string;
+    sub_category?: string;
     image_url?: string;
     code?: string;
     gst_applicable?: boolean;
@@ -21,62 +22,44 @@ interface ProductFormProps {
 export default function ProductForm({ product, isEditing = false }: ProductFormProps) {
   const router = useRouter();
   const [formData, setFormData] = useState({
-    name: product?.name || '',
-    price: product?.price?.toString() || '',
-    description: product?.description || '',
-    category: product?.category || '',
-    image_url: product?.image_url || '',
-    code: product?.code || '',
-    gst_applicable: product?.gst_applicable ?? false,
+    name:           product?.name              || '',
+    price:          product?.price?.toString() || '',
+    description:    product?.description       || '',
+    category:       product?.category          || '',
+    sub_category:   product?.sub_category      || '',
+    image_url:      product?.image_url         || '',
+    code:           product?.code              || '',
+    gst_applicable: product?.gst_applicable    ?? false,
   });
-  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imageFile, setImageFile]       = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>(product?.image_url || '');
-  const [uploading, setUploading] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [uploading, setUploading]       = useState(false);
+  const [loading, setLoading]           = useState(false);
+  const [error, setError]               = useState('');
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      setError('Please select an image file');
-      return;
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      setError('Image must be less than 5MB');
-      return;
-    }
-
+    if (!file.type.startsWith('image/')) { setError('Please select an image file'); return; }
+    if (file.size > 5 * 1024 * 1024)    { setError('Image must be less than 5MB');  return; }
     setImageFile(file);
     setError('');
-
     const reader = new FileReader();
-    reader.onloadend = () => {
-      setImagePreview(reader.result as string);
-    };
+    reader.onloadend = () => setImagePreview(reader.result as string);
     reader.readAsDataURL(file);
   };
 
   const uploadImage = async (): Promise<string | null> => {
     if (!imageFile) return formData.image_url || null;
-
     setUploading(true);
     try {
-      const fileExt = imageFile.name.split('.').pop();
+      const fileExt  = imageFile.name.split('.').pop();
       const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-
-      const formDataUpload = new FormData();
-      formDataUpload.append('file', imageFile);
-      formDataUpload.append('fileName', fileName);
-
-      const response = await fetch('/api/upload-image', {
-        method: 'POST',
-        body: formDataUpload,
-      });
-
-      const data = await response.json();
+      const fd       = new FormData();
+      fd.append('file', imageFile);
+      fd.append('fileName', fileName);
+      const response = await fetch('/api/upload-image', { method: 'POST', body: fd });
+      const data     = await response.json();
       if (data.error) throw new Error(data.error);
       return data.imageUrl;
     } catch (err: any) {
@@ -92,6 +75,18 @@ export default function ProductForm({ product, isEditing = false }: ProductFormP
     setLoading(true);
     setError('');
 
+    // ── Validation ────────────────────────────────────────────
+    if (!formData.category) {
+      setError('Please select a category');
+      setLoading(false);
+      return;
+    }
+    if (formData.category === 'bakery' && !formData.sub_category) {
+      setError('Please select a sub-category for bakery products');
+      setLoading(false);
+      return;
+    }
+
     try {
       let imageUrl = formData.image_url;
       if (imageFile) {
@@ -100,26 +95,26 @@ export default function ProductForm({ product, isEditing = false }: ProductFormP
         imageUrl = uploadedUrl;
       }
 
-      const url = isEditing ? `/api/products/${product?.id}` : '/api/products';
+      const url    = isEditing ? `/api/products/${product?.id}` : '/api/products';
       const method = isEditing ? 'PUT' : 'POST';
 
       const response = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: formData.name,
-          price: parseFloat(formData.price),
-          description: formData.description || null,
-          category: formData.category || null,
-          image_url: imageUrl || null,
-          code: formData.code || null,
+          name:           formData.name,
+          price:          parseFloat(formData.price),
+          description:    formData.description  || null,
+          category:       formData.category     || null,
+          sub_category:   formData.sub_category || null,
+          image_url:      imageUrl              || null,
+          code:           formData.code         || null,
           gst_applicable: formData.gst_applicable,
         }),
       });
 
       const data = await response.json();
       if (data.error) throw new Error(data.error);
-
       router.push('/admin/products');
       router.refresh();
     } catch (err: any) {
@@ -161,20 +156,20 @@ export default function ProductForm({ product, isEditing = false }: ProductFormP
           <p className="text-xs font-semibold text-gray-700 mb-2">Code Range Guide:</p>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
             <div className="flex items-center gap-1">
-              <span className="font-mono font-bold text-pink-700">1000-1999</span>
+              <span className="font-mono font-bold text-pink-700">1000–1999</span>
               <span className="text-gray-600">Cakes</span>
             </div>
             <div className="flex items-center gap-1">
-              <span className="font-mono font-bold text-amber-700">2000-2750</span>
+              <span className="font-mono font-bold text-amber-700">2000–2750</span>
               <span className="text-gray-600">Bread</span>
             </div>
             <div className="flex items-center gap-1">
-              <span className="font-mono font-bold text-orange-700">2751-3750</span>
+              <span className="font-mono font-bold text-orange-700">2751–3749</span>
               <span className="text-gray-600">Rolls</span>
             </div>
             <div className="flex items-center gap-1">
-              <span className="font-mono font-bold text-yellow-700">3751-4000</span>
-              <span className="text-gray-600">Pies</span>
+              <span className="font-mono font-bold text-yellow-700">3750–4000</span>
+              <span className="text-gray-600">Pastries</span>
             </div>
             <div className="flex items-center gap-1">
               <span className="font-mono font-bold text-purple-700">4001+</span>
@@ -234,7 +229,7 @@ export default function ProductForm({ product, isEditing = false }: ProductFormP
         </div>
       </div>
 
-      {/* GST Applicable */}
+      {/* GST */}
       <div>
         <label className="block text-sm font-medium mb-2">GST Applicable</label>
         <div className="flex items-center gap-4">
@@ -264,16 +259,66 @@ export default function ProductForm({ product, isEditing = false }: ProductFormP
         </p>
       </div>
 
-      {/* Category */}
-      <div>
-        <label className="block text-sm font-medium mb-2">Category</label>
-        <input
-          type="text"
-          value={formData.category}
-          onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-          className="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-green-500 focus:border-transparent"
-          placeholder="Bread, Pastries, Cakes etc."
-        />
+      {/* ── Category + Sub-category ───────────────────────────── */}
+      <div className="space-y-4">
+
+        {/* Order Category */}
+        <div>
+          <label className="block text-sm font-medium mb-2">
+            Order Category <span className="text-red-500">*</span>
+          </label>
+          <select
+            value={formData.category}
+            onChange={(e) => setFormData({
+              ...formData,
+              category:     e.target.value,
+              sub_category: '',             // reset sub-category when parent changes
+            })}
+            className="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
+            required
+          >
+            <option value="">— Select a category —</option>
+            <option value="bakery">🍞 Bakery</option>
+            <option value="catering">🍽️ Catering</option>
+          </select>
+          <p className="text-xs text-gray-500 mt-1">
+            Determines which catalog this product appears in
+          </p>
+        </div>
+
+        {/* Bakery sub-category */}
+        {formData.category === 'bakery' && (
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              Bakery Sub-category <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={formData.sub_category}
+              onChange={(e) => setFormData({ ...formData, sub_category: e.target.value })}
+              className="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
+              required
+            >
+              <option value="">— Select a sub-category —</option>
+              <option value="Cakes">🎂 Cakes (1000–1999)</option>
+              <option value="Bread">🍞 Bread (2000–2750)</option>
+              <option value="Rolls">🥐 Rolls (2751–3749)</option>
+              <option value="Pastries">🥧 Pastries (3750–4000)</option>
+              <option value="Other">📦 Other (4001+)</option>
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              Used to group products in the bakery catalog filter buttons
+            </p>
+          </div>
+        )}
+
+        {formData.category === 'catering' && (
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-md">
+            <p className="text-xs text-amber-800">
+              🍽️ Catering products appear together — no sub-categories needed
+            </p>
+          </div>
+        )}
+
       </div>
 
       {/* Description */}
@@ -291,7 +336,6 @@ export default function ProductForm({ product, isEditing = false }: ProductFormP
       {/* Image Upload */}
       <div>
         <label className="block text-sm font-medium mb-2">Product Image</label>
-
         {imagePreview ? (
           <div className="relative">
             <img
@@ -325,7 +369,6 @@ export default function ProductForm({ product, isEditing = false }: ProductFormP
             <p className="text-xs text-gray-500 mt-2">PNG, JPG, GIF up to 5MB</p>
           </div>
         )}
-
         <div className="mt-3">
           <p className="text-xs text-gray-600 mb-2">Or paste an image URL:</p>
           <input
@@ -347,7 +390,7 @@ export default function ProductForm({ product, isEditing = false }: ProductFormP
           type="submit"
           disabled={loading || uploading}
           className="flex-1 px-6 py-3 rounded-md text-white font-semibold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-          style={{ backgroundColor: '#3E1F00' }}
+          style={{ backgroundColor: '#2c2c2c' }}
         >
           {uploading ? 'Uploading image...' : loading ? 'Saving...' : isEditing ? 'Update Product' : 'Create Product'}
         </button>
