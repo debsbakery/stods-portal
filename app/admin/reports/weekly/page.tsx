@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic'
+﻿export const dynamic = 'force-dynamic'
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import WeeklyReportView from './weekly-report-view'
@@ -6,7 +6,7 @@ import WeeklyReportView from './weekly-report-view'
 export default async function WeeklyReportPage() {
   const supabase = createAdminClient()
 
-  // ── Cost settings ──────────────────────────────────────────
+  // ── Cost settings ────────────────────────────────────────
   const { data: settings } = await supabase
     .from('cost_settings')
     .select('setting_key, value')
@@ -15,8 +15,13 @@ export default async function WeeklyReportPage() {
     settings?.find(s => s.setting_key === 'overhead_per_kg')?.value ?? 1.50
   )
 
-  // ── Fetch order items ──────────────────────────────────────
-  const { data: items } = await supabase
+ // ── Fetch ALL order items in pages of 1000 ───────────────
+let rawItems: any[] = []
+let from = 0
+const pageSize = 1000
+
+while (true) {
+  const { data: page, error } = await supabase
     .from('order_items')
     .select(`
       subtotal,
@@ -24,6 +29,7 @@ export default async function WeeklyReportPage() {
       product_name,
       product_id,
       gst_applicable,
+      order_id,
       orders!inner (
         id,
         delivery_date,
@@ -31,10 +37,36 @@ export default async function WeeklyReportPage() {
         customer_id
       )
     `)
-    .in('orders.status', ['invoiced', 'pending'])
     .gte('orders.delivery_date', '2026-01-01')
+    .range(from, from + pageSize - 1)
 
-  // ── Fetch all products with weight ─────────────────────────
+  if (error || !page || page.length === 0) break
+  rawItems = rawItems.concat(page)
+  if (page.length < pageSize) break
+  from += pageSize
+}
+
+console.log('[weekly] total rawItems fetched:', rawItems.length)
+
+  // ── Filter out cancelled in JS (join filter unreliable) ──
+  const items = (rawItems ?? [])
+    .filter(item => {
+      const o = item.orders as any
+      return o?.status === 'invoiced' || o?.status === 'pending'
+    })
+   // ✅ NEW — cast via unknown to avoid overlap error
+.map(item => ({
+  ...item,
+  orders: (item.orders as unknown) as {
+    id: string
+    delivery_date: string
+    status: string
+    customer_id: string | null
+  } | null,
+}))
+  console.log('[weekly] total items after filter:', items.length)
+
+  // ── Fetch all products with weight ────────────────────────
   const { data: products } = await supabase
     .from('products')
     .select('id, weight_grams')
@@ -44,7 +76,7 @@ export default async function WeeklyReportPage() {
     if (p.weight_grams) productWeightMap.set(p.id, Number(p.weight_grams))
   }
 
-  // ── Fetch all recipes linked to products ───────────────────
+  // ── Fetch all recipes linked to products ─────────────────
   const { data: recipes } = await supabase
     .from('recipes')
     .select('id, product_id')
@@ -59,12 +91,11 @@ export default async function WeeklyReportPage() {
     }
   }
 
-  // ── Build product ingredient cost map ─────────────────────
+  // ── Build product ingredient cost map ────────────────────
   const productIngCostMap = new Map<string, number>()
 
   if (allRecipeIds.length > 0) {
 
-    // ── Fetch top-level recipe lines ───────────────────────────
     const { data: topLines } = await supabase
       .from('recipe_lines')
       .select(`
@@ -77,14 +108,12 @@ export default async function WeeklyReportPage() {
       `)
       .in('recipe_id', allRecipeIds)
 
-    // ── Find all sub-recipe IDs referenced ─────────────────────
     const subRecipeIds = [...new Set(
       (topLines ?? [])
         .filter(l => l.sub_recipe_id)
         .map(l => l.sub_recipe_id as string)
     )]
 
-    // ── Fetch sub-recipe lines ─────────────────────────────────
     let subLines: any[] = []
     if (subRecipeIds.length > 0) {
       const { data: subData } = await supabase
@@ -101,7 +130,6 @@ export default async function WeeklyReportPage() {
       subLines = subData ?? []
     }
 
-    // ── Fetch sub-sub-recipe lines (depth 2) ───────────────────
     const subSubRecipeIds = [...new Set(
       subLines
         .filter(l => l.sub_recipe_id)
@@ -124,7 +152,6 @@ export default async function WeeklyReportPage() {
       subSubLines = subSubData ?? []
     }
 
-    // ── Group ALL lines by recipe_id ───────────────────────────
     const linesByRecipe = new Map<string, any[]>()
     for (const line of [...(topLines ?? []), ...subLines, ...subSubLines]) {
       if (!linesByRecipe.has(line.recipe_id)) {
@@ -133,13 +160,11 @@ export default async function WeeklyReportPage() {
       linesByRecipe.get(line.recipe_id)!.push(line)
     }
 
-    // ── Recursive cost per gram using pre-fetched lines ────────
     function calcCpg(recipeId: string, depth = 0): number {
       if (depth > 3) return 0
       const lines = linesByRecipe.get(recipeId) ?? []
       let totalCost   = 0
       let totalWeight = 0
-
       for (const line of lines) {
         if (line.ingredient_id && line.ingredients) {
           const qty  = Number(line.quantity_grams ?? 0)
@@ -153,38 +178,30 @@ export default async function WeeklyReportPage() {
           totalWeight += qty
         }
       }
-
       return totalWeight > 0 ? totalCost / totalWeight : 0
     }
 
-    // ── Calculate per-product ingredient cost ──────────────────
     for (const [productId, recipeId] of productRecipeMap.entries()) {
       const productWeight = productWeightMap.get(productId)
       if (!productWeight) continue
-
-      const lines       = linesByRecipe.get(recipeId) ?? []
+      const lines        = linesByRecipe.get(recipeId) ?? []
       const recipeWeight = lines.reduce((s, l) =>
         s + Number(l.quantity_grams ?? l.sub_qty_grams ?? 0), 0)
-
-      // Skip if recipe covers less than 50% of product weight
       if (recipeWeight < productWeight * 0.5) continue
-
       const cpg = calcCpg(recipeId)
-      if (cpg > 0) {
-        productIngCostMap.set(productId, productWeight * cpg)
-      }
+      if (cpg > 0) productIngCostMap.set(productId, productWeight * cpg)
     }
   }
 
-  // ── Fetch weight data for overhead calc ────────────────────
+  // ── Weight map for overhead calc ─────────────────────────
   const weekWeightMap = new Map<string, number>()
-  for (const item of items ?? []) {
-    const order = item.orders as any
+  for (const item of items) {
+    const order = item.orders
     if (!order?.delivery_date) continue
     const weightGrams = item.product_id ? productWeightMap.get(item.product_id) : null
     if (!weightGrams) continue
     const date = new Date(order.delivery_date + 'T00:00:00Z')
-    const sun  = new Date(date)
+const sun  = new Date(date)
     sun.setUTCDate(date.getUTCDate() - date.getUTCDay())
     const weekKey = sun.toISOString().split('T')[0]
     weekWeightMap.set(weekKey,
@@ -192,7 +209,7 @@ export default async function WeeklyReportPage() {
     )
   }
 
-  // ── Group revenue + ingredient cost by week ────────────────
+  // ── Group by week ─────────────────────────────────────────
   const weekMap = new Map<string, {
     week_start:        string
     first_day:         string
@@ -208,8 +225,8 @@ export default async function WeeklyReportPage() {
     actual_item_count: number
   }>()
 
-  for (const item of items ?? []) {
-    const order = item.orders as any
+  for (const item of items) {
+    const order = item.orders
     if (!order?.delivery_date) continue
 
     const date = new Date(order.delivery_date + 'T00:00:00Z')
@@ -260,38 +277,41 @@ export default async function WeeklyReportPage() {
     }
   }
 
-  const weeks = Array.from(weekMap.values())
-    .map(w => ({
-      week_start:        w.week_start,
-      first_day:         w.first_day,
-      last_day:          w.last_day,
-      order_count:       w.order_ids.size,
-      revenue:           w.revenue,
-      invoiced_revenue:  w.invoiced_revenue,
-      pending_revenue:   w.pending_revenue,
-      customer_count:    w.customers.size,
-      total_weight_kg:   (weekWeightMap.get(w.week_start) ?? 0) / 1000,
-      ingredient_actual: w.ingredient_actual,
-      ingredient_est:    w.ingredient_est,
-      ingredient_total:  w.ingredient_actual + w.ingredient_est,
-      has_any_actual:    w.actual_item_count > 0,
-      all_actual:        w.actual_item_count === w.item_count && w.item_count > 0,
-      actual_item_count: w.actual_item_count,
-      item_count:        w.item_count,
-    }))
-    .sort((a, b) => b.week_start.localeCompare(a.week_start))
-    .slice(0, 12)
+ const todayStr = new Date().toISOString().split('T')[0]  // e.g. '2026-03-18'
 
-  // ── Top products per week ──────────────────────────────────
+const weeks = Array.from(weekMap.values())
+  .map(w => ({
+    week_start:        w.week_start,
+    first_day:         w.first_day,
+    last_day:          w.last_day,
+    order_count:       w.order_ids.size,
+    revenue:           w.revenue,
+    invoiced_revenue:  w.invoiced_revenue,
+    pending_revenue:   w.pending_revenue,
+    customer_count:    w.customers.size,
+    total_weight_kg:   (weekWeightMap.get(w.week_start) ?? 0) / 1000,
+    ingredient_actual: w.ingredient_actual,
+    ingredient_est:    w.ingredient_est,
+    ingredient_total:  w.ingredient_actual + w.ingredient_est,
+    has_any_actual:    w.actual_item_count > 0,
+    all_actual:        w.actual_item_count === w.item_count && w.item_count > 0,
+    actual_item_count: w.actual_item_count,
+    item_count:        w.item_count,
+  }))
+  .filter(w => w.week_start <= todayStr)   // ← ADD THIS LINE
+  .sort((a, b) => b.week_start.localeCompare(a.week_start))
+  .slice(0, 12)
+
+  // ── Top products per week ─────────────────────────────────
   const weekProductMap = new Map<string, Map<string, {
     name: string; qty: number; revenue: number
   }>>()
 
-  for (const item of items ?? []) {
-    const order = item.orders as any
+  for (const item of items) {
+    const order = item.orders
     if (!order?.delivery_date) continue
     const date = new Date(order.delivery_date + 'T00:00:00Z')
-    const sun  = new Date(date)
+const sun  = new Date(date)
     sun.setUTCDate(date.getUTCDate() - date.getUTCDay())
     const weekKey = sun.toISOString().split('T')[0]
     if (!weekProductMap.has(weekKey)) weekProductMap.set(weekKey, new Map())
@@ -314,7 +334,7 @@ export default async function WeeklyReportPage() {
       .slice(0, 10)
   })
 
-  // ── Saved wages ────────────────────────────────────────────
+  // ── Saved wages ───────────────────────────────────────────
   const { data: wagesData } = await supabase
     .from('weekly_wages')
     .select('week_start, wages')
