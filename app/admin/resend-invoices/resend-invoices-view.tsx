@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Send, CheckCircle, XCircle, Loader2, Mail } from 'lucide-react'
+import { ArrowLeft, Send, CheckCircle, XCircle, Loader2, Mail, Download } from 'lucide-react'
 
 interface Customer {
   id: string
@@ -83,13 +83,12 @@ export default function ResendInvoicesView({
         const res  = await fetch('/api/admin/batch-invoice', {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
-       // In resendAll() — change the fetch body
-body: JSON.stringify({
-  delivery_date: deliveryDate,
-  sendEmails:    true,
-  emailOnly:     true,
-  customer_id:   selectedCustomerId,   // ← ADD THIS
-})
+          body: JSON.stringify({
+            delivery_date: deliveryDate,
+            sendEmails:    true,
+            emailOnly:     true,
+            customer_id:   selectedCustomerId,
+          }),
         })
         const data = await res.json()
         const status = res.ok && data.success ? 'sent' : 'error'
@@ -118,13 +117,12 @@ body: JSON.stringify({
       const res  = await fetch('/api/admin/batch-invoice', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        // In resendOne() — same fix
-body: JSON.stringify({
-  delivery_date: order.delivery_date,
-  sendEmails:    true,
-  emailOnly:     true,
-  customer_id:   selectedCustomerId,   // ← ADD THIS
-}),
+        body: JSON.stringify({
+          delivery_date: order.delivery_date,
+          sendEmails:    true,
+          emailOnly:     true,
+          customer_id:   selectedCustomerId,
+        }),
       })
       const data = await res.json()
       setResults(prev => ({
@@ -152,7 +150,7 @@ body: JSON.stringify({
 
       <div className="mb-6">
         <h1 className="text-3xl font-bold">Resend Invoices</h1>
-        <p className="text-gray-500 mt-1">Resend invoice emails for a customer by date range</p>
+        <p className="text-gray-500 mt-1">Resend invoice emails or download PDFs by date range</p>
       </div>
 
       {/* Filters */}
@@ -202,17 +200,17 @@ body: JSON.stringify({
         {/* Quick range buttons */}
         <div className="flex gap-2 mt-3 flex-wrap">
           {[
-            { label: 'This Week',  days: 7  },
-            { label: 'This Month', days: 31 },
-            { label: 'Last Month', days: 60 },
-            { label: 'Last 90 Days', days: 90 },
+            { label: 'This Week',     days: 7  },
+            { label: 'This Month',    days: 31 },
+            { label: 'Last Month',    days: 60 },
+            { label: 'Last 90 Days',  days: 90 },
           ].map(({ label, days }) => {
             const end   = new Date()
             const start = new Date()
             if (label === 'Last Month') {
               start.setMonth(start.getMonth() - 1)
               start.setDate(1)
-              end.setDate(0) // last day of previous month
+              end.setDate(0)
             } else {
               start.setDate(start.getDate() - days)
             }
@@ -241,7 +239,7 @@ body: JSON.stringify({
         )}
       </div>
 
-      {/* Orders */}
+      {/* No orders */}
       {selectedCustomerId && orders.length === 0 && (
         <div className="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400">
           <Mail className="h-10 w-10 mx-auto mb-3 opacity-30" />
@@ -249,11 +247,12 @@ body: JSON.stringify({
         </div>
       )}
 
+      {/* Orders found */}
       {selectedCustomerId && orders.length > 0 && (
         <>
-          {/* Summary */}
+          {/* Summary bar */}
           <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
                 <p className="font-semibold text-gray-900">
                   {orders.length} invoice{orders.length !== 1 ? 's' : ''} found
@@ -273,16 +272,20 @@ body: JSON.stringify({
                   </p>
                 )}
               </div>
-              <button
-                onClick={resendAll}
-                disabled={sending}
-                className="flex items-center gap-2 px-5 py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white rounded-lg font-medium text-sm transition"
-              >
-                {sending
-                  ? <><Loader2 className="h-4 w-4 animate-spin" /> Sending...</>
-                  : <><Send className="h-4 w-4" /> Resend All</>
-                }
-              </button>
+
+              <div className="flex gap-2 flex-wrap">
+                {/* Resend All */}
+                <button
+                  onClick={resendAll}
+                  disabled={sending}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white rounded-lg font-medium text-sm transition"
+                >
+                  {sending
+                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Sending...</>
+                    : <><Send className="h-4 w-4" /> Resend All</>
+                  }
+                </button>
+              </div>
             </div>
           </div>
 
@@ -294,8 +297,8 @@ body: JSON.stringify({
                   <th className="text-left px-4 py-3 font-semibold text-gray-600">Date</th>
                   <th className="text-left px-4 py-3 font-semibold text-gray-600">Invoice #</th>
                   <th className="text-right px-4 py-3 font-semibold text-gray-600">Amount</th>
-                  <th className="text-center px-4 py-3 font-semibold text-gray-600">Status</th>
-                  <th className="text-center px-4 py-3 font-semibold text-gray-600">Action</th>
+                  <th className="text-center px-4 py-3 font-semibold text-gray-600">Email</th>
+                  <th className="text-center px-4 py-3 font-semibold text-gray-600">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -303,39 +306,105 @@ body: JSON.stringify({
                   const result = results[order.id]
                   return (
                     <tr key={order.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-gray-700">{fmtDate(order.delivery_date)}</td>
+
+                      <td className="px-4 py-3 text-gray-700">
+                        {fmtDate(order.delivery_date)}
+                      </td>
+
                       <td className="px-4 py-3 font-mono text-gray-600">
                         {order.invoice_number
                           ? `#${String(order.invoice_number).padStart(6, '0')}`
                           : '—'}
                       </td>
+
                       <td className="px-4 py-3 text-right font-mono">
                         {fmt(Number(order.total_amount ?? 0))}
                       </td>
+
+                      {/* Email status */}
                       <td className="px-4 py-3 text-center">
-                        {result === 'sending' && <Loader2 className="h-4 w-4 animate-spin text-blue-500 mx-auto" />}
-                        {result === 'sent'    && <CheckCircle className="h-4 w-4 text-green-500 mx-auto" />}
-                        {result === 'error'   && <XCircle className="h-4 w-4 text-red-500 mx-auto" />}
-                        {!result             && <span className="text-xs text-gray-300">—</span>}
+                        {result === 'sending' && (
+                          <Loader2 className="h-4 w-4 animate-spin text-blue-500 mx-auto" />
+                        )}
+                        {result === 'sent' && (
+                          <CheckCircle className="h-4 w-4 text-green-500 mx-auto" />
+                        )}
+                        {result === 'error' && (
+                          <XCircle className="h-4 w-4 text-red-500 mx-auto" />
+                        )}
+                        {!result && (
+                          <span className="text-xs text-gray-300">—</span>
+                        )}
                       </td>
-                      <td className="px-4 py-3 text-center">
-                        <button
-                          onClick={() => resendOne(order)}
-                          disabled={sending || result === 'sending'}
-                          className="text-xs px-3 py-1 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 transition text-gray-600"
-                        >
-                          Resend
-                        </button>
+
+                      {/* Actions */}
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-center gap-1.5">
+
+                          {/* View in browser — can print from here */}
+                          <a
+                            href={`/api/invoice/${order.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs px-2.5 py-1 border border-gray-200 rounded-lg hover:bg-gray-50 transition text-gray-600 whitespace-nowrap"
+                            title="Open in browser — use browser Print to save as PDF"
+                          >
+                            View
+                          </a>
+
+                          {/* Direct PDF download */}
+                          <a
+                            href={`/api/invoice/${order.id}?download=true`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-xs px-2.5 py-1 border border-blue-200 rounded-lg hover:bg-blue-50 transition text-blue-600 whitespace-nowrap"
+                            title="Download PDF to your computer"
+                          >
+                            <Download className="h-3 w-3" />
+                            PDF
+                          </a>
+
+                          {/* Resend email */}
+                          <button
+                            onClick={() => resendOne(order)}
+                            disabled={sending || result === 'sending'}
+                            className="text-xs px-2.5 py-1 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 transition text-gray-600 whitespace-nowrap"
+                            title="Resend invoice email"
+                          >
+                            Resend
+                          </button>
+
+                        </div>
                       </td>
                     </tr>
                   )
                 })}
               </tbody>
+
+              {/* Footer total */}
+              <tfoot className="bg-gray-50 border-t-2 border-gray-200">
+                <tr>
+                  <td className="px-4 py-3 font-semibold text-gray-700" colSpan={2}>
+                    Total ({orders.length} invoices)
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono font-bold text-gray-900">
+                    {fmt(orders.reduce((s, o) => s + Number(o.total_amount ?? 0), 0))}
+                  </td>
+                  <td colSpan={2} />
+                </tr>
+              </tfoot>
             </table>
+          </div>
+
+          {/* Tip for customer */}
+          <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
+            <p className="font-semibold mb-1">💡 Tip for customers whose emails disappear</p>
+            <p>Ask them to check their <strong>Junk/Spam</strong> or <strong>Other</strong> inbox tab, and add <strong>orders@debsbakery.store</strong> to their contacts. Use the <strong>PDF</strong> button above to manually send via Outlook if needed.</p>
           </div>
         </>
       )}
 
+      {/* No customer selected */}
       {!selectedCustomerId && (
         <div className="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400">
           <Mail className="h-10 w-10 mx-auto mb-3 opacity-30" />
