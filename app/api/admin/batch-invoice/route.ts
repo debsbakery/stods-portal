@@ -29,6 +29,7 @@ interface Customer {
   address: string | null
   abn: string | null
   payment_terms: number | null
+  invoice_brand: string | null
 }
 
 interface Order {
@@ -58,9 +59,9 @@ interface BakeryConfig {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function getBakeryConfig(): BakeryConfig {
+function getDebsConfig(): BakeryConfig {
   return {
-    name:        process.env.BAKERY_NAME         ?? "Stods Bakery",
+    name:        process.env.BAKERY_NAME         ?? "Deb's Bakery",
     email:       process.env.BAKERY_EMAIL        ?? 'debs_bakery@outlook.com',
     phone:       process.env.BAKERY_PHONE        ?? '(07) 4632 9475',
     address:     process.env.BAKERY_ADDRESS      ?? '20 Mann St, Toowoomba QLD 4350',
@@ -68,6 +69,19 @@ function getBakeryConfig(): BakeryConfig {
     bankBSB:     process.env.BAKERY_BANK_BSB     ?? 'XXX-XXX',
     bankAccount: process.env.BAKERY_BANK_ACCOUNT ?? 'XXXXXXXXXX',
     bankName:    process.env.BAKERY_BANK_NAME    ?? 'Bank Name',
+  }
+}
+
+function getStodsConfig(): BakeryConfig {
+  return {
+    name:        process.env.STODS_BAKERY_NAME         ?? 'Stods Bakery',
+    email:       process.env.STODS_BAKERY_EMAIL        ?? '',
+    phone:       process.env.STODS_BAKERY_PHONE        ?? '',
+    address:     process.env.STODS_BAKERY_ADDRESS      ?? '',
+    abn:         process.env.STODS_BAKERY_ABN          ?? '',
+    bankBSB:     process.env.STODS_BAKERY_BANK_BSB     ?? '',
+    bankAccount: process.env.STODS_BAKERY_BANK_ACCOUNT ?? '',
+    bankName:    process.env.STODS_BAKERY_BANK_NAME    ?? '',
   }
 }
 
@@ -90,28 +104,27 @@ async function generateInvoiceNumber(
   supabase: ReturnType<typeof createClient>,
   orderId: string
 ): Promise<number> {
-  // Idempotent — return existing if already assigned
   const { data: existing } = await supabase
-  .from('invoice_numbers')
-  .select('invoice_number')
-  .eq('order_id', orderId)
-  .maybeSingle() as { data: { invoice_number: number } | null }
+    .from('invoice_numbers')
+    .select('invoice_number')
+    .eq('order_id', orderId)
+    .maybeSingle() as { data: { invoice_number: number } | null }
 
   if (existing?.invoice_number) {
     return existing.invoice_number as number
   }
 
   const { data: maxRow } = await supabase
-  .from('invoice_numbers')
-  .select('invoice_number')
-  .order('invoice_number', { ascending: false })
-  .limit(1)
-  .maybeSingle() as { data: { invoice_number: number } | null }
+    .from('invoice_numbers')
+    .select('invoice_number')
+    .order('invoice_number', { ascending: false })
+    .limit(1)
+    .maybeSingle() as { data: { invoice_number: number } | null }
 
-const nextNumber = ((maxRow?.invoice_number as unknown as number) ?? 0) + 1
+  const nextNumber = ((maxRow?.invoice_number as unknown as number) ?? 0) + 1
   const { error: insertError } = await supabase
-  .from('invoice_numbers')
-  .insert({ order_id: orderId, invoice_number: nextNumber } as any)
+    .from('invoice_numbers')
+    .insert({ order_id: orderId, invoice_number: nextNumber } as any)
 
   if (insertError) {
     console.error('Failed to insert invoice_number:', insertError)
@@ -128,8 +141,9 @@ function buildInvoiceEmail(params: {
   invoiceNumber: string
   bakery: BakeryConfig
   siteUrl: string
+  invoiceUrl?: string
 }): string {
-  const { order, invoiceNumber, bakery, siteUrl } = params
+  const { order, invoiceNumber, bakery, siteUrl, invoiceUrl = siteUrl } = params
   const customer     = order.customers!
   const paymentTerms = customer.payment_terms ?? 30
   const dueDate      = computeDueDate(order.delivery_date, paymentTerms)
@@ -167,17 +181,17 @@ function buildInvoiceEmail(params: {
 <meta charset="UTF-8">
 <style>
   body { font-family: Arial, sans-serif; color: #333; max-width: 800px; margin: 0 auto; padding: 20px; }
-  .header { background: #3E1F00; color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
+  .header { background: #006A4E; color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
   .header h1 { margin: 0; font-size: 28px; }
   .header p { margin: 5px 0; opacity: 0.9; }
   .invoice-badge { background: rgba(255,255,255,0.2); padding: 8px 20px; border-radius: 20px; display: inline-block; margin-top: 10px; font-size: 18px; font-weight: bold; }
   .card { background: white; padding: 25px; margin: 15px 0; border: 1px solid #e5e7eb; border-radius: 8px; }
   .invoice-table { width: 100%; border-collapse: collapse; }
-  .invoice-table th { background: #3E1F00; color: white; padding: 12px 10px; text-align: left; }
+  .invoice-table th { background: #006A4E; color: white; padding: 12px 10px; text-align: left; }
   .totals { margin-top: 20px; text-align: right; }
   .totals-row { padding: 5px 0; font-size: 15px; }
-  .total-grand { font-size: 20px; color: #3E1F00; border-top: 2px solid #3E1F00; padding-top: 10px; margin-top: 5px; }
-  .btn { display: inline-block; padding: 12px 25px; background: #3E1F00; color: white; text-decoration: none; border-radius: 6px; margin: 5px; font-weight: bold; }
+  .total-grand { font-size: 20px; color: #006A4E; border-top: 2px solid #006A4E; padding-top: 10px; margin-top: 5px; }
+  .btn { display: inline-block; padding: 12px 25px; background: #006A4E; color: white; text-decoration: none; border-radius: 6px; margin: 5px; font-weight: bold; }
   .btn-secondary { background: #374151; }
   .payment-box { background: #f0fdf4; border: 1px solid #16a34a; border-radius: 8px; padding: 25px; margin: 15px 0; }
   .bank-details { background: white; padding: 15px; border-radius: 6px; margin: 10px 0; }
@@ -197,7 +211,7 @@ function buildInvoiceEmail(params: {
 
 <div class="card">
   ${order.purchase_order_number || order.docket_number ? `
-  <div style="background:#f8f9fa;padding:10px;border-left:4px solid #3E1F00;margin-bottom:15px;">
+  <div style="background:#f8f9fa;padding:10px;border-left:4px solid #006A4E;margin-bottom:15px;">
     ${order.purchase_order_number ? `<p style="margin:5px 0;"><strong>PO Number:</strong> ${order.purchase_order_number}</p>` : ''}
     ${order.docket_number ? `<p style="margin:5px 0;"><strong>Docket Number:</strong> ${order.docket_number}</p>` : ''}
   </div>` : ''}
@@ -223,7 +237,7 @@ function buildInvoiceEmail(params: {
     </tr>
   </table>
 </div>
-// TO:
+
 ${order.notes && !order.notes.toLowerCase().includes('auto-generated') ? `
 <div class="card" style="background:#fffbeb;border-left:4px solid #f59e0b;">
   <p style="margin:0;font-weight:bold;color:#92400e;">Order Notes:</p>
@@ -253,8 +267,8 @@ ${order.notes && !order.notes.toLowerCase().includes('auto-generated') ? `
 </div>
 
 <div style="text-align:center;margin:30px 0;">
-  <a href="${siteUrl}/api/invoice/${order.id}" class="btn">View Invoice Online</a>
-  <a href="${siteUrl}/api/invoice/${order.id}?download=true" class="btn btn-secondary">Download PDF</a>
+  <a href="${invoiceUrl}/api/invoice/${order.id}" class="btn">View Invoice Online</a>
+  <a href="${invoiceUrl}/api/invoice/${order.id}?download=true" class="btn btn-secondary">Download PDF</a>
 </div>
 
 <div class="payment-box">
@@ -299,8 +313,9 @@ export async function POST(request: NextRequest) {
   try {
     const {
       delivery_date,
-      sendEmails = false,
-      emailOnly  = false,   // ← NEW: resend emails to already-invoiced orders
+      sendEmails  = false,
+      emailOnly   = false,
+      customer_id = null,   // ✅ NEW — filter by customer for resend
     } = await request.json()
 
     if (!delivery_date || !/^\d{4}-\d{2}-\d{2}$/.test(delivery_date)) {
@@ -310,13 +325,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // ── Fetch orders ───────────────────────────────────────────────────────
-    // emailOnly = include already-invoiced orders so we can resend emails
     const statusFilter = emailOnly
       ? ['pending', 'invoiced']
       : ['pending']
 
-    const { data: orders, error: ordersError } = await supabase
+    // ✅ Build query — filter by customer_id if provided
+    let ordersQuery = supabase
       .from('orders')
       .select(`
         id, customer_id, total_amount, delivery_date,
@@ -324,7 +338,7 @@ export async function POST(request: NextRequest) {
         purchase_order_number, docket_number,
         customers (
           id, business_name, contact_name, email,
-          phone, address, abn, payment_terms
+          phone, address, abn, payment_terms, invoice_brand
         ),
         order_items (
           id, quantity, unit_price, subtotal, gst_applicable,
@@ -333,6 +347,13 @@ export async function POST(request: NextRequest) {
       `)
       .in('status', statusFilter)
       .eq('delivery_date', delivery_date)
+
+    // ✅ Only filter by customer when resending — not during normal batch invoice
+    if (customer_id) {
+      ordersQuery = ordersQuery.eq('customer_id', customer_id)
+    }
+
+    const { data: orders, error: ordersError } = await ordersQuery
 
     if (ordersError) throw ordersError
 
@@ -349,17 +370,18 @@ export async function POST(request: NextRequest) {
     }
 
     const typedOrders = orders as unknown as Order[]
-    console.log(`Found ${typedOrders.length} orders for ${delivery_date} (emailOnly: ${emailOnly})`)
+    console.log(`Found ${typedOrders.length} orders for ${delivery_date} (emailOnly: ${emailOnly}, customer_id: ${customer_id ?? 'all'})`)
 
-const orderInvoiceMap = new Map<string, number>()
+    const orderInvoiceMap = new Map<string, number>()
+
     if (!emailOnly) {
-      // ── STEP 1: Generate invoice numbers ─────────────────────────────────
+      // ── STEP 1: Generate invoice numbers ─────────────────────
       for (const order of typedOrders) {
-const invoiceNum = await generateInvoiceNumber(supabase as any, order.id)     
-   orderInvoiceMap.set(order.id, invoiceNum)
+        const invoiceNum = await generateInvoiceNumber(supabase as any, order.id)
+        orderInvoiceMap.set(order.id, invoiceNum)
       }
 
-      // ── STEP 2: Write invoice numbers back to orders ──────────────────────
+      // ── STEP 2: Write invoice numbers back to orders ──────────
       for (const [orderId, invoiceNum] of orderInvoiceMap.entries()) {
         const { error: writeBackError } = await supabase
           .from('orders')
@@ -374,22 +396,21 @@ const invoiceNum = await generateInvoiceNumber(supabase as any, order.id)
 
       console.log(`Invoice numbers written to ${orderInvoiceMap.size} orders`)
 
-      // ── STEP 3: Create AR transactions ────────────────────────────────────
+      // ── STEP 3: Create AR transactions ────────────────────────
       const arTransactions = typedOrders.map((order) => {
         const paymentTerms = order.customers?.payment_terms ?? 30
         const dueDate      = computeDueDate(order.delivery_date, paymentTerms)
         const invoiceNum   = orderInvoiceMap.get(order.id)!
-
-       return {
-  customer_id: order.customer_id,
-  type:        'invoice',
-  amount:      order.total_amount,
-  amount_paid: 0,
-  invoice_id:  order.id,
-  description: `Invoice #${String(invoiceNum).padStart(6, '0')} - ${order.customers?.business_name ?? 'Customer'}`,
-  due_date:    dueDate.toISOString().split('T')[0],
-  created_at:  order.delivery_date + 'T00:00:00+10:00',
-}
+        return {
+          customer_id: order.customer_id,
+          type:        'invoice',
+          amount:      order.total_amount,
+          amount_paid: 0,
+          invoice_id:  order.id,
+          description: `Invoice #${String(invoiceNum).padStart(6, '0')} - ${order.customers?.business_name ?? 'Customer'}`,
+          due_date:    dueDate.toISOString().split('T')[0],
+          created_at:  order.delivery_date + 'T00:00:00+10:00',
+        }
       })
 
       const { error: arError } = await supabase
@@ -399,7 +420,7 @@ const invoiceNum = await generateInvoiceNumber(supabase as any, order.id)
       if (arError) throw arError
       console.log('AR transactions created')
 
-      // ── STEP 4: Mark orders as invoiced ───────────────────────────────────
+      // ── STEP 4: Mark orders as invoiced ───────────────────────
       const { error: updateError } = await supabase
         .from('orders')
         .update({ status: 'invoiced', invoiced_at: new Date().toISOString() })
@@ -409,7 +430,7 @@ const invoiceNum = await generateInvoiceNumber(supabase as any, order.id)
       console.log('Orders marked as invoiced')
 
     } else {
-      // ── Email only — load existing invoice numbers from invoice_numbers ───
+      // ── Email only — load existing invoice numbers ────────────
       for (const order of typedOrders) {
         const { data: existing } = await supabase
           .from('invoice_numbers')
@@ -429,15 +450,14 @@ const invoiceNum = await generateInvoiceNumber(supabase as any, order.id)
 
     const totalAmount = typedOrders.reduce((sum, o) => sum + (o.total_amount ?? 0), 0)
 
-    // ── STEP 5: Send emails ────────────────────────────────────────────────
+    // ── STEP 5: Send emails ───────────────────────────────────────
     let emailsSent = 0
     const emailErrors: string[] = []
 
     if (sendEmails) {
-      const bakery  = getBakeryConfig()
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://debsbakery-portal.vercel.app'
-
       console.log(`Sending ${typedOrders.length} invoice emails...`)
+
+      const invoiceUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://debsbakery-portal.vercel.app'
 
       for (let i = 0; i < typedOrders.length; i++) {
         const order = typedOrders[i]
@@ -449,25 +469,37 @@ const invoiceNum = await generateInvoiceNumber(supabase as any, order.id)
             continue
           }
 
-          const invoiceNum    = orderInvoiceMap.get(order.id)
+          const invoiceNum = orderInvoiceMap.get(order.id)
           if (!invoiceNum) {
             console.warn(`No invoice number for order ${order.id} — skipping`)
             continue
           }
 
+          const isStods   = customer.invoice_brand === 'stods'
+          const bakery    = isStods ? getStodsConfig() : getDebsConfig()
+          const siteUrl   = isStods
+            ? (process.env.STODS_SITE_URL          ?? 'https://orders.stodsbakery.com')
+            : (process.env.NEXT_PUBLIC_SITE_URL    ?? 'https://debsbakery-portal.vercel.app')
+          const fromName  = isStods
+            ? (process.env.STODS_RESEND_FROM_NAME  ?? 'Stods Bakery')
+            : (process.env.RESEND_FROM_NAME        ?? "Deb's Bakery")
+          const fromEmail = isStods
+            ? (process.env.STODS_RESEND_FROM_EMAIL ?? 'orders@stodsbakery.com')
+            : (process.env.RESEND_FROM_EMAIL       ?? 'orders@debsbakery.store')
+
           const invoiceNumber = String(invoiceNum).padStart(6, '0')
-          const html          = buildInvoiceEmail({ order, invoiceNumber, bakery, siteUrl })
+          const html = buildInvoiceEmail({ order, invoiceNumber, bakery, siteUrl, invoiceUrl })
 
           await sendEmail({
             to:      customer.email,
             subject: `Invoice ${invoiceNumber} - ${bakery.name}`,
             html,
+            from:    `${fromName} <${fromEmail}>`,
           })
 
           emailsSent++
-          console.log(`[${i + 1}/${typedOrders.length}] Sent to ${customer.email}`)
+          console.log(`[${i + 1}/${typedOrders.length}] Sent to ${customer.email} (${isStods ? 'Stods' : 'Debs'})`)
 
-          // Rate limit: 500ms between emails
           if (i < typedOrders.length - 1) await sleep(500)
 
         } catch (emailError: any) {
