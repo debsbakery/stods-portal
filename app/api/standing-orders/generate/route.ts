@@ -18,9 +18,12 @@ function createServiceClient() {
   );
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
     const supabase = createServiceClient();
+    const body = await request.json().catch(() => ({}))
+    const skipDays: string[] = (body.skip_days ?? []).map((d: string) => d.toLowerCase())
+
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0];
 
@@ -65,10 +68,17 @@ export async function POST() {
           ''
         ).toLowerCase();
 
-        if (!deliveryDay) {
-          console.warn(`Standing order ${standingOrder.id} has no delivery day set`);
-          continue;
-        }
+     // ✅ NEW — add skip check right after
+if (!deliveryDay) {
+  console.warn(`Standing order ${standingOrder.id} has no delivery day set`)
+  continue
+}
+
+// ── Skip public holidays / manually skipped days ──────────────────
+if (skipDays.includes(deliveryDay)) {
+  console.log(`  Skipping ${deliveryDay} — in skip list`)
+  continue
+}
 
         const deliveryDate = getNextDeliveryDate(deliveryDay);
         const deliveryDateStr = deliveryDate.toISOString().split('T')[0];
