@@ -4,7 +4,7 @@ import { useState } from 'react'
 import {
   Clock, Users, BarChart3, Package, RefreshCw, Truck,
   DollarSign, FileText, ShoppingCart, ChefHat, Receipt,
-  Copy, Play, ClipboardList, Printer,
+  Copy, Play, ClipboardList, Printer, Store
 } from 'lucide-react'
 
 import OrdersView from './orders-view'
@@ -226,7 +226,11 @@ async function generateStandingOrders() {
                 style={{ backgroundColor: '#0d9488' }}>
                 <Package className="h-4 w-4" />Bulk Weights
               </a>
-
+<a href="/admin/shop-reports"
+  className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
+  style={{ backgroundColor: '#0f766e' }}>
+  <Store className="h-4 w-4" />Shop Reports
+</a>
               <a href="/admin/portal-qr"
                 className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
                 style={{ backgroundColor: '#db2777' }}>
