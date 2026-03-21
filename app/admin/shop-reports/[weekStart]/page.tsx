@@ -65,8 +65,8 @@ function colSum(rows: DailyRow[], key: DailyKey): number {
   return rows.reduce((a, r) => a + (Number(r[key]) || 0), 0)
 }
 function netSales(row: DailyRow)  { return row.sales - row.gst }
-function variance(row: DailyRow)  { return row.sales - row.eftpos - row.cash - row.paid_out }
-function fmtMoney(n: number)      { return `$${n.toFixed(2)}` }
+// ✅ FIX — paid out is informational, not part of variance
+function variance(row: DailyRow) { return row.sales - row.eftpos - row.cash }function fmtMoney(n: number)      { return `$${n.toFixed(2)}` }
 function fmtNum(n: number, dec=2) { return n === 0 ? '—' : n.toFixed(dec) }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -195,7 +195,7 @@ export default function WeeklyShopReport() {
     })
 
     const totalNetSales = totalSales - totalGst
-    const totalVariance = totalSales - totalEftpos - totalCash - totalPaidOut
+const totalVariance = totalSales - totalEftpos - totalCash
     const wagesPct      = totalNetSales > 0
       ? ((totalWages / totalNetSales) * 100).toFixed(1)
       : '0.0'
