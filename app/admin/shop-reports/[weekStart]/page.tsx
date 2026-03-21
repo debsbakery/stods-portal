@@ -20,7 +20,8 @@ interface DailyRow {
   eftpos: number
   cash: number
   paid_out: number
-    purchases: number     
+  actual_banking: number
+  purchases: number
   customer_count: number
   hours: number
 }
@@ -39,55 +40,53 @@ interface Settings {
 
 type DailyKey = keyof Omit<DailyRow, 'shop_id' | 'report_date'>
 
-// ─── Update FIELDS array — add purchases after paid_out ───────────────────────
+// ─── Fields ───────────────────────────────────────────────────────────────────
 const FIELDS: { key: DailyKey; label: string; isMoney: boolean }[] = [
-  { key: 'sales',          label: 'Sales',      isMoney: true  },
-  { key: 'gst',            label: 'GST',        isMoney: true  },
-  { key: 'eftpos',         label: 'Eftpos',     isMoney: true  },
-  { key: 'cash',           label: 'Cash',       isMoney: true  },
-  { key: 'paid_out',       label: 'Paid Out',   isMoney: true  },
-  { key: 'purchases',      label: 'Purchases',  isMoney: true  },  // ← ADD
-  { key: 'customer_count', label: 'Customers',  isMoney: false },
-  { key: 'hours',          label: 'Hours',      isMoney: false },
+  { key: 'sales',          label: 'Sales',          isMoney: true  },
+  { key: 'gst',            label: 'GST',            isMoney: true  },
+  { key: 'eftpos',         label: 'Eftpos',         isMoney: true  },
+  { key: 'cash',           label: 'Cash',           isMoney: true  },
+  { key: 'paid_out',       label: 'Paid Out',       isMoney: true  },
+  { key: 'actual_banking', label: 'Actual Banking', isMoney: true  },
+  { key: 'purchases',      label: 'Purchases',      isMoney: true  },
+  { key: 'customer_count', label: 'Customers',      isMoney: false },
+  { key: 'hours',          label: 'Hours',          isMoney: false },
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-// ─── Update emptyDaily helper ─────────────────────────────────────────────────
 function emptyDaily(shopId: string, date: string): DailyRow {
   return {
     shop_id: shopId, report_date: date,
     sales: 0, gst: 0, eftpos: 0, cash: 0,
-    paid_out: 0, purchases: 0,             // ← ADD purchases: 0
+    paid_out: 0, actual_banking: 0, purchases: 0,
     customer_count: 0, hours: 0
   }
 }
 function colSum(rows: DailyRow[], key: DailyKey): number {
   return rows.reduce((a, r) => a + (Number(r[key]) || 0), 0)
 }
-function netSales(row: DailyRow)  { return row.sales - row.gst }
-// ✅ FIX — paid out is informational, not part of variance
-function variance(row: DailyRow) { return row.sales - row.eftpos - row.cash }function fmtMoney(n: number)      { return `$${n.toFixed(2)}` }
-function fmtNum(n: number, dec=2) { return n === 0 ? '—' : n.toFixed(dec) }
+function netSales(row: DailyRow) { return row.sales - row.gst }
+function variance(row: DailyRow) { return row.sales - row.eftpos - row.actual_banking - row.paid_out }
+function fmtMoney(n: number)     { return `$${n.toFixed(2)}` }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// ─── Component ────────────────────────────────────────────────────────────────
 export default function WeeklyShopReport() {
   const { weekStart: param } = useParams<{ weekStart: string }>()
-  const router   = useRouter()
-  const printRef = useRef<HTMLDivElement>(null)
+  const router = useRouter()
 
-  const weekStart = parseWeekStart(param)
-  const weekDays  = getWeekDays(weekStart)
-  const weekLabel = formatWeekLabel(weekStart)
+  const weekStart  = parseWeekStart(param)
+  const weekDays   = getWeekDays(weekStart)
+  const weekLabel  = formatWeekLabel(weekStart)
   const dayHeaders = weekDays.map(d => format(d, 'EEE d/M'))
 
-  const [shops,    setShops]    = useState<Shop[]>([])
-  const [daily,    setDaily]    = useState<Record<string, DailyRow>>({})
-  const [wages,    setWages]    = useState<Record<string, number>>({})
-  const [settings, setSettings] = useState<Settings | null>(null)
-  const [saving,   setSaving]   = useState(false)
+  const [shops,          setShops]          = useState<Shop[]>([])
+  const [daily,          setDaily]          = useState<Record<string, DailyRow>>({})
+  const [wages,          setWages]          = useState<Record<string, number>>({})
+  const [settings,       setSettings]       = useState<Settings | null>(null)
+  const [saving,         setSaving]         = useState(false)
   const [savingSettings, setSavingSettings] = useState(false)
   const [showSettings,   setShowSettings]   = useState(false)
-  const [toast,    setToast]    = useState<{ msg: string; ok: boolean } | null>(null)
+  const [toast,          setToast]          = useState<{ msg: string; ok: boolean } | null>(null)
 
   function showToast(msg: string, ok = true) {
     setToast({ msg, ok })
@@ -95,15 +94,12 @@ export default function WeeklyShopReport() {
   }
 
   // ─── Load ──────────────────────────────────────────────────────────────────
- const loadData = useCallback(async () => {
+  const loadData = useCallback(async () => {
     const res = await fetch(`/api/admin/shop-reports/${param}`)
     const { shops: s, daily: d, wages: w, settings: st } = await res.json()
 
-    console.log('SHOP REPORTS DEBUG:', { shops: s, daily: d, wages: w, settings: st }) // ← ADD THIS
-
     setShops(s ?? [])
     setSettings(st ?? null)
-    // ... rest unchanged
 
     const dailyMap: Record<string, DailyRow> = {}
     s?.forEach((shop: Shop) => {
@@ -127,7 +123,7 @@ export default function WeeklyShopReport() {
 
   useEffect(() => { loadData() }, [loadData])
 
-  // ─── Cell updates ──────────────────────────────────────────────────────────
+  // ─── Updates ──────────────────────────────────────────────────────────────
   function updateCell(shopId: string, date: string, field: DailyKey, val: string) {
     const key   = `${shopId}_${date}`
     const value = parseFloat(val) || 0
@@ -138,7 +134,7 @@ export default function WeeklyShopReport() {
     setWages(prev => ({ ...prev, [shopId]: parseFloat(val) || 0 }))
   }
 
-  // ─── Save week ─────────────────────────────────────────────────────────────
+  // ─── Save ──────────────────────────────────────────────────────────────────
   async function handleSave() {
     setSaving(true)
     const dailyRows = Object.values(daily)
@@ -147,7 +143,6 @@ export default function WeeklyShopReport() {
       week_start: param,
       wages:      wages[s.id] ?? 0
     }))
-
     const res = await fetch(`/api/admin/shop-reports/${param}`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -157,7 +152,7 @@ export default function WeeklyShopReport() {
     res.ok ? showToast('✅ Week saved') : showToast('❌ Save failed', false)
   }
 
-  // ─── Save settings ─────────────────────────────────────────────────────────
+  // ─── Save Settings ─────────────────────────────────────────────────────────
   async function handleSaveSettings(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!settings) return
@@ -172,37 +167,38 @@ export default function WeeklyShopReport() {
     else showToast('❌ Failed to save settings', false)
   }
 
-  // ─── Print ─────────────────────────────────────────────────────────────────
-  function handlePrint() { window.print() }
-
-  // ─── Combined totals ───────────────────────────────────────────────────────
+  // ─── Combined Totals ───────────────────────────────────────────────────────
   function getCombined() {
     let totalSales = 0, totalGst = 0, totalEftpos = 0, totalCash = 0,
-        totalPaidOut = 0, totalCustomers = 0, totalHours = 0, totalWages = 0
+        totalPaidOut = 0, totalActualBanking = 0, totalPurchases = 0,
+        totalCustomers = 0, totalHours = 0, totalWages = 0
 
     shops.forEach(shop => {
       const rows = weekDays.map(d =>
         daily[`${shop.id}_${format(d, 'yyyy-MM-dd')}`] ?? emptyDaily(shop.id, '')
       )
-      totalSales     += colSum(rows, 'sales')
-      totalGst       += colSum(rows, 'gst')
-      totalEftpos    += colSum(rows, 'eftpos')
-      totalCash      += colSum(rows, 'cash')
-      totalPaidOut   += colSum(rows, 'paid_out')
-      totalCustomers += colSum(rows, 'customer_count')
-      totalHours     += colSum(rows, 'hours')
-      totalWages     += wages[shop.id] ?? 0
+      totalSales          += colSum(rows, 'sales')
+      totalGst            += colSum(rows, 'gst')
+      totalEftpos         += colSum(rows, 'eftpos')
+      totalCash           += colSum(rows, 'cash')
+      totalPaidOut        += colSum(rows, 'paid_out')
+      totalActualBanking  += colSum(rows, 'actual_banking')
+      totalPurchases      += colSum(rows, 'purchases')
+      totalCustomers      += colSum(rows, 'customer_count')
+      totalHours          += colSum(rows, 'hours')
+      totalWages          += wages[shop.id] ?? 0
     })
 
     const totalNetSales = totalSales - totalGst
-const totalVariance = totalSales - totalEftpos - totalCash
+    const totalVariance = totalSales - totalEftpos - totalActualBanking - totalPaidOut
     const wagesPct      = totalNetSales > 0
-      ? ((totalWages / totalNetSales) * 100).toFixed(1)
-      : '0.0'
+      ? ((totalWages / totalNetSales) * 100).toFixed(1) : '0.0'
 
-    return { totalSales, totalGst, totalNetSales, totalEftpos, totalCash,
-             totalPaidOut, totalVariance, totalCustomers, totalHours,
-             totalWages, wagesPct }
+    return {
+      totalSales, totalGst, totalNetSales, totalEftpos, totalCash,
+      totalPaidOut, totalActualBanking, totalPurchases, totalVariance,
+      totalCustomers, totalHours, totalWages, wagesPct
+    }
   }
 
   const combined = getCombined()
@@ -211,7 +207,6 @@ const totalVariance = totalSales - totalEftpos - totalCash
   return (
     <div className="p-4 md:p-6 max-w-full">
 
-      {/* Print styles */}
       <style>{`
         @media print {
           .no-print { display: none !important; }
@@ -222,36 +217,34 @@ const totalVariance = totalSales - totalEftpos - totalCash
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-4 right-4 px-4 py-2 rounded shadow-lg z-50 text-white
+        <div className={`fixed top-4 right-4 px-4 py-2 rounded shadow-lg z-50 text-white text-sm
           ${toast.ok ? 'bg-green-600' : 'bg-red-600'}`}>
           {toast.msg}
         </div>
       )}
 
-      {/* ── Header ── */}
+      {/* Header */}
       <div className="flex flex-wrap items-center gap-3 mb-6 no-print">
         <h1 className="text-2xl font-bold text-gray-900">Shop Reports</h1>
-
-        {/* Week nav */}
         <div className="flex items-center gap-2 ml-4">
-          <button onClick={() => router.push(`/admin/shop-reports/${formatWeekStart(prevWeek(weekStart))}`)}
+          <button
+            onClick={() => router.push(`/admin/shop-reports/${formatWeekStart(prevWeek(weekStart))}`)}
             className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm">
             ◀ Prev
           </button>
           <span className="font-semibold text-gray-700 px-1">{weekLabel}</span>
-          <button onClick={() => router.push(`/admin/shop-reports/${formatWeekStart(nextWeek(weekStart))}`)}
+          <button
+            onClick={() => router.push(`/admin/shop-reports/${formatWeekStart(nextWeek(weekStart))}`)}
             className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm">
             Next ▶
           </button>
         </div>
-
-        {/* Actions */}
         <div className="flex gap-2 ml-auto">
           <button onClick={() => setShowSettings(true)}
             className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm text-gray-600">
             ⚙️ Settings
           </button>
-          <button onClick={handlePrint}
+          <button onClick={() => window.print()}
             className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm text-gray-600">
             🖨️ Print
           </button>
@@ -262,47 +255,46 @@ const totalVariance = totalSales - totalEftpos - totalCash
         </div>
       </div>
 
-      {/* Print header (only shows on print) */}
+      {/* Print header */}
       <div className="hidden print:block mb-4">
         <h2 className="text-xl font-bold">Weekly Shop Report — {weekLabel}</h2>
         {settings?.bookkeeper_name && (
-          <p className="text-sm text-gray-500">For: {settings.bookkeeper_name} ({settings.bookkeeper_email})</p>
+          <p className="text-sm text-gray-500">
+            For: {settings.bookkeeper_name} ({settings.bookkeeper_email})
+          </p>
         )}
       </div>
 
-      <div ref={printRef} className="space-y-6">
+      <div className="space-y-6">
 
-        {/* ── Per-shop grids ── */}
+        {/* Per-shop grids */}
         {shops.map(shop => {
           const rows = weekDays.map(d =>
             daily[`${shop.id}_${format(d, 'yyyy-MM-dd')}`]
             ?? emptyDaily(shop.id, format(d, 'yyyy-MM-dd'))
           )
-
           const shopNetSales  = rows.map(netSales)
           const shopVariances = rows.map(variance)
+          const totalVariance = shopVariances.reduce((a, b) => a + b, 0)
 
           return (
             <div key={shop.id} className="bg-white rounded-xl shadow border overflow-x-auto">
               <div className="bg-blue-700 text-white px-4 py-2.5 font-semibold rounded-t-xl">
                 {shop.name}
               </div>
-
               <table className="w-full text-sm min-w-[700px]">
                 <thead>
-                  <tr className="bg-gray-50 border-b text-gray-600">
-                    <th className="text-left px-3 py-2 w-24">Field</th>
+                  <tr className="bg-gray-50 border-b text-gray-600 text-xs">
+                    <th className="text-left px-3 py-2 w-28">Field</th>
                     {dayHeaders.map(h => (
                       <th key={h} className="text-center px-1 py-2 w-[90px]">{h}</th>
                     ))}
-                    <th className="text-right px-3 py-2 w-28 bg-blue-50 text-blue-800">
-                      Total
-                    </th>
+                    <th className="text-right px-3 py-2 w-28 bg-blue-50 text-blue-800">Total</th>
                   </tr>
                 </thead>
-
                 <tbody>
-                  {/* Editable fields */}
+
+                  {/* Editable rows */}
                   {FIELDS.map(({ key, label, isMoney }) => (
                     <tr key={key} className="border-b hover:bg-gray-50">
                       <td className="px-3 py-1 font-medium text-gray-500 text-xs">{label}</td>
@@ -313,18 +305,21 @@ const totalVariance = totalSales - totalEftpos - totalCash
                             min="0"
                             step={key === 'customer_count' ? '1' : '0.01'}
                             value={row[key] === 0 ? '' : row[key]}
-                            onChange={e => updateCell(shop.id, row.report_date, key, e.target.value)}
+                            onChange={e =>
+                              updateCell(shop.id, row.report_date, key, e.target.value)
+                            }
                             placeholder="0"
                             className="no-print w-full border rounded px-1.5 py-1 text-right text-sm
                               focus:outline-none focus:ring-1 focus:ring-blue-400"
                           />
-                          {/* Print value */}
-                          <span className="hidden print:block text-right">
-                            {isMoney ? fmtMoney(row[key] as number) : row[key] || '—'}
+                          <span className="hidden print:block text-right text-xs">
+                            {isMoney
+                              ? fmtMoney(row[key] as number)
+                              : row[key] || '—'}
                           </span>
                         </td>
                       ))}
-                      <td className="px-3 py-1 text-right font-semibold bg-blue-50 text-blue-900">
+                      <td className="px-3 py-1 text-right font-semibold bg-blue-50 text-blue-900 text-sm">
                         {isMoney
                           ? fmtMoney(colSum(rows, key))
                           : key === 'hours'
@@ -335,35 +330,35 @@ const totalVariance = totalSales - totalEftpos - totalCash
                     </tr>
                   ))}
 
-                  {/* Net Sales row — calculated */}
+                  {/* Net Sales — calculated */}
                   <tr className="border-b bg-emerald-50">
                     <td className="px-3 py-1 font-semibold text-emerald-700 text-xs">Net Sales</td>
                     {shopNetSales.map((ns, i) => (
-                      <td key={i} className="px-2 py-1 text-right text-sm font-medium text-emerald-700">
+                      <td key={i} className="px-2 py-1 text-right text-xs font-medium text-emerald-700">
                         {fmtMoney(ns)}
                       </td>
                     ))}
-                    <td className="px-3 py-1 text-right font-bold bg-emerald-100 text-emerald-800">
+                    <td className="px-3 py-1 text-right font-bold bg-emerald-100 text-emerald-800 text-sm">
                       {fmtMoney(shopNetSales.reduce((a, b) => a + b, 0))}
                     </td>
                   </tr>
 
-                  {/* Variance row — calculated, coloured */}
+                  {/* Variance — calculated */}
                   <tr className="border-b">
                     <td className="px-3 py-1 font-semibold text-gray-500 text-xs">Variance</td>
                     {shopVariances.map((v, i) => (
-                      <td key={i} className={`px-2 py-1 text-right text-sm font-medium
+                      <td key={i} className={`px-2 py-1 text-right text-xs font-medium
                         ${v !== 0 ? 'text-red-600' : 'text-green-600'}`}>
                         {fmtMoney(v)}
                       </td>
                     ))}
-                    <td className={`px-3 py-1 text-right font-bold
-                      ${shopVariances.reduce((a,b)=>a+b,0) !== 0 ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
-                      {fmtMoney(shopVariances.reduce((a, b) => a + b, 0))}
+                    <td className={`px-3 py-1 text-right font-bold text-sm
+                      ${totalVariance !== 0 ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+                      {fmtMoney(totalVariance)}
                     </td>
                   </tr>
 
-                  {/* Weekly wages — single input */}
+                  {/* Weekly wages */}
                   <tr className="bg-amber-50 border-t-2 border-amber-200">
                     <td className="px-3 py-2 font-semibold text-amber-800 text-xs">
                       Wages<br/>
@@ -387,17 +382,18 @@ const totalVariance = totalSales - totalEftpos - totalCash
                         {fmtMoney(wages[shop.id] ?? 0)}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-right font-bold bg-amber-100 text-amber-900">
+                    <td className="px-3 py-2 text-right font-bold bg-amber-100 text-amber-900 text-sm">
                       {fmtMoney(wages[shop.id] ?? 0)}
                     </td>
                   </tr>
+
                 </tbody>
               </table>
             </div>
           )
         })}
 
-        {/* ── Combined Totals ── */}
+        {/* Combined totals */}
         <div className="bg-white rounded-xl shadow border overflow-x-auto">
           <div className="bg-gray-800 text-white px-4 py-2.5 font-semibold rounded-t-xl">
             Combined — All Shops
@@ -405,41 +401,43 @@ const totalVariance = totalSales - totalEftpos - totalCash
           <table className="w-full text-sm">
             <tbody>
               {[
-                { label: 'Total Sales',     value: fmtMoney(combined.totalSales),     highlight: false },
-                { label: 'Total GST',       value: fmtMoney(combined.totalGst),       highlight: false },
-                { label: 'Net Sales',       value: fmtMoney(combined.totalNetSales),  highlight: 'green' },
-                { label: 'Total Eftpos',    value: fmtMoney(combined.totalEftpos),    highlight: false },
-                { label: 'Total Cash',      value: fmtMoney(combined.totalCash),      highlight: false },
-                { label: 'Total Paid Out',  value: fmtMoney(combined.totalPaidOut),   highlight: false },
-                { label: 'Variance',        value: fmtMoney(combined.totalVariance),
-                  highlight: combined.totalVariance !== 0 ? 'red' : 'green' },
-                { label: 'Total Customers', value: combined.totalCustomers.toString(), highlight: false },
-                { label: 'Total Hours',     value: `${combined.totalHours.toFixed(2)}h`, highlight: false },
-                { label: 'Total Wages',     value: fmtMoney(combined.totalWages),     highlight: 'amber' },
-                { label: 'Wages % of Net Sales',
-                  value: `${combined.wagesPct}%`,
-                  highlight: parseFloat(combined.wagesPct) > 35 ? 'red' : 'green' },
-              ].map(({ label, value, highlight }) => (
+                { label: 'Total Sales',         value: fmtMoney(combined.totalSales),         hl: ''      },
+                { label: 'Total GST',           value: fmtMoney(combined.totalGst),           hl: ''      },
+                { label: 'Net Sales',           value: fmtMoney(combined.totalNetSales),       hl: 'green' },
+                { label: 'Total Eftpos',        value: fmtMoney(combined.totalEftpos),         hl: ''      },
+                { label: 'Total Cash',          value: fmtMoney(combined.totalCash),           hl: ''      },
+                { label: 'Total Paid Out',      value: fmtMoney(combined.totalPaidOut),        hl: ''      },
+                { label: 'Total Actual Banking',value: fmtMoney(combined.totalActualBanking),  hl: ''      },
+                { label: 'Total Purchases',     value: fmtMoney(combined.totalPurchases),      hl: ''      },
+                { label: 'Variance',            value: fmtMoney(combined.totalVariance),
+                  hl: combined.totalVariance !== 0 ? 'red' : 'green' },
+                { label: 'Total Customers',     value: combined.totalCustomers.toString(),     hl: ''      },
+                { label: 'Total Hours',         value: `${combined.totalHours.toFixed(2)}h`,  hl: ''      },
+                { label: 'Total Wages',         value: fmtMoney(combined.totalWages),          hl: 'amber' },
+                { label: 'Wages % of Net Sales',value: `${combined.wagesPct}%`,
+                  hl: parseFloat(combined.wagesPct) > 35 ? 'red' : 'green' },
+              ].map(({ label, value, hl }) => (
                 <tr key={label} className={`border-b
-                  ${highlight === 'green' ? 'bg-emerald-50' : ''}
-                  ${highlight === 'red'   ? 'bg-red-50'     : ''}
-                  ${highlight === 'amber' ? 'bg-amber-50'   : ''}
+                  ${hl === 'green' ? 'bg-emerald-50' : ''}
+                  ${hl === 'red'   ? 'bg-red-50'     : ''}
+                  ${hl === 'amber' ? 'bg-amber-50'   : ''}
                 `}>
-                  <td className="px-4 py-2 font-medium text-gray-600 w-48">{label}</td>
-                  <td className={`px-4 py-2 text-right font-bold text-lg
-                    ${highlight === 'green' ? 'text-emerald-700' : ''}
-                    ${highlight === 'red'   ? 'text-red-700'     : ''}
-                    ${highlight === 'amber' ? 'text-amber-800'   : ''}
-                    ${!highlight            ? 'text-gray-800'    : ''}
+                  <td className="px-4 py-2 font-medium text-gray-600 w-52">{label}</td>
+                  <td className={`px-4 py-2 text-right font-bold text-base
+                    ${hl === 'green' ? 'text-emerald-700' : ''}
+                    ${hl === 'red'   ? 'text-red-700'     : ''}
+                    ${hl === 'amber' ? 'text-amber-800'   : ''}
+                    ${!hl            ? 'text-gray-800'    : ''}
                   `}>{value}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+
       </div>
 
-      {/* ── Settings Modal ── */}
+      {/* Settings modal */}
       {showSettings && settings && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 no-print">
           <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
@@ -453,7 +451,8 @@ const totalVariance = totalSales - totalEftpos - totalCash
                   type="text"
                   value={settings.bookkeeper_name}
                   onChange={e => setSettings({ ...settings, bookkeeper_name: e.target.value })}
-                  className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="w-full border rounded px-3 py-2 text-sm
+                    focus:outline-none focus:ring-2 focus:ring-blue-400"
                   placeholder="e.g. Jane Smith"
                 />
               </div>
@@ -465,12 +464,13 @@ const totalVariance = totalSales - totalEftpos - totalCash
                   type="email"
                   value={settings.bookkeeper_email}
                   onChange={e => setSettings({ ...settings, bookkeeper_email: e.target.value })}
-                  className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="w-full border rounded px-3 py-2 text-sm
+                    focus:outline-none focus:ring-2 focus:ring-blue-400"
                   placeholder="bookkeeper@example.com"
                 />
               </div>
               <p className="text-xs text-gray-400">
-                Email is saved for future use when auto-send is enabled.
+                Email saved for future auto-send via Resend.
               </p>
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setShowSettings(false)}
@@ -478,7 +478,8 @@ const totalVariance = totalSales - totalEftpos - totalCash
                   Cancel
                 </button>
                 <button type="submit" disabled={savingSettings}
-                  className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50">
+                  className="px-4 py-2 bg-blue-600 text-white rounded text-sm
+                    hover:bg-blue-700 disabled:opacity-50">
                   {savingSettings ? 'Saving...' : 'Save Settings'}
                 </button>
               </div>
