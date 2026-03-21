@@ -9,7 +9,6 @@ import {
   formatWeekLabel, prevWeek, nextWeek
 } from '@/lib/week-utils'
 
-// ─── Types ────────────────────────────────────────────────────────────────────
 interface Shop { id: string; name: string; sort_order: number }
 
 interface DailyRow {
@@ -40,7 +39,6 @@ interface Settings {
 
 type DailyKey = keyof Omit<DailyRow, 'shop_id' | 'report_date'>
 
-// ─── Fields ───────────────────────────────────────────────────────────────────
 const FIELDS: { key: DailyKey; label: string; isMoney: boolean }[] = [
   { key: 'sales',          label: 'Sales',          isMoney: true  },
   { key: 'gst',            label: 'GST',            isMoney: true  },
@@ -53,7 +51,6 @@ const FIELDS: { key: DailyKey; label: string; isMoney: boolean }[] = [
   { key: 'hours',          label: 'Hours',          isMoney: false },
 ]
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 function emptyDaily(shopId: string, date: string): DailyRow {
   return {
     shop_id: shopId, report_date: date,
@@ -65,11 +62,10 @@ function emptyDaily(shopId: string, date: string): DailyRow {
 function colSum(rows: DailyRow[], key: DailyKey): number {
   return rows.reduce((a, r) => a + (Number(r[key]) || 0), 0)
 }
-function netSales(row: DailyRow) { return row.sales - row.gst }
-function variance(row: DailyRow) { return row.sales - row.eftpos - row.actual_banking - row.paid_out }
-function fmtMoney(n: number)     { return `$${n.toFixed(2)}` }
+function netSales(row: DailyRow)  { return row.sales - row.gst }
+function variance(row: DailyRow)  { return row.sales - row.eftpos - row.actual_banking - row.paid_out }
+function fmtMoney(n: number)      { return `$${n.toFixed(2)}` }
 
-// ─── Component ────────────────────────────────────────────────────────────────
 export default function WeeklyShopReport() {
   const { weekStart: param } = useParams<{ weekStart: string }>()
   const router = useRouter()
@@ -84,14 +80,29 @@ export default function WeeklyShopReport() {
   const [wages,          setWages]          = useState<Record<string, number>>({})
   const [settings,       setSettings]       = useState<Settings | null>(null)
   const [saving,         setSaving]         = useState(false)
+  const [isDirty,        setIsDirty]        = useState(false)
   const [savingSettings, setSavingSettings] = useState(false)
   const [showSettings,   setShowSettings]   = useState(false)
   const [toast,          setToast]          = useState<{ msg: string; ok: boolean } | null>(null)
+
+  const saveTimer = useRef<NodeJS.Timeout | null>(null)
 
   function showToast(msg: string, ok = true) {
     setToast({ msg, ok })
     setTimeout(() => setToast(null), 3500)
   }
+
+  // ─── Warn on unsaved changes ───────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [isDirty])
 
   // ─── Load ──────────────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -119,19 +130,32 @@ export default function WeeklyShopReport() {
       wagesMap[shop.id] = found?.wages ?? 0
     })
     setWages(wagesMap)
+    setIsDirty(false)
   }, [param])
 
   useEffect(() => { loadData() }, [loadData])
+
+  // ─── Auto-save trigger ─────────────────────────────────────────────────────
+  function triggerAutoSave() {
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => {
+      handleSave()
+    }, 1500)
+  }
 
   // ─── Updates ──────────────────────────────────────────────────────────────
   function updateCell(shopId: string, date: string, field: DailyKey, val: string) {
     const key   = `${shopId}_${date}`
     const value = parseFloat(val) || 0
     setDaily(prev => ({ ...prev, [key]: { ...prev[key], [field]: value } }))
+    setIsDirty(true)
+    triggerAutoSave()
   }
 
   function updateWage(shopId: string, val: string) {
     setWages(prev => ({ ...prev, [shopId]: parseFloat(val) || 0 }))
+    setIsDirty(true)
+    triggerAutoSave()
   }
 
   // ─── Save ──────────────────────────────────────────────────────────────────
@@ -149,7 +173,12 @@ export default function WeeklyShopReport() {
       body:    JSON.stringify({ dailyRows, wageRows })
     })
     setSaving(false)
-    res.ok ? showToast('✅ Week saved') : showToast('❌ Save failed', false)
+    if (res.ok) {
+      showToast('✅ Week saved')
+      setIsDirty(false)
+    } else {
+      showToast('❌ Save failed', false)
+    }
   }
 
   // ─── Save Settings ─────────────────────────────────────────────────────────
@@ -177,16 +206,16 @@ export default function WeeklyShopReport() {
       const rows = weekDays.map(d =>
         daily[`${shop.id}_${format(d, 'yyyy-MM-dd')}`] ?? emptyDaily(shop.id, '')
       )
-      totalSales          += colSum(rows, 'sales')
-      totalGst            += colSum(rows, 'gst')
-      totalEftpos         += colSum(rows, 'eftpos')
-      totalCash           += colSum(rows, 'cash')
-      totalPaidOut        += colSum(rows, 'paid_out')
-      totalActualBanking  += colSum(rows, 'actual_banking')
-      totalPurchases      += colSum(rows, 'purchases')
-      totalCustomers      += colSum(rows, 'customer_count')
-      totalHours          += colSum(rows, 'hours')
-      totalWages          += wages[shop.id] ?? 0
+      totalSales         += colSum(rows, 'sales')
+      totalGst           += colSum(rows, 'gst')
+      totalEftpos        += colSum(rows, 'eftpos')
+      totalCash          += colSum(rows, 'cash')
+      totalPaidOut       += colSum(rows, 'paid_out')
+      totalActualBanking += colSum(rows, 'actual_banking')
+      totalPurchases     += colSum(rows, 'purchases')
+      totalCustomers     += colSum(rows, 'customer_count')
+      totalHours         += colSum(rows, 'hours')
+      totalWages         += wages[shop.id] ?? 0
     })
 
     const totalNetSales = totalSales - totalGst
@@ -249,8 +278,14 @@ export default function WeeklyShopReport() {
             🖨️ Print
           </button>
           <button onClick={handleSave} disabled={saving}
-            className="px-4 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium disabled:opacity-50">
-            {saving ? 'Saving...' : '💾 Save Week'}
+            className={`px-4 py-1.5 rounded text-sm font-medium transition-colors
+              ${saving
+                ? 'bg-blue-400 text-white cursor-wait'
+                : isDirty
+                  ? 'bg-blue-600 text-white hover:bg-blue-700'
+                  : 'bg-green-600 text-white'
+              }`}>
+            {saving ? '💾 Saving...' : isDirty ? '💾 Save Week *' : '✅ Saved'}
           </button>
         </div>
       </div>
@@ -401,20 +436,20 @@ export default function WeeklyShopReport() {
           <table className="w-full text-sm">
             <tbody>
               {[
-                { label: 'Total Sales',         value: fmtMoney(combined.totalSales),         hl: ''      },
-                { label: 'Total GST',           value: fmtMoney(combined.totalGst),           hl: ''      },
-                { label: 'Net Sales',           value: fmtMoney(combined.totalNetSales),       hl: 'green' },
-                { label: 'Total Eftpos',        value: fmtMoney(combined.totalEftpos),         hl: ''      },
-                { label: 'Total Cash',          value: fmtMoney(combined.totalCash),           hl: ''      },
-                { label: 'Total Paid Out',      value: fmtMoney(combined.totalPaidOut),        hl: ''      },
-                { label: 'Total Actual Banking',value: fmtMoney(combined.totalActualBanking),  hl: ''      },
-                { label: 'Total Purchases',     value: fmtMoney(combined.totalPurchases),      hl: ''      },
-                { label: 'Variance',            value: fmtMoney(combined.totalVariance),
+                { label: 'Total Sales',          value: fmtMoney(combined.totalSales),          hl: ''      },
+                { label: 'Total GST',            value: fmtMoney(combined.totalGst),            hl: ''      },
+                { label: 'Net Sales',            value: fmtMoney(combined.totalNetSales),        hl: 'green' },
+                { label: 'Total Eftpos',         value: fmtMoney(combined.totalEftpos),          hl: ''      },
+                { label: 'Total Cash',           value: fmtMoney(combined.totalCash),            hl: ''      },
+                { label: 'Total Paid Out',       value: fmtMoney(combined.totalPaidOut),         hl: ''      },
+                { label: 'Total Actual Banking', value: fmtMoney(combined.totalActualBanking),   hl: ''      },
+                { label: 'Total Purchases',      value: fmtMoney(combined.totalPurchases),       hl: ''      },
+                { label: 'Variance',             value: fmtMoney(combined.totalVariance),
                   hl: combined.totalVariance !== 0 ? 'red' : 'green' },
-                { label: 'Total Customers',     value: combined.totalCustomers.toString(),     hl: ''      },
-                { label: 'Total Hours',         value: `${combined.totalHours.toFixed(2)}h`,  hl: ''      },
-                { label: 'Total Wages',         value: fmtMoney(combined.totalWages),          hl: 'amber' },
-                { label: 'Wages % of Net Sales',value: `${combined.wagesPct}%`,
+                { label: 'Total Customers',      value: combined.totalCustomers.toString(),      hl: ''      },
+                { label: 'Total Hours',          value: `${combined.totalHours.toFixed(2)}h`,   hl: ''      },
+                { label: 'Total Wages',          value: fmtMoney(combined.totalWages),           hl: 'amber' },
+                { label: 'Wages % of Net Sales', value: `${combined.wagesPct}%`,
                   hl: parseFloat(combined.wagesPct) > 35 ? 'red' : 'green' },
               ].map(({ label, value, hl }) => (
                 <tr key={label} className={`border-b
