@@ -9,12 +9,8 @@ import {
   formatWeekLabel, prevWeek, nextWeek
 } from '@/lib/week-utils'
 
-interface Shop { 
-  id: string
-  name: string
-  sort_order: number
-  auto_gst: boolean   // ← ADD
-}
+interface Shop { id: string; name: string; sort_order: number }
+
 interface DailyRow {
   shop_id: string
   report_date: string
@@ -39,6 +35,7 @@ interface Settings {
   id: string
   bookkeeper_email: string
   bookkeeper_name: string
+  weekly_overhead: number
 }
 
 type DailyKey = keyof Omit<DailyRow, 'shop_id' | 'report_date'>
@@ -69,6 +66,10 @@ function colSum(rows: DailyRow[], key: DailyKey): number {
 function netSales(row: DailyRow)  { return row.sales - row.gst }
 function variance(row: DailyRow)  { return row.sales - row.eftpos - row.actual_banking - row.paid_out }
 function fmtMoney(n: number)      { return `$${n.toFixed(2)}` }
+function fmtPct(n: number)        { return `${n.toFixed(1)}%` }
+function pct(val: number, base: number) {
+  return base > 0 ? (val / base) * 100 : 0
+}
 
 export default function WeeklyShopReport() {
   const { weekStart: param } = useParams<{ weekStart: string }>()
@@ -96,19 +97,14 @@ export default function WeeklyShopReport() {
     setTimeout(() => setToast(null), 3500)
   }
 
-  // ─── Warn on unsaved changes ───────────────────────────────────────────────
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
-      if (isDirty) {
-        e.preventDefault()
-        e.returnValue = ''
-      }
+      if (isDirty) { e.preventDefault(); e.returnValue = '' }
     }
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
   }, [isDirty])
 
-  // ─── Load ──────────────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
     const res = await fetch(`/api/admin/shop-reports/${param}`)
     const { shops: s, daily: d, wages: w, settings: st } = await res.json()
@@ -139,31 +135,18 @@ export default function WeeklyShopReport() {
 
   useEffect(() => { loadData() }, [loadData])
 
-  // ─── Auto-save trigger ─────────────────────────────────────────────────────
   function triggerAutoSave() {
     if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => {
-      handleSave()
-    }, 1500)
+    saveTimer.current = setTimeout(() => { handleSave() }, 1500)
   }
 
-  // ─── Updates ──────────────────────────────────────────────────────────────
- function updateCell(shopId: string, date: string, field: DailyKey, val: string) {
-  const key   = `${shopId}_${date}`
-  const value = parseFloat(val) || 0
-  const shop  = shops.find(s => s.id === shopId)
-
-  setDaily(prev => {
-    const updated = { ...prev[key], [field]: value }
-    // Auto-calculate GST for van shops
-    if (field === 'sales' && shop?.auto_gst) {
-      updated.gst = parseFloat((value / 11).toFixed(2))
-    }
-    return { ...prev, [key]: updated }
-  })
-  setIsDirty(true)
-  triggerAutoSave()
-}
+  function updateCell(shopId: string, date: string, field: DailyKey, val: string) {
+    const key   = `${shopId}_${date}`
+    const value = parseFloat(val) || 0
+    setDaily(prev => ({ ...prev, [key]: { ...prev[key], [field]: value } }))
+    setIsDirty(true)
+    triggerAutoSave()
+  }
 
   function updateWage(shopId: string, val: string) {
     setWages(prev => ({ ...prev, [shopId]: parseFloat(val) || 0 }))
@@ -171,38 +154,30 @@ export default function WeeklyShopReport() {
     triggerAutoSave()
   }
 
-  // ─── Save ──────────────────────────────────────────────────────────────────
   async function handleSave() {
     setSaving(true)
     const dailyRows = Object.values(daily)
     const wageRows  = shops.map(s => ({
-      shop_id:    s.id,
-      week_start: param,
-      wages:      wages[s.id] ?? 0
+      shop_id: s.id, week_start: param, wages: wages[s.id] ?? 0
     }))
     const res = await fetch(`/api/admin/shop-reports/${param}`, {
-      method:  'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ dailyRows, wageRows })
+      body: JSON.stringify({ dailyRows, wageRows })
     })
     setSaving(false)
-    if (res.ok) {
-      showToast('✅ Week saved')
-      setIsDirty(false)
-    } else {
-      showToast('❌ Save failed', false)
-    }
+    if (res.ok) { showToast('✅ Week saved'); setIsDirty(false) }
+    else showToast('❌ Save failed', false)
   }
 
-  // ─── Save Settings ─────────────────────────────────────────────────────────
   async function handleSaveSettings(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!settings) return
     setSavingSettings(true)
     const res = await fetch('/api/admin/shop-reports/settings', {
-      method:  'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(settings)
+      body: JSON.stringify(settings)
     })
     setSavingSettings(false)
     if (res.ok) { showToast('✅ Settings saved'); setShowSettings(false) }
@@ -231,19 +206,28 @@ export default function WeeklyShopReport() {
       totalWages         += wages[shop.id] ?? 0
     })
 
-    const totalNetSales = totalSales - totalGst
-    const totalVariance = totalSales - totalEftpos - totalActualBanking - totalPaidOut
-    const wagesPct      = totalNetSales > 0
-      ? ((totalWages / totalNetSales) * 100).toFixed(1) : '0.0'
+    const overhead       = settings?.weekly_overhead ?? 2000
+    const totalNetSales  = totalSales - totalGst
+    const totalVariance  = totalSales - totalEftpos - totalActualBanking - totalPaidOut
+    const grossProfit    = totalNetSales - totalPurchases
+    const netProfit      = grossProfit - totalWages - overhead
 
     return {
-      totalSales, totalGst, totalNetSales, totalEftpos, totalCash,
-      totalPaidOut, totalActualBanking, totalPurchases, totalVariance,
-      totalCustomers, totalHours, totalWages, wagesPct
+      totalSales, totalGst, totalNetSales,
+      totalEftpos, totalCash, totalPaidOut, totalActualBanking,
+      totalPurchases, totalVariance,
+      totalCustomers, totalHours, totalWages, overhead,
+      grossProfit, netProfit,
+      // percentages
+      wagesPct:       pct(totalWages,    totalNetSales),
+      purchasesPct:   pct(totalPurchases, totalNetSales),
+      grossProfitPct: pct(grossProfit,    totalNetSales),
+      overheadPct:    pct(overhead,       totalNetSales),
+      netProfitPct:   pct(netProfit,      totalNetSales),
     }
   }
 
-  const combined = getCombined()
+  const c = getCombined()
 
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
@@ -257,7 +241,6 @@ export default function WeeklyShopReport() {
         }
       `}</style>
 
-      {/* Toast */}
       {toast && (
         <div className={`fixed top-4 right-4 px-4 py-2 rounded shadow-lg z-50 text-white text-sm
           ${toast.ok ? 'bg-green-600' : 'bg-red-600'}`}>
@@ -271,15 +254,11 @@ export default function WeeklyShopReport() {
         <div className="flex items-center gap-2 ml-4">
           <button
             onClick={() => router.push(`/admin/shop-reports/${formatWeekStart(prevWeek(weekStart))}`)}
-            className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm">
-            ◀ Prev
-          </button>
+            className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm">◀ Prev</button>
           <span className="font-semibold text-gray-700 px-1">{weekLabel}</span>
           <button
             onClick={() => router.push(`/admin/shop-reports/${formatWeekStart(nextWeek(weekStart))}`)}
-            className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm">
-            Next ▶
-          </button>
+            className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm">Next ▶</button>
         </div>
         <div className="flex gap-2 ml-auto">
           <button onClick={() => setShowSettings(true)}
@@ -292,12 +271,9 @@ export default function WeeklyShopReport() {
           </button>
           <button onClick={handleSave} disabled={saving}
             className={`px-4 py-1.5 rounded text-sm font-medium transition-colors
-              ${saving
-                ? 'bg-blue-400 text-white cursor-wait'
-                : isDirty
-                  ? 'bg-blue-600 text-white hover:bg-blue-700'
-                  : 'bg-green-600 text-white'
-              }`}>
+              ${saving ? 'bg-blue-400 text-white cursor-wait'
+                : isDirty ? 'bg-blue-600 text-white hover:bg-blue-700'
+                : 'bg-green-600 text-white'}`}>
             {saving ? '💾 Saving...' : isDirty ? '💾 Save Week *' : '✅ Saved'}
           </button>
         </div>
@@ -341,48 +317,34 @@ export default function WeeklyShopReport() {
                   </tr>
                 </thead>
                 <tbody>
-
-                  {/* Editable rows */}
                   {FIELDS.map(({ key, label, isMoney }) => (
                     <tr key={key} className="border-b hover:bg-gray-50">
                       <td className="px-3 py-1 font-medium text-gray-500 text-xs">{label}</td>
-                    {rows.map((row, i) => (
-  <td key={i} className="px-1 py-1">
-    {/* GST field — read-only if auto_gst shop */}
-    {key === 'gst' && shop.auto_gst ? (
-      <div className="w-full px-1.5 py-1 text-right text-sm text-emerald-700 
-        bg-emerald-50 rounded border border-emerald-200">
-        {fmtMoney(row.gst)}
-      </div>
-    ) : (
-      <input
-        type="number"
-        min="0"
-        step={key === 'customer_count' ? '1' : '0.01'}
-        value={row[key] === 0 ? '' : row[key]}
-        onChange={e => updateCell(shop.id, row.report_date, key, e.target.value)}
-        placeholder="0"
-        className="no-print w-full border rounded px-1.5 py-1 text-right text-sm
-          focus:outline-none focus:ring-1 focus:ring-blue-400"
-      />
-    )}
-    <span className="hidden print:block text-right text-xs">
-      {isMoney ? fmtMoney(row[key] as number) : row[key] || '—'}
-    </span>
-  </td>
-))}
+                      {rows.map((row, i) => (
+                        <td key={i} className="px-1 py-1">
+                          <input
+                            type="number" min="0"
+                            step={key === 'customer_count' ? '1' : '0.01'}
+                            value={row[key] === 0 ? '' : row[key]}
+                            onChange={e => updateCell(shop.id, row.report_date, key, e.target.value)}
+                            placeholder="0"
+                            className="no-print w-full border rounded px-1.5 py-1 text-right text-sm
+                              focus:outline-none focus:ring-1 focus:ring-blue-400"
+                          />
+                          <span className="hidden print:block text-right text-xs">
+                            {isMoney ? fmtMoney(row[key] as number) : row[key] || '—'}
+                          </span>
+                        </td>
+                      ))}
                       <td className="px-3 py-1 text-right font-semibold bg-blue-50 text-blue-900 text-sm">
-                        {isMoney
-                          ? fmtMoney(colSum(rows, key))
-                          : key === 'hours'
-                            ? colSum(rows, key).toFixed(2)
-                            : colSum(rows, key).toString()
-                        }
+                        {isMoney ? fmtMoney(colSum(rows, key))
+                          : key === 'hours' ? colSum(rows, key).toFixed(2)
+                          : colSum(rows, key).toString()}
                       </td>
                     </tr>
                   ))}
 
-                  {/* Net Sales — calculated */}
+                  {/* Net Sales */}
                   <tr className="border-b bg-emerald-50">
                     <td className="px-3 py-1 font-semibold text-emerald-700 text-xs">Net Sales</td>
                     {shopNetSales.map((ns, i) => (
@@ -395,7 +357,7 @@ export default function WeeklyShopReport() {
                     </td>
                   </tr>
 
-                  {/* Variance — calculated */}
+                  {/* Variance */}
                   <tr className="border-b">
                     <td className="px-3 py-1 font-semibold text-gray-500 text-xs">Variance</td>
                     {shopVariances.map((v, i) => (
@@ -410,7 +372,7 @@ export default function WeeklyShopReport() {
                     </td>
                   </tr>
 
-                  {/* Weekly wages */}
+                  {/* Wages */}
                   <tr className="bg-amber-50 border-t-2 border-amber-200">
                     <td className="px-3 py-2 font-semibold text-amber-800 text-xs">
                       Wages<br/>
@@ -420,9 +382,7 @@ export default function WeeklyShopReport() {
                       <div className="flex items-center gap-2 no-print">
                         <span className="text-gray-400 text-sm">$</span>
                         <input
-                          type="number"
-                          min="0"
-                          step="0.01"
+                          type="number" min="0" step="0.01"
                           value={wages[shop.id] === 0 ? '' : wages[shop.id]}
                           onChange={e => updateWage(shop.id, e.target.value)}
                           placeholder="0.00"
@@ -438,58 +398,156 @@ export default function WeeklyShopReport() {
                       {fmtMoney(wages[shop.id] ?? 0)}
                     </td>
                   </tr>
-
                 </tbody>
               </table>
             </div>
           )
         })}
 
-        {/* Combined totals */}
+        {/* ── Combined Totals ── */}
         <div className="bg-white rounded-xl shadow border overflow-x-auto">
           <div className="bg-gray-800 text-white px-4 py-2.5 font-semibold rounded-t-xl">
             Combined — All Shops
           </div>
           <table className="w-full text-sm">
             <tbody>
+
+              {/* ── Takings ── */}
+              <tr className="bg-gray-50 border-b">
+                <td colSpan={3} className="px-4 py-1.5 text-xs font-bold text-gray-400 uppercase tracking-wide">
+                  Takings
+                </td>
+              </tr>
               {[
-                { label: 'Total Sales',          value: fmtMoney(combined.totalSales),          hl: ''      },
-                { label: 'Total GST',            value: fmtMoney(combined.totalGst),            hl: ''      },
-                { label: 'Net Sales',            value: fmtMoney(combined.totalNetSales),        hl: 'green' },
-                { label: 'Total Eftpos',         value: fmtMoney(combined.totalEftpos),          hl: ''      },
-                { label: 'Total Cash',           value: fmtMoney(combined.totalCash),            hl: ''      },
-                { label: 'Total Paid Out',       value: fmtMoney(combined.totalPaidOut),         hl: ''      },
-                { label: 'Total Actual Banking', value: fmtMoney(combined.totalActualBanking),   hl: ''      },
-                { label: 'Total Purchases',      value: fmtMoney(combined.totalPurchases),       hl: ''      },
-                { label: 'Variance',             value: fmtMoney(combined.totalVariance),
-                  hl: combined.totalVariance !== 0 ? 'red' : 'green' },
-                { label: 'Total Customers',      value: combined.totalCustomers.toString(),      hl: ''      },
-                { label: 'Total Hours',          value: `${combined.totalHours.toFixed(2)}h`,   hl: ''      },
-                { label: 'Total Wages',          value: fmtMoney(combined.totalWages),           hl: 'amber' },
-                { label: 'Wages % of Net Sales', value: `${combined.wagesPct}%`,
-                  hl: parseFloat(combined.wagesPct) > 35 ? 'red' : 'green' },
+                { label: 'Total Sales',           value: fmtMoney(c.totalSales),         hl: ''      },
+                { label: 'Total GST',             value: fmtMoney(c.totalGst),           hl: ''      },
+                { label: 'Net Sales',             value: fmtMoney(c.totalNetSales),      hl: 'green' },
+                { label: 'Total Eftpos',          value: fmtMoney(c.totalEftpos),        hl: ''      },
+                { label: 'Total Cash',            value: fmtMoney(c.totalCash),          hl: ''      },
+                { label: 'Total Paid Out',        value: fmtMoney(c.totalPaidOut),       hl: ''      },
+                { label: 'Total Actual Banking',  value: fmtMoney(c.totalActualBanking), hl: ''      },
+                { label: 'Total Purchases',       value: fmtMoney(c.totalPurchases),     hl: ''      },
+                { label: 'Variance',              value: fmtMoney(c.totalVariance),
+                  hl: c.totalVariance !== 0 ? 'red' : 'green' },
               ].map(({ label, value, hl }) => (
                 <tr key={label} className={`border-b
                   ${hl === 'green' ? 'bg-emerald-50' : ''}
                   ${hl === 'red'   ? 'bg-red-50'     : ''}
-                  ${hl === 'amber' ? 'bg-amber-50'   : ''}
                 `}>
                   <td className="px-4 py-2 font-medium text-gray-600 w-52">{label}</td>
                   <td className={`px-4 py-2 text-right font-bold text-base
                     ${hl === 'green' ? 'text-emerald-700' : ''}
                     ${hl === 'red'   ? 'text-red-700'     : ''}
-                    ${hl === 'amber' ? 'text-amber-800'   : ''}
-                    ${!hl            ? 'text-gray-800'    : ''}
-                  `}>{value}</td>
+                    ${!hl           ? 'text-gray-800'    : ''}
+                  `} colSpan={2}>{value}</td>
                 </tr>
               ))}
+
+              {/* ── Activity ── */}
+              <tr className="bg-gray-50 border-b border-t-2">
+                <td colSpan={3} className="px-4 py-1.5 text-xs font-bold text-gray-400 uppercase tracking-wide">
+                  Activity
+                </td>
+              </tr>
+              <tr className="border-b">
+                <td className="px-4 py-2 font-medium text-gray-600">Total Customers</td>
+                <td className="px-4 py-2 text-right font-bold text-base text-gray-800" colSpan={2}>
+                  {c.totalCustomers}
+                </td>
+              </tr>
+              <tr className="border-b">
+                <td className="px-4 py-2 font-medium text-gray-600">Total Hours</td>
+                <td className="px-4 py-2 text-right font-bold text-base text-gray-800" colSpan={2}>
+                  {c.totalHours.toFixed(2)}h
+                </td>
+              </tr>
+
+              {/* ── Profit Analysis ── */}
+              <tr className="bg-gray-50 border-b border-t-2">
+                <td colSpan={3} className="px-4 py-1.5 text-xs font-bold text-gray-400 uppercase tracking-wide">
+                  Profit Analysis
+                </td>
+              </tr>
+
+              {/* Header row */}
+              <tr className="border-b bg-gray-100 text-xs text-gray-500 font-semibold">
+                <td className="px-4 py-1.5">Item</td>
+                <td className="px-4 py-1.5 text-right">Amount</td>
+                <td className="px-4 py-1.5 text-right">% of Net Sales</td>
+              </tr>
+
+              {/* Wages */}
+              <tr className="border-b bg-amber-50">
+                <td className="px-4 py-2 font-medium text-amber-800">Total Wages</td>
+                <td className="px-4 py-2 text-right font-bold text-amber-800">
+                  {fmtMoney(c.totalWages)}
+                </td>
+                <td className={`px-4 py-2 text-right font-bold
+                  ${c.wagesPct > 35 ? 'text-red-600' : 'text-green-600'}`}>
+                  {fmtPct(c.wagesPct)}
+                </td>
+              </tr>
+
+              {/* Purchases */}
+              <tr className="border-b">
+                <td className="px-4 py-2 font-medium text-gray-600">Total Purchases</td>
+                <td className="px-4 py-2 text-right font-bold text-gray-800">
+                  {fmtMoney(c.totalPurchases)}
+                </td>
+                <td className={`px-4 py-2 text-right font-bold
+                  ${c.purchasesPct > 30 ? 'text-red-600' : 'text-green-600'}`}>
+                  {fmtPct(c.purchasesPct)}
+                </td>
+              </tr>
+
+              {/* Gross Profit */}
+              <tr className="border-b bg-emerald-50">
+                <td className="px-4 py-2 font-semibold text-emerald-800">Gross Profit</td>
+                <td className="px-4 py-2 text-right font-bold text-emerald-800">
+                  {fmtMoney(c.grossProfit)}
+                </td>
+                <td className={`px-4 py-2 text-right font-bold
+                  ${c.grossProfitPct < 30 ? 'text-red-600' : 'text-emerald-700'}`}>
+                  {fmtPct(c.grossProfitPct)}
+                </td>
+              </tr>
+
+              {/* Overhead */}
+              <tr className="border-b">
+                <td className="px-4 py-2 font-medium text-gray-600">
+                  Overhead (weekly fixed)
+                </td>
+                <td className="px-4 py-2 text-right font-bold text-gray-800">
+                  {fmtMoney(c.overhead)}
+                </td>
+                <td className="px-4 py-2 text-right font-bold text-gray-500">
+                  {fmtPct(c.overheadPct)}
+                </td>
+              </tr>
+
+              {/* Net Profit */}
+              <tr className={`border-b border-t-2
+                ${c.netProfit >= 0 ? 'bg-emerald-100' : 'bg-red-100'}`}>
+                <td className={`px-4 py-3 font-bold text-lg
+                  ${c.netProfit >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
+                  Net Profit
+                </td>
+                <td className={`px-4 py-3 text-right font-bold text-xl
+                  ${c.netProfit >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
+                  {fmtMoney(c.netProfit)}
+                </td>
+                <td className={`px-4 py-3 text-right font-bold text-xl
+                  ${c.netProfitPct >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
+                  {fmtPct(c.netProfitPct)}
+                </td>
+              </tr>
+
             </tbody>
           </table>
         </div>
-
       </div>
 
-      {/* Settings modal */}
+      {/* Settings Modal */}
       {showSettings && settings && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 no-print">
           <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
@@ -520,6 +578,30 @@ export default function WeeklyShopReport() {
                     focus:outline-none focus:ring-2 focus:ring-blue-400"
                   placeholder="bookkeeper@example.com"
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Weekly Overhead ($)
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={settings.weekly_overhead}
+                    onChange={e => setSettings({
+                      ...settings,
+                      weekly_overhead: parseFloat(e.target.value) || 0
+                    })}
+                    className="w-full border rounded pl-7 pr-3 py-2 text-sm
+                      focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    placeholder="2000.00"
+                  />
+                </div>
+                <p className="text-xs text-gray-400 mt-1">
+                  Fixed weekly overhead used in net profit calculation
+                </p>
               </div>
               <p className="text-xs text-gray-400">
                 Email saved for future auto-send via Resend.
