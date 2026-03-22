@@ -1,37 +1,36 @@
-export const dynamic = 'force-dynamic'  // ✅ ADD THIS
+export const dynamic = 'force-dynamic'
 
-import RecordPaymentWithAllocation from './record-payment-with-allocation';
+import RecordPaymentWithAllocation from './record-payment-with-allocation'
 
 async function createServiceClient() {
-  const { createClient } = await import('@supabase/supabase-js');
+  const { createClient } = await import('@supabase/supabase-js')
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     {
       auth: { persistSession: false, autoRefreshToken: false },
     }
-  );
+  )
 }
 
 export default async function RecordPaymentPage() {
-  const supabase = await createServiceClient();
+  const supabase = await createServiceClient()
 
   const { data: customers } = await supabase
     .from('customers')
     .select('id, business_name, contact_name, balance')
-    .order('business_name');
+    .order('business_name')
 
-  // ✅ Exclude cancelled orders
-const { data: invoices } = await supabase
-  .from('orders')
-  .select('id, delivery_date, total_amount, amount_paid, customer_id, invoice_number, status')
-  .not('status', 'eq', 'cancelled')
-  .order('delivery_date', { ascending: false });
+  // ✅ Uses view — only genuinely unpaid invoices
+  const { data: invoices } = await supabase
+    .from('unpaid_orders')
+    .select('id, delivery_date, total_amount, amount_paid, customer_id, invoice_number, status')
+    .order('delivery_date', { ascending: false })
 
   return (
-    <RecordPaymentWithAllocation 
-      customers={customers || []} 
-      invoices={invoices || []}
+    <RecordPaymentWithAllocation
+      customers={customers || []}
+      invoices={invoices  || []}
     />
-  );
+  )
 }
