@@ -9,7 +9,8 @@ export default async function AdminPage() {
   const { data: { user }, error } = await supabase.auth.getUser()
   if (error || !user) redirect('/login')
 
-  const userRole = user.user_metadata?.role
+  // ✅ Use app_metadata not user_metadata
+  const userRole = (user.app_metadata as any)?.role
   if (userRole !== 'admin') redirect('/portal')
 
   const adminClient = createAdminClient()
@@ -22,7 +23,7 @@ export default async function AdminPage() {
 
   // ── Current week (Sun–Sat, Brisbane UTC+10) ────────────────────
   const nowBrisbane = new Date(Date.now() + 10 * 60 * 60 * 1000)
-  const day = nowBrisbane.getUTCDay() // 0=Sun
+  const day = nowBrisbane.getUTCDay()
   const sunday = new Date(nowBrisbane)
   sunday.setUTCDate(nowBrisbane.getUTCDate() - day)
   const weekStart = sunday.toISOString().split('T')[0]
@@ -30,7 +31,7 @@ export default async function AdminPage() {
   saturday.setUTCDate(sunday.getUTCDate() + 6)
   const weekEnd = saturday.toISOString().split('T')[0]
 
-  // ── Fetch order items to calculate ex-GST ─────────────────────
+  // ── Week revenue — exclude cancelled orders ────────────────────
   const { data: weekItems } = await adminClient
     .from('order_items')
     .select(`
@@ -38,11 +39,11 @@ export default async function AdminPage() {
       gst_applicable,
       orders!inner ( delivery_date, status )
     `)
-    .in('orders.status', ['invoiced', 'pending'])
     .gte('orders.delivery_date', weekStart)
     .lte('orders.delivery_date', weekEnd)
+    .in('orders.status', ['invoiced', 'pending'])
+    .neq('orders.status', 'cancelled')
 
-  // Ex-GST = subtotal (order_items.subtotal is already ex-GST)
   const weekRevenue = (weekItems ?? []).reduce(
     (sum, item) => sum + Number(item.subtotal ?? 0), 0
   )
