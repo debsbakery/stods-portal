@@ -9,7 +9,6 @@ import {
   formatWeekLabel, prevWeek, nextWeek
 } from '@/lib/week-utils'
 
-// ✅ STODS ONLY — added auto_gst field
 interface Shop { id: string; name: string; sort_order: number; auto_gst: boolean }
 
 interface DailyRow {
@@ -90,7 +89,6 @@ export default function WeeklyShopReport() {
   const [savingSettings, setSavingSettings] = useState(false)
   const [showSettings,   setShowSettings]   = useState(false)
   const [toast,          setToast]          = useState<{ msg: string; ok: boolean } | null>(null)
-  // 🔒 STODS ONLY — wages visibility toggle, locked by default
   const [wagesVisible,   setWagesVisible]   = useState(false)
 
   const saveTimer = useRef<NodeJS.Timeout | null>(null)
@@ -143,16 +141,12 @@ export default function WeeklyShopReport() {
     saveTimer.current = setTimeout(() => { handleSave() }, 1500)
   }
 
-  // ✅ STODS ONLY — auto_gst: when sales changes on an auto_gst shop,
-  // automatically calculate GST = sales / 11
   function updateCell(shopId: string, date: string, field: DailyKey, val: string) {
     const key   = `${shopId}_${date}`
     const value = parseFloat(val) || 0
     const shop  = shops.find(s => s.id === shopId)
-
     setDaily(prev => {
       const updated: DailyRow = { ...prev[key], [field]: value }
-      // auto-calc GST for auto_gst shops when sales changes
       if (field === 'sales' && shop?.auto_gst) {
         updated.gst = parseFloat((value / 11).toFixed(2))
       }
@@ -198,7 +192,6 @@ export default function WeeklyShopReport() {
     else showToast('❌ Failed to save settings', false)
   }
 
-  // ─── Combined Totals ───────────────────────────────────────────────────────
   function getCombined() {
     let totalSales = 0, totalGst = 0, totalEftpos = 0, totalCash = 0,
         totalPaidOut = 0, totalActualBanking = 0, totalPurchases = 0,
@@ -220,11 +213,11 @@ export default function WeeklyShopReport() {
       totalWages         += wages[shop.id] ?? 0
     })
 
-    const overhead       = settings?.weekly_overhead ?? 2000
-    const totalNetSales  = totalSales - totalGst
-    const totalVariance  = totalSales - totalEftpos - totalActualBanking - totalPaidOut
-    const grossProfit    = totalNetSales - totalPurchases
-    const netProfit      = grossProfit - totalWages - overhead
+    const overhead      = settings?.weekly_overhead ?? 2000
+    const totalNetSales = totalSales - totalGst
+    const totalVariance = totalSales - totalEftpos - totalActualBanking - totalPaidOut
+    const grossProfit   = totalNetSales - totalPurchases
+    const netProfit     = grossProfit - totalWages - overhead
 
     return {
       totalSales, totalGst, totalNetSales,
@@ -242,7 +235,6 @@ export default function WeeklyShopReport() {
 
   const c = getCombined()
 
-  // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="p-4 md:p-6 max-w-full">
 
@@ -276,9 +268,6 @@ export default function WeeklyShopReport() {
             className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm">Next ▶</button>
         </div>
         <div className="flex gap-2 ml-auto">
-
-         
-
           <button onClick={() => setShowSettings(true)}
             className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm text-gray-600">
             ⚙️ Settings
@@ -309,7 +298,7 @@ export default function WeeklyShopReport() {
 
       <div className="space-y-6">
 
-        {/* ── Per-shop grids ── */}
+        {/* Per-shop grids */}
         {shops.map(shop => {
           const rows = weekDays.map(d =>
             daily[`${shop.id}_${format(d, 'yyyy-MM-dd')}`]
@@ -324,7 +313,6 @@ export default function WeeklyShopReport() {
             <div key={shop.id} className="bg-white rounded-xl shadow border overflow-x-auto">
               <div className="bg-blue-700 text-white px-4 py-2.5 font-semibold rounded-t-xl flex items-center gap-2">
                 {shop.name}
-                {/* ✅ STODS ONLY — badge for auto_gst shops */}
                 {shop.auto_gst && (
                   <span className="text-xs bg-blue-500 text-white px-2 py-0.5 rounded-full font-normal">
                     GST auto ÷11
@@ -343,7 +331,6 @@ export default function WeeklyShopReport() {
                 </thead>
                 <tbody>
                   {FIELDS.map(({ key, label, isMoney }) => {
-                    // ✅ STODS ONLY — GST row is read-only + highlighted for auto_gst shops
                     const isAutoGst = key === 'gst' && shop.auto_gst
                     return (
                       <tr key={key} className="border-b hover:bg-gray-50">
@@ -356,7 +343,6 @@ export default function WeeklyShopReport() {
                         {rows.map((row, i) => (
                           <td key={i} className="px-1 py-1">
                             {isAutoGst ? (
-                              // read-only display for auto-calculated GST
                               <div className="w-full border border-blue-100 bg-blue-50 rounded px-1.5 py-1 text-right text-sm text-blue-600">
                                 {fmtMoney(row.gst)}
                               </div>
@@ -413,7 +399,7 @@ export default function WeeklyShopReport() {
                     </td>
                   </tr>
 
-                  {/* 🔒 Wages row — masked when wagesVisible = false */}
+                  {/* Wages row — masked when wagesVisible = false */}
                   <tr className="bg-amber-50 border-t-2 border-amber-200">
                     <td className="px-3 py-2 font-semibold text-amber-800 text-xs">
                       Wages<br/>
@@ -421,7 +407,6 @@ export default function WeeklyShopReport() {
                     </td>
                     <td colSpan={7} className="px-2 py-1">
                       {wagesVisible ? (
-                        // UNLOCKED — show editable input
                         <div className="flex items-center gap-2 no-print">
                           <span className="text-gray-400 text-sm">$</span>
                           <input
@@ -434,25 +419,19 @@ export default function WeeklyShopReport() {
                           />
                         </div>
                       ) : (
-                        // LOCKED — show dots on screen
                         <span className="no-print text-amber-300 tracking-widest text-lg select-none">
                           ••••••
                         </span>
                       )}
-                      {/* Print always shows real value */}
                       <span className="print-show text-sm font-medium text-amber-800">
                         {fmtMoney(shopWages)}
                       </span>
                     </td>
-                    {/* Total wages cell */}
                     <td className="px-3 py-2 text-right font-bold bg-amber-100 text-amber-900 text-sm">
-                      {wagesVisible ? (
-                        fmtMoney(shopWages)
-                      ) : (
-                        // LOCKED — dots on screen
-                        <span className="no-print text-amber-300 tracking-widest select-none">••••</span>
-                      )}
-                      {/* Print always shows real value */}
+                      {wagesVisible
+                        ? fmtMoney(shopWages)
+                        : <span className="no-print text-amber-300 tracking-widest select-none">••••</span>
+                      }
                       <span className="print-show">{fmtMoney(shopWages)}</span>
                     </td>
                   </tr>
@@ -463,30 +442,28 @@ export default function WeeklyShopReport() {
           )
         })}
 
-        {/* ── Combined Totals — wages ALWAYS visible here ── */}
+        {/* Combined Totals */}
         <div className="bg-white rounded-xl shadow border overflow-x-auto">
           <div className="bg-gray-800 text-white px-4 py-2.5 font-semibold rounded-t-xl">
             Combined — All Shops
           </div>
           <table className="w-full text-sm">
             <tbody>
-
-              {/* Takings */}
               <tr className="bg-gray-50 border-b">
                 <td colSpan={3} className="px-4 py-1.5 text-xs font-bold text-gray-400 uppercase tracking-wide">
                   Takings
                 </td>
               </tr>
               {[
-                { label: 'Total Sales',           value: fmtMoney(c.totalSales),         hl: ''      },
-                { label: 'Total GST',             value: fmtMoney(c.totalGst),           hl: ''      },
-                { label: 'Net Sales',             value: fmtMoney(c.totalNetSales),      hl: 'green' },
-                { label: 'Total Eftpos',          value: fmtMoney(c.totalEftpos),        hl: ''      },
-                { label: 'Total Cash',            value: fmtMoney(c.totalCash),          hl: ''      },
-                { label: 'Total Paid Out',        value: fmtMoney(c.totalPaidOut),       hl: ''      },
-                { label: 'Total Actual Banking',  value: fmtMoney(c.totalActualBanking), hl: ''      },
-                { label: 'Total Purchases',       value: fmtMoney(c.totalPurchases),     hl: ''      },
-                { label: 'Variance',              value: fmtMoney(c.totalVariance),
+                { label: 'Total Sales',          value: fmtMoney(c.totalSales),         hl: ''      },
+                { label: 'Total GST',            value: fmtMoney(c.totalGst),           hl: ''      },
+                { label: 'Net Sales',            value: fmtMoney(c.totalNetSales),      hl: 'green' },
+                { label: 'Total Eftpos',         value: fmtMoney(c.totalEftpos),        hl: ''      },
+                { label: 'Total Cash',           value: fmtMoney(c.totalCash),          hl: ''      },
+                { label: 'Total Paid Out',       value: fmtMoney(c.totalPaidOut),       hl: ''      },
+                { label: 'Total Actual Banking', value: fmtMoney(c.totalActualBanking), hl: ''      },
+                { label: 'Total Purchases',      value: fmtMoney(c.totalPurchases),     hl: ''      },
+                { label: 'Variance',             value: fmtMoney(c.totalVariance),
                   hl: c.totalVariance !== 0 ? 'red' : 'green' },
               ].map(({ label, value, hl }) => (
                 <tr key={label} className={`border-b
@@ -502,7 +479,6 @@ export default function WeeklyShopReport() {
                 </tr>
               ))}
 
-              {/* Activity */}
               <tr className="bg-gray-50 border-b border-t-2">
                 <td colSpan={3} className="px-4 py-1.5 text-xs font-bold text-gray-400 uppercase tracking-wide">
                   Activity
@@ -521,7 +497,6 @@ export default function WeeklyShopReport() {
                 </td>
               </tr>
 
-              {/* Profit Analysis */}
               <tr className="bg-gray-50 border-b border-t-2">
                 <td colSpan={3} className="px-4 py-1.5 text-xs font-bold text-gray-400 uppercase tracking-wide">
                   Profit Analysis
@@ -532,8 +507,6 @@ export default function WeeklyShopReport() {
                 <td className="px-4 py-1.5 text-right">Amount</td>
                 <td className="px-4 py-1.5 text-right">% of Net Sales</td>
               </tr>
-
-              {/* ✅ Total Wages — ALWAYS VISIBLE, never masked */}
               <tr className="border-b bg-amber-50">
                 <td className="px-4 py-2 font-medium text-amber-800">Total Wages</td>
                 <td className="px-4 py-2 text-right font-bold text-amber-800">
@@ -544,8 +517,6 @@ export default function WeeklyShopReport() {
                   {fmtPct(c.wagesPct)}
                 </td>
               </tr>
-
-              {/* Purchases */}
               <tr className="border-b">
                 <td className="px-4 py-2 font-medium text-gray-600">Total Purchases</td>
                 <td className="px-4 py-2 text-right font-bold text-gray-800">
@@ -556,8 +527,6 @@ export default function WeeklyShopReport() {
                   {fmtPct(c.purchasesPct)}
                 </td>
               </tr>
-
-              {/* Gross Profit */}
               <tr className="border-b bg-emerald-50">
                 <td className="px-4 py-2 font-semibold text-emerald-800">Gross Profit</td>
                 <td className="px-4 py-2 text-right font-bold text-emerald-800">
@@ -568,8 +537,6 @@ export default function WeeklyShopReport() {
                   {fmtPct(c.grossProfitPct)}
                 </td>
               </tr>
-
-              {/* Overhead */}
               <tr className="border-b">
                 <td className="px-4 py-2 font-medium text-gray-600">Overhead (weekly fixed)</td>
                 <td className="px-4 py-2 text-right font-bold text-gray-800">
@@ -579,47 +546,23 @@ export default function WeeklyShopReport() {
                   {fmtPct(c.overheadPct)}
                 </td>
               </tr>
-
-              {/* Net Profit */}
-              <tr className={`border-b border-t-2
-                ${c.netProfit >= 0 ? 'bg-emerald-100' : 'bg-red-100'}`}>
-                <td className={`px-4 py-3 font-bold text-lg
-                  ${c.netProfit >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
+              <tr className={`border-b border-t-2 ${c.netProfit >= 0 ? 'bg-emerald-100' : 'bg-red-100'}`}>
+                <td className={`px-4 py-3 font-bold text-lg ${c.netProfit >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
                   Net Profit
                 </td>
-                <td className={`px-4 py-3 text-right font-bold text-xl
-                  ${c.netProfit >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
+                <td className={`px-4 py-3 text-right font-bold text-xl ${c.netProfit >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
                   {fmtMoney(c.netProfit)}
                 </td>
-                <td className={`px-4 py-3 text-right font-bold text-xl
-                  ${c.netProfitPct >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
+                <td className={`px-4 py-3 text-right font-bold text-xl ${c.netProfitPct >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
                   {fmtPct(c.netProfitPct)}
                 </td>
               </tr>
-
             </tbody>
           </table>
         </div>
       </div>
 
       {/* Settings Modal */}
-    {/* Wages visibility toggle — inside settings */}
-<div className="flex items-center justify-between py-2 border-t mt-2">
-  <div>
-    <p className="text-sm font-medium text-gray-700">Show Individual Wages</p>
-    <p className="text-xs text-gray-400">When off, wages per shop are hidden on screen</p>
-  </div>
-  <button
-    type="button"
-    onClick={() => setWagesVisible(v => !v)}
-    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors
-      ${wagesVisible ? 'bg-blue-600' : 'bg-gray-300'}`}
-  >
-    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
-      ${wagesVisible ? 'translate-x-6' : 'translate-x-1'}`}
-    />
-  </button>
-</div>
       {showSettings && settings && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 no-print">
           <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
@@ -660,6 +603,25 @@ export default function WeeklyShopReport() {
                 <p className="text-xs text-gray-400 mt-1">Fixed weekly overhead used in net profit calculation</p>
               </div>
               <p className="text-xs text-gray-400">Email saved for future auto-send via Resend.</p>
+
+              {/* Wages visibility toggle */}
+              <div className="flex items-center justify-between py-2 border-t mt-2">
+                <div>
+                  <p className="text-sm font-medium text-gray-700">Show Individual Wages</p>
+                  <p className="text-xs text-gray-400">When off, wages per shop are hidden on screen</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setWagesVisible(v => !v)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors
+                    ${wagesVisible ? 'bg-blue-600' : 'bg-gray-300'}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
+                    ${wagesVisible ? 'translate-x-6' : 'translate-x-1'}`}
+                  />
+                </button>
+              </div>
+
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setShowSettings(false)}
                   className="px-4 py-2 border rounded text-sm hover:bg-gray-50">Cancel</button>
