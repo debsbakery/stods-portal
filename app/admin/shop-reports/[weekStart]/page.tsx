@@ -1,4 +1,4 @@
-// app/admin/shop-reports/[weekStart]/page.tsx
+// app/admin/shop-reports/[weekStart]/page.tsx  — STODS ONLY
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
@@ -9,12 +9,13 @@ import {
   formatWeekLabel, prevWeek, nextWeek
 } from '@/lib/week-utils'
 
-interface Shop { 
+interface Shop {
   id: string
   name: string
   sort_order: number
-  auto_gst: boolean   // ← ADD
+  auto_gst: boolean
 }
+
 interface DailyRow {
   shop_id: string
   report_date: string
@@ -145,21 +146,21 @@ export default function WeeklyShopReport() {
   }
 
   function updateCell(shopId: string, date: string, field: DailyKey, val: string) {
-  const key   = `${shopId}_${date}`
-  const value = parseFloat(val) || 0
-  const shop  = shops.find(s => s.id === shopId)
+    const key   = `${shopId}_${date}`
+    const value = parseFloat(val) || 0
+    const shop  = shops.find(s => s.id === shopId)
 
-  setDaily(prev => {
-    const updated = { ...prev[key], [field]: value }
-    // Auto-calculate GST as sales / 11 for van shops
-    if (field === 'sales' && shop?.auto_gst) {
-      updated.gst = parseFloat((value / 11).toFixed(2))
-    }
-    return { ...prev, [key]: updated }
-  })
-  setIsDirty(true)
-  triggerAutoSave()
-}
+    setDaily(prev => {
+      const updated = { ...prev[key], [field]: value }
+      // Auto-calculate GST = sales / 11 for van shops only
+      if (field === 'sales' && shop?.auto_gst) {
+        updated.gst = parseFloat((value / 11).toFixed(2))
+      }
+      return { ...prev, [key]: updated }
+    })
+    setIsDirty(true)
+    triggerAutoSave()
+  }
 
   function updateWage(shopId: string, val: string) {
     setWages(prev => ({ ...prev, [shopId]: parseFloat(val) || 0 }))
@@ -197,7 +198,6 @@ export default function WeeklyShopReport() {
     else showToast('❌ Failed to save settings', false)
   }
 
-  // ─── Combined Totals ───────────────────────────────────────────────────────
   function getCombined() {
     let totalSales = 0, totalGst = 0, totalEftpos = 0, totalCash = 0,
         totalPaidOut = 0, totalActualBanking = 0, totalPurchases = 0,
@@ -219,11 +219,11 @@ export default function WeeklyShopReport() {
       totalWages         += wages[shop.id] ?? 0
     })
 
-    const overhead       = settings?.weekly_overhead ?? 2000
-    const totalNetSales  = totalSales - totalGst
-    const totalVariance  = totalSales - totalEftpos - totalActualBanking - totalPaidOut
-    const grossProfit    = totalNetSales - totalPurchases
-    const netProfit      = grossProfit - totalWages - overhead
+    const overhead      = settings?.weekly_overhead ?? 2000
+    const totalNetSales = totalSales - totalGst
+    const totalVariance = totalSales - totalEftpos - totalActualBanking - totalPaidOut
+    const grossProfit   = totalNetSales - totalPurchases
+    const netProfit     = grossProfit - totalWages - overhead
 
     return {
       totalSales, totalGst, totalNetSales,
@@ -231,18 +231,16 @@ export default function WeeklyShopReport() {
       totalPurchases, totalVariance,
       totalCustomers, totalHours, totalWages, overhead,
       grossProfit, netProfit,
-      // percentages
-      wagesPct:       pct(totalWages,    totalNetSales),
-      purchasesPct:   pct(totalPurchases, totalNetSales),
-      grossProfitPct: pct(grossProfit,    totalNetSales),
-      overheadPct:    pct(overhead,       totalNetSales),
-      netProfitPct:   pct(netProfit,      totalNetSales),
+      wagesPct:       pct(totalWages,     totalNetSales),
+      purchasesPct:   pct(totalPurchases,  totalNetSales),
+      grossProfitPct: pct(grossProfit,     totalNetSales),
+      overheadPct:    pct(overhead,        totalNetSales),
+      netProfitPct:   pct(netProfit,       totalNetSales),
     }
   }
 
   const c = getCombined()
 
-  // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="p-4 md:p-6 max-w-full">
 
@@ -318,6 +316,11 @@ export default function WeeklyShopReport() {
             <div key={shop.id} className="bg-white rounded-xl shadow border overflow-x-auto">
               <div className="bg-blue-700 text-white px-4 py-2.5 font-semibold rounded-t-xl">
                 {shop.name}
+                {shop.auto_gst && (
+                  <span className="ml-2 text-xs bg-blue-500 px-2 py-0.5 rounded-full">
+                    GST auto
+                  </span>
+                )}
               </div>
               <table className="w-full text-sm min-w-[700px]">
                 <thead>
@@ -332,30 +335,33 @@ export default function WeeklyShopReport() {
                 <tbody>
                   {FIELDS.map(({ key, label, isMoney }) => (
                     <tr key={key} className="border-b hover:bg-gray-50">
-                    {rows.map((row, i) => (
-  <td key={i} className="px-1 py-1">
-    {key === 'gst' && shop.auto_gst ? (
-      // Read-only calculated GST for van shops
-      <div className="w-full px-1.5 py-1 text-right text-xs font-medium
-        text-emerald-700 bg-emerald-50 rounded border border-emerald-200">
-        {fmtMoney(row.gst)}
-      </div>
-    ) : (
-      <input
-        type="number" min="0"
-        step={key === 'customer_count' ? '1' : '0.01'}
-        value={row[key] === 0 ? '' : row[key]}
-        onChange={e => updateCell(shop.id, row.report_date, key, e.target.value)}
-        placeholder="0"
-        className="no-print w-full border rounded px-1.5 py-1 text-right text-sm
-          focus:outline-none focus:ring-1 focus:ring-blue-400"
-      />
-    )}
-    <span className="hidden print:block text-right text-xs">
-      {isMoney ? fmtMoney(row[key] as number) : row[key] || '—'}
-    </span>
-  </td>
-))}
+                      <td className="px-3 py-1 font-medium text-gray-500 text-xs">{label}</td>
+                      {rows.map((row, i) => (
+                        <td key={i} className="px-1 py-1">
+                          {/* GST read-only for auto_gst shops */}
+                          {key === 'gst' && shop.auto_gst ? (
+                            <div className="w-full px-1.5 py-1 text-right text-xs font-medium
+                              text-emerald-700 bg-emerald-50 rounded border border-emerald-200">
+                              {fmtMoney(row.gst)}
+                            </div>
+                          ) : (
+                            <input
+                              type="number" min="0"
+                              step={key === 'customer_count' ? '1' : '0.01'}
+                              value={row[key] === 0 ? '' : row[key]}
+                              onChange={e =>
+                                updateCell(shop.id, row.report_date, key, e.target.value)
+                              }
+                              placeholder="0"
+                              className="no-print w-full border rounded px-1.5 py-1 text-right text-sm
+                                focus:outline-none focus:ring-1 focus:ring-blue-400"
+                            />
+                          )}
+                          <span className="hidden print:block text-right text-xs">
+                            {isMoney ? fmtMoney(row[key] as number) : row[key] || '—'}
+                          </span>
+                        </td>
+                      ))}
                       <td className="px-3 py-1 text-right font-semibold bg-blue-50 text-blue-900 text-sm">
                         {isMoney ? fmtMoney(colSum(rows, key))
                           : key === 'hours' ? colSum(rows, key).toFixed(2)
@@ -424,30 +430,29 @@ export default function WeeklyShopReport() {
           )
         })}
 
-        {/* ── Combined Totals ── */}
+        {/* Combined Totals */}
         <div className="bg-white rounded-xl shadow border overflow-x-auto">
           <div className="bg-gray-800 text-white px-4 py-2.5 font-semibold rounded-t-xl">
             Combined — All Shops
           </div>
           <table className="w-full text-sm">
             <tbody>
-
-              {/* ── Takings ── */}
+              {/* Takings */}
               <tr className="bg-gray-50 border-b">
                 <td colSpan={3} className="px-4 py-1.5 text-xs font-bold text-gray-400 uppercase tracking-wide">
                   Takings
                 </td>
               </tr>
               {[
-                { label: 'Total Sales',           value: fmtMoney(c.totalSales),         hl: ''      },
-                { label: 'Total GST',             value: fmtMoney(c.totalGst),           hl: ''      },
-                { label: 'Net Sales',             value: fmtMoney(c.totalNetSales),      hl: 'green' },
-                { label: 'Total Eftpos',          value: fmtMoney(c.totalEftpos),        hl: ''      },
-                { label: 'Total Cash',            value: fmtMoney(c.totalCash),          hl: ''      },
-                { label: 'Total Paid Out',        value: fmtMoney(c.totalPaidOut),       hl: ''      },
-                { label: 'Total Actual Banking',  value: fmtMoney(c.totalActualBanking), hl: ''      },
-                { label: 'Total Purchases',       value: fmtMoney(c.totalPurchases),     hl: ''      },
-                { label: 'Variance',              value: fmtMoney(c.totalVariance),
+                { label: 'Total Sales',          value: fmtMoney(c.totalSales),         hl: ''      },
+                { label: 'Total GST',            value: fmtMoney(c.totalGst),           hl: ''      },
+                { label: 'Net Sales',            value: fmtMoney(c.totalNetSales),      hl: 'green' },
+                { label: 'Total Eftpos',         value: fmtMoney(c.totalEftpos),        hl: ''      },
+                { label: 'Total Cash',           value: fmtMoney(c.totalCash),          hl: ''      },
+                { label: 'Total Paid Out',       value: fmtMoney(c.totalPaidOut),       hl: ''      },
+                { label: 'Total Actual Banking', value: fmtMoney(c.totalActualBanking), hl: ''      },
+                { label: 'Total Purchases',      value: fmtMoney(c.totalPurchases),     hl: ''      },
+                { label: 'Variance',             value: fmtMoney(c.totalVariance),
                   hl: c.totalVariance !== 0 ? 'red' : 'green' },
               ].map(({ label, value, hl }) => (
                 <tr key={label} className={`border-b
@@ -463,7 +468,7 @@ export default function WeeklyShopReport() {
                 </tr>
               ))}
 
-              {/* ── Activity ── */}
+              {/* Activity */}
               <tr className="bg-gray-50 border-b border-t-2">
                 <td colSpan={3} className="px-4 py-1.5 text-xs font-bold text-gray-400 uppercase tracking-wide">
                   Activity
@@ -482,72 +487,52 @@ export default function WeeklyShopReport() {
                 </td>
               </tr>
 
-              {/* ── Profit Analysis ── */}
+              {/* Profit Analysis */}
               <tr className="bg-gray-50 border-b border-t-2">
                 <td colSpan={3} className="px-4 py-1.5 text-xs font-bold text-gray-400 uppercase tracking-wide">
                   Profit Analysis
                 </td>
               </tr>
-
-              {/* Header row */}
               <tr className="border-b bg-gray-100 text-xs text-gray-500 font-semibold">
                 <td className="px-4 py-1.5">Item</td>
                 <td className="px-4 py-1.5 text-right">Amount</td>
                 <td className="px-4 py-1.5 text-right">% of Net Sales</td>
               </tr>
 
-              {/* Wages */}
               <tr className="border-b bg-amber-50">
                 <td className="px-4 py-2 font-medium text-amber-800">Total Wages</td>
-                <td className="px-4 py-2 text-right font-bold text-amber-800">
-                  {fmtMoney(c.totalWages)}
-                </td>
+                <td className="px-4 py-2 text-right font-bold text-amber-800">{fmtMoney(c.totalWages)}</td>
                 <td className={`px-4 py-2 text-right font-bold
                   ${c.wagesPct > 35 ? 'text-red-600' : 'text-green-600'}`}>
                   {fmtPct(c.wagesPct)}
                 </td>
               </tr>
 
-              {/* Purchases */}
               <tr className="border-b">
                 <td className="px-4 py-2 font-medium text-gray-600">Total Purchases</td>
-                <td className="px-4 py-2 text-right font-bold text-gray-800">
-                  {fmtMoney(c.totalPurchases)}
-                </td>
+                <td className="px-4 py-2 text-right font-bold text-gray-800">{fmtMoney(c.totalPurchases)}</td>
                 <td className={`px-4 py-2 text-right font-bold
                   ${c.purchasesPct > 30 ? 'text-red-600' : 'text-green-600'}`}>
                   {fmtPct(c.purchasesPct)}
                 </td>
               </tr>
 
-              {/* Gross Profit */}
               <tr className="border-b bg-emerald-50">
                 <td className="px-4 py-2 font-semibold text-emerald-800">Gross Profit</td>
-                <td className="px-4 py-2 text-right font-bold text-emerald-800">
-                  {fmtMoney(c.grossProfit)}
-                </td>
+                <td className="px-4 py-2 text-right font-bold text-emerald-800">{fmtMoney(c.grossProfit)}</td>
                 <td className={`px-4 py-2 text-right font-bold
                   ${c.grossProfitPct < 30 ? 'text-red-600' : 'text-emerald-700'}`}>
                   {fmtPct(c.grossProfitPct)}
                 </td>
               </tr>
 
-              {/* Overhead */}
               <tr className="border-b">
-                <td className="px-4 py-2 font-medium text-gray-600">
-                  Overhead (weekly fixed)
-                </td>
-                <td className="px-4 py-2 text-right font-bold text-gray-800">
-                  {fmtMoney(c.overhead)}
-                </td>
-                <td className="px-4 py-2 text-right font-bold text-gray-500">
-                  {fmtPct(c.overheadPct)}
-                </td>
+                <td className="px-4 py-2 font-medium text-gray-600">Overhead (weekly fixed)</td>
+                <td className="px-4 py-2 text-right font-bold text-gray-800">{fmtMoney(c.overhead)}</td>
+                <td className="px-4 py-2 text-right font-bold text-gray-500">{fmtPct(c.overheadPct)}</td>
               </tr>
 
-              {/* Net Profit */}
-              <tr className={`border-b border-t-2
-                ${c.netProfit >= 0 ? 'bg-emerald-100' : 'bg-red-100'}`}>
+              <tr className={`border-b border-t-2 ${c.netProfit >= 0 ? 'bg-emerald-100' : 'bg-red-100'}`}>
                 <td className={`px-4 py-3 font-bold text-lg
                   ${c.netProfit >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
                   Net Profit
@@ -577,27 +562,19 @@ export default function WeeklyShopReport() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Bookkeeper Name
                 </label>
-                <input
-                  type="text"
-                  value={settings.bookkeeper_name}
+                <input type="text" value={settings.bookkeeper_name}
                   onChange={e => setSettings({ ...settings, bookkeeper_name: e.target.value })}
-                  className="w-full border rounded px-3 py-2 text-sm
-                    focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  placeholder="e.g. Jane Smith"
-                />
+                  className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  placeholder="e.g. Jane Smith" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Bookkeeper Email
                 </label>
-                <input
-                  type="email"
-                  value={settings.bookkeeper_email}
+                <input type="email" value={settings.bookkeeper_email}
                   onChange={e => setSettings({ ...settings, bookkeeper_email: e.target.value })}
-                  className="w-full border rounded px-3 py-2 text-sm
-                    focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  placeholder="bookkeeper@example.com"
-                />
+                  className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  placeholder="bookkeeper@example.com" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -605,35 +582,21 @@ export default function WeeklyShopReport() {
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
+                  <input type="number" min="0" step="0.01"
                     value={settings.weekly_overhead}
                     onChange={e => setSettings({
-                      ...settings,
-                      weekly_overhead: parseFloat(e.target.value) || 0
+                      ...settings, weekly_overhead: parseFloat(e.target.value) || 0
                     })}
-                    className="w-full border rounded pl-7 pr-3 py-2 text-sm
-                      focus:outline-none focus:ring-2 focus:ring-blue-400"
-                    placeholder="2000.00"
-                  />
+                    className="w-full border rounded pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    placeholder="2000.00" />
                 </div>
-                <p className="text-xs text-gray-400 mt-1">
-                  Fixed weekly overhead used in net profit calculation
-                </p>
+                <p className="text-xs text-gray-400 mt-1">Fixed weekly overhead for net profit calculation</p>
               </div>
-              <p className="text-xs text-gray-400">
-                Email saved for future auto-send via Resend.
-              </p>
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setShowSettings(false)}
-                  className="px-4 py-2 border rounded text-sm hover:bg-gray-50">
-                  Cancel
-                </button>
+                  className="px-4 py-2 border rounded text-sm hover:bg-gray-50">Cancel</button>
                 <button type="submit" disabled={savingSettings}
-                  className="px-4 py-2 bg-blue-600 text-white rounded text-sm
-                    hover:bg-blue-700 disabled:opacity-50">
+                  className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50">
                   {savingSettings ? 'Saving...' : 'Save Settings'}
                 </button>
               </div>
@@ -641,7 +604,6 @@ export default function WeeklyShopReport() {
           </div>
         </div>
       )}
-
     </div>
   )
 }
