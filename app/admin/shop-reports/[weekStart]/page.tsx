@@ -277,14 +277,7 @@ export default function WeeklyShopReport() {
         </div>
         <div className="flex gap-2 ml-auto">
 
-          {/* 🔒 STODS ONLY — wages visibility toggle */}
-          <button
-            onClick={() => setWagesVisible(v => !v)}
-            className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm text-gray-600"
-            title={wagesVisible ? 'Hide individual wages' : 'Show individual wages'}
-          >
-            {wagesVisible ? '🔓 Hide Wages' : '🔒 Wages'}
-          </button>
+         
 
           <button onClick={() => setShowSettings(true)}
             className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm text-gray-600">
@@ -610,6 +603,23 @@ export default function WeeklyShopReport() {
       </div>
 
       {/* Settings Modal */}
+    {/* Wages visibility toggle — inside settings */}
+<div className="flex items-center justify-between py-2 border-t mt-2">
+  <div>
+    <p className="text-sm font-medium text-gray-700">Show Individual Wages</p>
+    <p className="text-xs text-gray-400">When off, wages per shop are hidden on screen</p>
+  </div>
+  <button
+    type="button"
+    onClick={() => setWagesVisible(v => !v)}
+    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors
+      ${wagesVisible ? 'bg-blue-600' : 'bg-gray-300'}`}
+  >
+    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
+      ${wagesVisible ? 'translate-x-6' : 'translate-x-1'}`}
+    />
+  </button>
+</div>
       {showSettings && settings && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 no-print">
           <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
