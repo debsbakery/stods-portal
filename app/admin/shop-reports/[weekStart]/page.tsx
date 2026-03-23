@@ -9,8 +9,12 @@ import {
   formatWeekLabel, prevWeek, nextWeek
 } from '@/lib/week-utils'
 
-interface Shop { id: string; name: string; sort_order: number }
-
+interface Shop { 
+  id: string
+  name: string
+  sort_order: number
+  auto_gst: boolean   // ← ADD
+}
 interface DailyRow {
   shop_id: string
   report_date: string
@@ -141,12 +145,21 @@ export default function WeeklyShopReport() {
   }
 
   function updateCell(shopId: string, date: string, field: DailyKey, val: string) {
-    const key   = `${shopId}_${date}`
-    const value = parseFloat(val) || 0
-    setDaily(prev => ({ ...prev, [key]: { ...prev[key], [field]: value } }))
-    setIsDirty(true)
-    triggerAutoSave()
-  }
+  const key   = `${shopId}_${date}`
+  const value = parseFloat(val) || 0
+  const shop  = shops.find(s => s.id === shopId)
+
+  setDaily(prev => {
+    const updated = { ...prev[key], [field]: value }
+    // Auto-calculate GST as sales / 11 for van shops
+    if (field === 'sales' && shop?.auto_gst) {
+      updated.gst = parseFloat((value / 11).toFixed(2))
+    }
+    return { ...prev, [key]: updated }
+  })
+  setIsDirty(true)
+  triggerAutoSave()
+}
 
   function updateWage(shopId: string, val: string) {
     setWages(prev => ({ ...prev, [shopId]: parseFloat(val) || 0 }))
@@ -319,23 +332,30 @@ export default function WeeklyShopReport() {
                 <tbody>
                   {FIELDS.map(({ key, label, isMoney }) => (
                     <tr key={key} className="border-b hover:bg-gray-50">
-                      <td className="px-3 py-1 font-medium text-gray-500 text-xs">{label}</td>
-                      {rows.map((row, i) => (
-                        <td key={i} className="px-1 py-1">
-                          <input
-                            type="number" min="0"
-                            step={key === 'customer_count' ? '1' : '0.01'}
-                            value={row[key] === 0 ? '' : row[key]}
-                            onChange={e => updateCell(shop.id, row.report_date, key, e.target.value)}
-                            placeholder="0"
-                            className="no-print w-full border rounded px-1.5 py-1 text-right text-sm
-                              focus:outline-none focus:ring-1 focus:ring-blue-400"
-                          />
-                          <span className="hidden print:block text-right text-xs">
-                            {isMoney ? fmtMoney(row[key] as number) : row[key] || '—'}
-                          </span>
-                        </td>
-                      ))}
+                    {rows.map((row, i) => (
+  <td key={i} className="px-1 py-1">
+    {key === 'gst' && shop.auto_gst ? (
+      // Read-only calculated GST for van shops
+      <div className="w-full px-1.5 py-1 text-right text-xs font-medium
+        text-emerald-700 bg-emerald-50 rounded border border-emerald-200">
+        {fmtMoney(row.gst)}
+      </div>
+    ) : (
+      <input
+        type="number" min="0"
+        step={key === 'customer_count' ? '1' : '0.01'}
+        value={row[key] === 0 ? '' : row[key]}
+        onChange={e => updateCell(shop.id, row.report_date, key, e.target.value)}
+        placeholder="0"
+        className="no-print w-full border rounded px-1.5 py-1 text-right text-sm
+          focus:outline-none focus:ring-1 focus:ring-blue-400"
+      />
+    )}
+    <span className="hidden print:block text-right text-xs">
+      {isMoney ? fmtMoney(row[key] as number) : row[key] || '—'}
+    </span>
+  </td>
+))}
                       <td className="px-3 py-1 text-right font-semibold bg-blue-50 text-blue-900 text-sm">
                         {isMoney ? fmtMoney(colSum(rows, key))
                           : key === 'hours' ? colSum(rows, key).toFixed(2)
