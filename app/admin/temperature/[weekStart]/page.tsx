@@ -17,17 +17,17 @@ interface Equipment {
 }
 
 const EQUIPMENT: Equipment[] = [
-  { name: 'Cold Display',      minTemp: 0,   maxTemp: 5,   type: 'cold'    },
-  { name: 'Drink Fridge 1',    minTemp: 0,   maxTemp: 5,   type: 'cold'    },
-  { name: 'Drink Fridge 2',    minTemp: 0,   maxTemp: 5,   type: 'cold'    },
-  { name: 'Bain Marie',        minTemp: 60,  maxTemp: 85,  type: 'hot'     },
-  { name: 'Pie Warmer',        minTemp: 60,  maxTemp: 85,  type: 'hot'     },
-  { name: 'Cold Room 1',       minTemp: 0,   maxTemp: 5,   type: 'cold'    },
-  { name: 'Small Freezer 1',   minTemp: -25, maxTemp: -12, type: 'freezer' },
-  { name: 'Small Freezer 2',   minTemp: -25, maxTemp: -12, type: 'freezer' },
-  { name: 'Small Fridge',      minTemp: 0,   maxTemp: 5,   type: 'cold'    },
-  { name: 'Large Freezer',     minTemp: -25, maxTemp: -12, type: 'freezer' },
-  { name: 'Upstairs Cold Room',minTemp: 0,   maxTemp: 5,   type: 'cold'    },
+  { name: 'Cold Display',       minTemp: 0,   maxTemp: 5,   type: 'cold'    },
+  { name: 'Drink Fridge 1',     minTemp: 0,   maxTemp: 5,   type: 'cold'    },
+  { name: 'Drink Fridge 2',     minTemp: 0,   maxTemp: 5,   type: 'cold'    },
+  { name: 'Bain Marie',         minTemp: 60,  maxTemp: 85,  type: 'hot'     },
+  { name: 'Pie Warmer',         minTemp: 60,  maxTemp: 85,  type: 'hot'     },
+  { name: 'Cold Room 1',        minTemp: 0,   maxTemp: 5,   type: 'cold'    },
+  { name: 'Small Freezer 1',    minTemp: -25, maxTemp: -12, type: 'freezer' },
+  { name: 'Small Freezer 2',    minTemp: -25, maxTemp: -12, type: 'freezer' },
+  { name: 'Small Fridge',       minTemp: 0,   maxTemp: 5,   type: 'cold'    },
+  { name: 'Large Freezer',      minTemp: -25, maxTemp: -12, type: 'freezer' },
+  { name: 'Upstairs Cold Room', minTemp: 0,   maxTemp: 5,   type: 'cold'    },
 ]
 
 /* Mon–Fri only */
@@ -38,18 +38,6 @@ function getWeekDaysMF(weekStart: Date): Date[] {
 function isOutOfRange(temp: number | null, eq: Equipment): boolean {
   if (temp === null) return false
   return temp < eq.minTemp || temp > eq.maxTemp
-}
-
-function tempBg(temp: number | null, eq: Equipment): string {
-  if (temp === null) return ''
-  if (isOutOfRange(temp, eq)) return 'bg-red-50'
-  return 'bg-green-50'
-}
-
-function tempText(temp: number | null, eq: Equipment): string {
-  if (temp === null) return 'text-gray-400'
-  if (isOutOfRange(temp, eq)) return 'text-red-600 font-bold'
-  return 'text-green-700 font-medium'
 }
 
 function equipmentBadge(type: Equipment['type']) {
@@ -66,7 +54,7 @@ function equipmentIcon(type: Equipment['type']) {
   return '🌡️'
 }
 
-type LogKey = string  // `${equipmentName}__${date}`
+type LogKey = string
 
 interface LogRow {
   week_start:     string
@@ -95,6 +83,7 @@ export default function TemperatureLog() {
   const [checkedBy, setCheckedBy] = useState<Record<string, string>>({})
   const [saving,    setSaving]    = useState(false)
   const [isDirty,   setIsDirty]   = useState(false)
+  const [loaded,    setLoaded]    = useState(false)
   const [toast,     setToast]     = useState<{ msg: string; ok: boolean } | null>(null)
 
   const saveTimer = useRef<NodeJS.Timeout | null>(null)
@@ -106,6 +95,7 @@ export default function TemperatureLog() {
 
   /* ── Load ── */
   const loadData = useCallback(async () => {
+    setLoaded(false)
     const res  = await fetch(`/api/admin/temperature/${param}`)
     const { logs: data } = await res.json()
 
@@ -116,7 +106,7 @@ export default function TemperatureLog() {
 
     EQUIPMENT.forEach(eq => {
       dateStrs.forEach(date => {
-        const key     = logKey(eq.name, date)
+        const key      = logKey(eq.name, date)
         const existing = (data ?? []).find(
           (r: LogRow) => r.equipment_name === eq.name && r.log_date === date
         )
@@ -135,6 +125,7 @@ export default function TemperatureLog() {
     setLogs(logMap)
     setCheckedBy(cbMap)
     setIsDirty(false)
+    setLoaded(true)
   }, [param])
 
   useEffect(() => { loadData() }, [loadData])
@@ -164,7 +155,9 @@ export default function TemperatureLog() {
       const updated = { ...prev }
       EQUIPMENT.forEach(eq => {
         const key = logKey(eq.name, date)
-        updated[key] = { ...updated[key], checked_by: val }
+        if (updated[key]) {
+          updated[key] = { ...updated[key], checked_by: val }
+        }
       })
       return updated
     })
@@ -172,13 +165,18 @@ export default function TemperatureLog() {
     triggerAutoSave()
   }
 
-  /* ── Update notes ── */
-  function updateNotes(name: string, date: string, val: string) {
-    const key = logKey(name, date)
-    setLogs(prev => ({
-      ...prev,
-      [key]: { ...prev[key], notes: val }
-    }))
+  /* ── Update daily notes — applies to all equipment on that day ── */
+  function updateDayNotes(date: string, val: string) {
+    setLogs(prev => {
+      const updated = { ...prev }
+      EQUIPMENT.forEach(eq => {
+        const key = logKey(eq.name, date)
+        if (updated[key]) {
+          updated[key] = { ...updated[key], notes: val }
+        }
+      })
+      return updated
+    })
     setIsDirty(true)
     triggerAutoSave()
   }
@@ -197,15 +195,17 @@ export default function TemperatureLog() {
     else showToast('❌ Save failed', false)
   }
 
-  /* ── Counts for summary ── */
+  /* ── Alert count ── */
   function getAlertCount() {
-    return Object.values(logs).filter(r =>
-      r.temperature !== null &&
-      isOutOfRange(r.temperature, EQUIPMENT.find(e => e.name === r.equipment_name)!)
-    ).length
+    if (!loaded) return 0
+    return Object.values(logs).filter(r => {
+      const eq = EQUIPMENT.find(e => e.name === r.equipment_name)
+      return eq !== undefined && r.temperature !== null && isOutOfRange(r.temperature, eq)
+    }).length
   }
 
   const alertCount = getAlertCount()
+  const hasAnyTemp = loaded && Object.values(logs).some(r => r.temperature !== null)
 
   /* ════════════════════════════════════════════════════════════════════
      RENDER
@@ -213,13 +213,13 @@ export default function TemperatureLog() {
   return (
     <div className="p-4 md:p-6 max-w-full">
 
-      <style>{`
+      ```<user-input>{`
         @media print {
           .no-print { display: none !important; }
           body { font-size: 10px; }
           table { page-break-inside: avoid; }
         }
-      `}</style>
+      `}</user-input>
 
       {/* Toast */}
       {toast && (
@@ -251,14 +251,14 @@ export default function TemperatureLog() {
         </div>
 
         <div className="flex gap-2 ml-auto items-center">
-          {alertCount > 0 && (
+          {loaded && alertCount > 0 && (
             <span className="px-3 py-1.5 bg-red-100 text-red-700 rounded text-sm font-medium">
-              ⚠️ {alertCount} temp alert{alertCount > 1 ? 's' : ''}
+              ⚠️ {alertCount} alert{alertCount > 1 ? 's' : ''}
             </span>
           )}
-          {alertCount === 0 && Object.values(logs).some(r => r.temperature !== null) && (
+          {loaded && alertCount === 0 && hasAnyTemp && (
             <span className="px-3 py-1.5 bg-green-100 text-green-700 rounded text-sm font-medium">
-              ✅ All temps in range
+              ✅ All in range
             </span>
           )}
           <button onClick={() => window.print()}
@@ -267,8 +267,8 @@ export default function TemperatureLog() {
           </button>
           <button onClick={handleSave} disabled={saving}
             className={`px-4 py-1.5 rounded text-sm font-medium transition-colors
-              ${saving   ? 'bg-blue-400 text-white cursor-wait'
-              : isDirty  ? 'bg-blue-600 text-white hover:bg-blue-700'
+              ${saving  ? 'bg-blue-400 text-white cursor-wait'
+              : isDirty ? 'bg-blue-600 text-white hover:bg-blue-700'
               : 'bg-green-600 text-white'}`}>
             {saving ? '💾 Saving...' : isDirty ? '💾 Save *' : '✅ Saved'}
           </button>
@@ -284,178 +284,198 @@ export default function TemperatureLog() {
         </p>
       </div>
 
-      {/* Legend */}
-      <div className="flex flex-wrap gap-3 mb-4 text-xs no-print">
-        <span className="flex items-center gap-1">
-          <span className="w-3 h-3 rounded bg-green-200 inline-block"/> In range
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="w-3 h-3 rounded bg-red-200 inline-block"/> Out of range ⚠️
-        </span>
-        <span className="flex items-center gap-1">❄️ Cold (0–5°C)</span>
-        <span className="flex items-center gap-1">🔥 Hot (60–85°C)</span>
-        <span className="flex items-center gap-1">🧊 Freezer (-25 to -12°C)</span>
-      </div>
-
-      {/* Main table */}
-      <div className="bg-white rounded-xl shadow border overflow-x-auto">
-        <table className="w-full text-sm min-w-[700px]">
-          <thead>
-            <tr className="bg-gray-800 text-white text-xs">
-              <th className="text-left px-3 py-2.5 w-44">Equipment</th>
-              <th className="text-left px-2 py-2.5 w-20">Type</th>
-              <th className="text-left px-2 py-2.5 w-24">Safe Range</th>
-              {dayHeaders.map(h => (
-                <th key={h} className="text-center px-1 py-2.5 w-[100px]">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {EQUIPMENT.map((eq, idx) => (
-              <tr key={eq.name}
-                className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50`}>
-
-                {/* Equipment name */}
-                <td className="px-3 py-1.5 font-medium text-gray-700 text-xs">
-                  {equipmentIcon(eq.type)} {eq.name}
-                </td>
-
-                {/* Type badge */}
-                <td className="px-2 py-1.5">
-                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${equipmentBadge(eq.type)}`}>
-                    {eq.type}
-                  </span>
-                </td>
-
-                {/* Safe range */}
-                <td className="px-2 py-1.5 text-xs text-gray-400">
-                  {eq.minTemp}° to {eq.maxTemp}°
-                </td>
-
-                {/* Daily temp inputs */}
-                {dateStrs.map(date => {
-                  const row  = logs[logKey(eq.name, date)]
-                  const temp = row?.temperature ?? null
-                  const oor  = isOutOfRange(temp, eq)
-                  return (
-                    <td key={date} className={`px-1 py-1 ${tempBg(temp, eq)}`}>
-                      <div className="relative">
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={temp === null ? '' : temp}
-                          onChange={e => updateTemp(eq.name, date, e.target.value)}
-                          placeholder="—"
-                          className={`w-full border rounded px-1.5 py-1 text-right text-sm
-                            focus:outline-none focus:ring-1
-                            ${oor
-                              ? 'border-red-300 focus:ring-red-400 bg-red-50 text-red-700 font-bold'
-                              : temp !== null
-                                ? 'border-green-300 focus:ring-green-400 bg-green-50 text-green-700'
-                                : 'focus:ring-blue-400'
-                            }`}
-                        />
-                        {oor && (
-                          <span className="absolute -top-1.5 -right-1 text-red-500 text-xs">⚠️</span>
-                        )}
-                      </div>
-                      {/* Notes — small field shown on hover via title, or visible below */}
-                      {row?.notes && (
-                        <div className="text-xs text-gray-400 truncate max-w-[80px] mt-0.5"
-                          title={row.notes}>
-                          📝 {row.notes}
-                        </div>
-                      )}
-                    </td>
-                  )
-                })}
-              </tr>
-            ))}
-
-            {/* Checked by row */}
-            <tr className="border-t-2 border-gray-300 bg-gray-100">
-              <td colSpan={3} className="px-3 py-2 font-semibold text-gray-600 text-xs">
-                ✍️ Checked by
-              </td>
-              {dateStrs.map(date => (
-                <td key={date} className="px-1 py-1">
-                  <input
-                    type="text"
-                    value={checkedBy[date] ?? ''}
-                    onChange={e => updateCheckedBy(date, e.target.value)}
-                    placeholder="Name"
-                    className="w-full border rounded px-1.5 py-1 text-sm text-center
-                      focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
-                  />
-                </td>
-              ))}
-            </tr>
-
-          </tbody>
-        </table>
-      </div>
-
-      {/* Notes section */}
-      <div className="mt-6 bg-white rounded-xl shadow border p-4">
-        <h2 className="font-semibold text-gray-700 mb-3 text-sm">📝 Daily Notes / Corrective Actions</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
-          {dateStrs.map((date, i) => (
-            <div key={date}>
-              <label className="text-xs font-medium text-gray-500 block mb-1">
-                {dayHeaders[i]}
-              </label>
-              {/* Show any out-of-range items for this day */}
-              {EQUIPMENT.filter(eq => {
-                const row = logs[logKey(eq.name, date)]
-                return row?.temperature !== null && isOutOfRange(row.temperature!, eq)
-              }).map(eq => (
-                <div key={eq.name} className="text-xs text-red-600 mb-1">
-                  ⚠️ {eq.name}: {logs[logKey(eq.name, date)]?.temperature}°C
-                </div>
-              ))}
-              <textarea
-                rows={3}
-                placeholder="Notes / corrective action..."
-                className="w-full border rounded px-2 py-1 text-xs focus:outline-none
-                  focus:ring-1 focus:ring-blue-400 resize-none"
-                value={
-                  // Show first note found for this date, or empty
-                  Object.values(logs).find(r => r.log_date === date)?.notes ?? ''
-                }
-                onChange={e => {
-                  // Apply note to all equipment for this day
-                  EQUIPMENT.forEach(eq => updateNotes(eq.name, date, e.target.value))
-                }}
-              />
-            </div>
-          ))}
+      {/* Loading state */}
+      {!loaded ? (
+        <div className="text-center py-16 text-gray-400">
+          <div className="text-4xl mb-3">🌡️</div>
+          <p>Loading temperature log...</p>
         </div>
-      </div>
-
-      {/* Out of range summary */}
-      {alertCount > 0 && (
-        <div className="mt-4 bg-red-50 border border-red-200 rounded-xl p-4">
-          <h2 className="font-semibold text-red-800 mb-2 text-sm">
-            ⚠️ Out of Range This Week
-          </h2>
-          <div className="space-y-1">
-            {Object.values(logs)
-              .filter(r => r.temperature !== null &&
-                isOutOfRange(r.temperature!, EQUIPMENT.find(e => e.name === r.equipment_name)!))
-              .map(r => (
-                <div key={`${r.equipment_name}${r.log_date}`}
-                  className="text-sm text-red-700 flex gap-3">
-                  <span className="font-medium">{r.equipment_name}</span>
-                  <span>{format(new Date(r.log_date), 'EEE d/M')}</span>
-                  <span className="font-bold">{r.temperature}°C</span>
-                  {r.checked_by && <span className="text-red-500">— {r.checked_by}</span>}
-                </div>
-              ))
-            }
+      ) : (
+        <>
+          {/* Legend */}
+          <div className="flex flex-wrap gap-4 mb-4 text-xs no-print">
+            <span className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded bg-green-200 inline-block"/>
+              In range
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded bg-red-200 inline-block"/>
+              Out of range ⚠️
+            </span>
+            <span className="flex items-center gap-1.5">❄️ Cold (0–5°C)</span>
+            <span className="flex items-center gap-1.5">🔥 Hot (60–85°C)</span>
+            <span className="flex items-center gap-1.5">🧊 Freezer (−25 to −12°C)</span>
           </div>
-        </div>
-      )}
 
+          {/* Main table */}
+          <div className="bg-white rounded-xl shadow border overflow-x-auto">
+            <table className="w-full text-sm min-w-[750px]">
+              <thead>
+                <tr className="bg-gray-800 text-white text-xs">
+                  <th className="text-left px-3 py-2.5 w-44">Equipment</th>
+                  <th className="text-left px-2 py-2.5 w-20">Type</th>
+                  <th className="text-left px-2 py-2.5 w-28">Safe Range</th>
+                  {dayHeaders.map(h => (
+                    <th key={h} className="text-center px-1 py-2.5 w-[100px]">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {EQUIPMENT.map((eq, idx) => (
+                  <tr key={eq.name}
+                    className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50`}>
+
+                    {/* Name */}
+                    <td className="px-3 py-1.5 font-medium text-gray-700 text-xs">
+                      {equipmentIcon(eq.type)} {eq.name}
+                    </td>
+
+                    {/* Type badge */}
+                    <td className="px-2 py-1.5">
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${equipmentBadge(eq.type)}`}>
+                        {eq.type}
+                      </span>
+                    </td>
+
+                    {/* Safe range */}
+                    <td className="px-2 py-1.5 text-xs text-gray-400">
+                      {eq.minTemp}° to {eq.maxTemp}°C
+                    </td>
+
+                    {/* Daily inputs */}
+                    {dateStrs.map(date => {
+                      const row  = logs[logKey(eq.name, date)]
+                      const temp = row?.temperature ?? null
+                      const oor  = isOutOfRange(temp, eq)
+                      return (
+                        <td key={date}
+                          className={`px-1 py-1 ${oor ? 'bg-red-50' : temp !== null ? 'bg-green-50' : ''}`}>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={temp === null ? '' : temp}
+                              onChange={e => updateTemp(eq.name, date, e.target.value)}
+                              placeholder="—"
+                              className={`w-full border rounded px-1.5 py-1 text-right text-sm
+                                focus:outline-none focus:ring-1
+                                ${oor
+                                  ? 'border-red-300 focus:ring-red-400 bg-red-50 text-red-700 font-bold'
+                                  : temp !== null
+                                    ? 'border-green-300 focus:ring-green-400 bg-green-50 text-green-700'
+                                    : 'focus:ring-blue-400 bg-white'
+                                }`}
+                            />
+                            {oor && (
+                              <span className="absolute -top-1.5 -right-1 text-xs">⚠️</span>
+                            )}
+                          </div>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+
+                {/* Checked by row */}
+                <tr className="border-t-2 border-gray-300 bg-gray-100">
+                  <td colSpan={3} className="px-3 py-2 font-semibold text-gray-600 text-xs">
+                    ✍️ Checked by
+                  </td>
+                  {dateStrs.map(date => (
+                    <td key={date} className="px-1 py-1">
+                      <input
+                        type="text"
+                        value={checkedBy[date] ?? ''}
+                        onChange={e => updateCheckedBy(date, e.target.value)}
+                        placeholder="Name"
+                        className="w-full border rounded px-1.5 py-1 text-sm text-center
+                          focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+                      />
+                    </td>
+                  ))}
+                </tr>
+
+              </tbody>
+            </table>
+          </div>
+
+          {/* Notes section */}
+          <div className="mt-6 bg-white rounded-xl shadow border p-4">
+            <h2 className="font-semibold text-gray-700 mb-3 text-sm">
+              📝 Daily Notes / Corrective Actions
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
+              {dateStrs.map((date, i) => {
+                /* out of range items for this day */
+                const oorItems = EQUIPMENT.filter(eq => {
+                  const row = logs[logKey(eq.name, date)]
+                  return row !== undefined
+                    && row.temperature !== null
+                    && isOutOfRange(row.temperature, eq)
+                })
+                /* current note for this day */
+                const dayNote = EQUIPMENT.reduce((found, eq) => {
+                  if (found) return found
+                  const row = logs[logKey(eq.name, date)]
+                  return row?.notes ?? ''
+                }, '')
+
+                return (
+                  <div key={date}>
+                    <label className="text-xs font-medium text-gray-500 block mb-1">
+                      {dayHeaders[i]}
+                    </label>
+                    {oorItems.map(eq => (
+                      <div key={eq.name} className="text-xs text-red-600 mb-1">
+                        ⚠️ {eq.name}: {logs[logKey(eq.name, date)]?.temperature}°C
+                      </div>
+                    ))}
+                    <textarea
+                      rows={3}
+                      placeholder="Notes / corrective action..."
+                      className="w-full border rounded px-2 py-1 text-xs
+                        focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
+                      value={dayNote}
+                      onChange={e => updateDayNotes(date, e.target.value)}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Out of range summary */}
+          {alertCount > 0 && (
+            <div className="mt-4 bg-red-50 border border-red-200 rounded-xl p-4">
+              <h2 className="font-semibold text-red-800 mb-2 text-sm">
+                ⚠️ Out of Range This Week
+              </h2>
+              <div className="space-y-1">
+                {Object.values(logs)
+                  .filter(r => {
+                    const eq = EQUIPMENT.find(e => e.name === r.equipment_name)
+                    return eq !== undefined
+                      && r.temperature !== null
+                      && isOutOfRange(r.temperature, eq)
+                  })
+                  .map(r => (
+                    <div key={`${r.equipment_name}${r.log_date}`}
+                      className="text-sm text-red-700 flex gap-3 flex-wrap">
+                      <span className="font-medium">{r.equipment_name}</span>
+                      <span>{format(new Date(r.log_date + 'T00:00:00'), 'EEE d/M')}</span>
+                      <span className="font-bold">{r.temperature}°C</span>
+                      {r.checked_by && (
+                        <span className="text-red-500">— {r.checked_by}</span>
+                      )}
+                    </div>
+                  ))
+                }
+              </div>
+            </div>
+          )}
+
+        </>
+      )}
     </div>
   )
 }
