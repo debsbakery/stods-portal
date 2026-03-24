@@ -267,6 +267,11 @@ export default function WeeklyShopReport() {
             onClick={() => router.push(`/admin/shop-reports/${formatWeekStart(nextWeek(weekStart))}`)}
             className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm">Next ▶</button>
         </div>
+     <button
+  onClick={() => router.push(`/admin/temperature/${param}`)}
+  className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm text-gray-600">
+  🌡️ Temp Log
+</button>
         <div className="flex gap-2 ml-auto">
           <button onClick={() => setShowSettings(true)}
             className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm text-gray-600">
