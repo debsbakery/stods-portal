@@ -1,3 +1,4 @@
+// app/admin/temperature/[weekStart]/page.tsx
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
@@ -30,9 +31,9 @@ const EQUIPMENT: Equipment[] = [
   { name: 'Upstairs Cold Room', minTemp: 0,   maxTemp: 5,   type: 'cold'    },
 ]
 
-/* Mon–Fri only */
+/* ── Mon–Fri: weekStart is Sunday so +1 to +5 ── */
 function getWeekDaysMF(weekStart: Date): Date[] {
-  return Array.from({ length: 5 }, (_, i) => addDays(weekStart, i))
+  return Array.from({ length: 5 }, (_, i) => addDays(weekStart, i + 1))
 }
 
 function isOutOfRange(temp: number | null, eq: Equipment): boolean {
@@ -84,9 +85,15 @@ export default function TemperatureLog() {
   const [saving,    setSaving]    = useState(false)
   const [isDirty,   setIsDirty]   = useState(false)
   const [loaded,    setLoaded]    = useState(false)
+  const [printDate, setPrintDate] = useState('')
   const [toast,     setToast]     = useState<{ msg: string; ok: boolean } | null>(null)
 
   const saveTimer = useRef<NodeJS.Timeout | null>(null)
+
+  /* ── Fix hydration — only set print date client-side ── */
+  useEffect(() => {
+    setPrintDate(format(new Date(), 'dd/MM/yyyy HH:mm'))
+  }, [])
 
   function showToast(msg: string, ok = true) {
     setToast({ msg, ok })
@@ -96,7 +103,7 @@ export default function TemperatureLog() {
   /* ── Load ── */
   const loadData = useCallback(async () => {
     setLoaded(false)
-    const res  = await fetch(`/api/admin/temperature/${param}`)
+    const res = await fetch(`/api/admin/temperature/${param}`)
     const { logs: data } = await res.json()
 
     const logMap: Record<LogKey, LogRow> = {}
@@ -165,7 +172,7 @@ export default function TemperatureLog() {
     triggerAutoSave()
   }
 
-  /* ── Update daily notes — applies to all equipment on that day ── */
+  /* ── Update daily notes ── */
   function updateDayNotes(date: string, val: string) {
     setLogs(prev => {
       const updated = { ...prev }
@@ -196,15 +203,11 @@ export default function TemperatureLog() {
   }
 
   /* ── Alert count ── */
-  function getAlertCount() {
-    if (!loaded) return 0
-    return Object.values(logs).filter(r => {
-      const eq = EQUIPMENT.find(e => e.name === r.equipment_name)
-      return eq !== undefined && r.temperature !== null && isOutOfRange(r.temperature, eq)
-    }).length
-  }
+  const alertCount = !loaded ? 0 : Object.values(logs).filter(r => {
+    const eq = EQUIPMENT.find(e => e.name === r.equipment_name)
+    return eq !== undefined && r.temperature !== null && isOutOfRange(r.temperature, eq)
+  }).length
 
-  const alertCount = getAlertCount()
   const hasAnyTemp = loaded && Object.values(logs).some(r => r.temperature !== null)
 
   /* ════════════════════════════════════════════════════════════════════
@@ -213,13 +216,13 @@ export default function TemperatureLog() {
   return (
     <div className="p-4 md:p-6 max-w-full">
 
-      ```<user-input>{`
+      <style>{`
         @media print {
           .no-print { display: none !important; }
           body { font-size: 10px; }
           table { page-break-inside: avoid; }
         }
-      `}</user-input>
+      `}</style>
 
       {/* Toast */}
       {toast && (
@@ -275,16 +278,16 @@ export default function TemperatureLog() {
         </div>
       </div>
 
-      {/* Print header */}
+      {/* Print header — no new Date() in render, uses state */}
       <div className="hidden print:block mb-4">
         <h2 className="text-xl font-bold">🌡️ Temperature Control Log — {weekLabel}</h2>
         <p className="text-sm text-gray-500">Stods Bakery — Food Safety Records</p>
-        <p className="text-xs text-gray-400 mt-1">
-          Printed: {format(new Date(), 'dd/MM/yyyy HH:mm')}
-        </p>
+        {printDate && (
+          <p className="text-xs text-gray-400 mt-1">Printed: {printDate}</p>
+        )}
       </div>
 
-      {/* Loading state */}
+      {/* Loading */}
       {!loaded ? (
         <div className="text-center py-16 text-gray-400">
           <div className="text-4xl mb-3">🌡️</div>
@@ -325,31 +328,29 @@ export default function TemperatureLog() {
                   <tr key={eq.name}
                     className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50`}>
 
-                    {/* Name */}
                     <td className="px-3 py-1.5 font-medium text-gray-700 text-xs">
                       {equipmentIcon(eq.type)} {eq.name}
                     </td>
 
-                    {/* Type badge */}
                     <td className="px-2 py-1.5">
-                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${equipmentBadge(eq.type)}`}>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium
+                        ${equipmentBadge(eq.type)}`}>
                         {eq.type}
                       </span>
                     </td>
 
-                    {/* Safe range */}
                     <td className="px-2 py-1.5 text-xs text-gray-400">
                       {eq.minTemp}° to {eq.maxTemp}°C
                     </td>
 
-                    {/* Daily inputs */}
                     {dateStrs.map(date => {
                       const row  = logs[logKey(eq.name, date)]
                       const temp = row?.temperature ?? null
                       const oor  = isOutOfRange(temp, eq)
                       return (
                         <td key={date}
-                          className={`px-1 py-1 ${oor ? 'bg-red-50' : temp !== null ? 'bg-green-50' : ''}`}>
+                          className={`px-1 py-1
+                            ${oor ? 'bg-red-50' : temp !== null ? 'bg-green-50' : ''}`}>
                           <div className="relative">
                             <input
                               type="number"
@@ -406,18 +407,15 @@ export default function TemperatureLog() {
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
               {dateStrs.map((date, i) => {
-                /* out of range items for this day */
                 const oorItems = EQUIPMENT.filter(eq => {
                   const row = logs[logKey(eq.name, date)]
                   return row !== undefined
                     && row.temperature !== null
                     && isOutOfRange(row.temperature, eq)
                 })
-                /* current note for this day */
                 const dayNote = EQUIPMENT.reduce((found, eq) => {
                   if (found) return found
-                  const row = logs[logKey(eq.name, date)]
-                  return row?.notes ?? ''
+                  return logs[logKey(eq.name, date)]?.notes ?? ''
                 }, '')
 
                 return (
