@@ -45,6 +45,8 @@ const SUPPLIERS = [
   'TCW',
   'Angliss',
   "Deb's Bakery",
+  'Coke',
+  'Bou Samra',
   'Other',
 ]
 
