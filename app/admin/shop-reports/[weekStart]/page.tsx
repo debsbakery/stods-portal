@@ -38,7 +38,18 @@ interface Settings {
   weekly_overhead: number
 }
 
-type DailyKey = keyof Omit<DailyRow, 'shop_id' | 'report_date'>
+const SUPPLIERS = [
+  'Bega',
+  'Bidfood',
+  'TWD',
+  'TCW',
+  'Angliss',
+  "Deb's Bakery",
+  'Other',
+]
+
+// ── Removed purchases from daily fields — handled separately
+type DailyKey = keyof Omit<DailyRow, 'shop_id' | 'report_date' | 'purchases'>
 
 const FIELDS: { key: DailyKey; label: string; isMoney: boolean }[] = [
   { key: 'sales',          label: 'Sales',          isMoney: true  },
@@ -47,7 +58,6 @@ const FIELDS: { key: DailyKey; label: string; isMoney: boolean }[] = [
   { key: 'cash',           label: 'Cash',           isMoney: true  },
   { key: 'paid_out',       label: 'Paid Out',       isMoney: true  },
   { key: 'actual_banking', label: 'Actual Banking', isMoney: true  },
-  { key: 'purchases',      label: 'Purchases',      isMoney: true  },
   { key: 'customer_count', label: 'Customers',      isMoney: false },
   { key: 'hours',          label: 'Hours',          isMoney: false },
 ]
@@ -60,7 +70,7 @@ function emptyDaily(shopId: string, date: string): DailyRow {
     customer_count: 0, hours: 0
   }
 }
-function colSum(rows: DailyRow[], key: DailyKey): number {
+function colSum(rows: DailyRow[], key: keyof DailyRow): number {
   return rows.reduce((a, r) => a + (Number(r[key]) || 0), 0)
 }
 function netSales(row: DailyRow)  { return row.sales - row.gst }
@@ -83,13 +93,14 @@ export default function WeeklyShopReport() {
   const [shops,          setShops]          = useState<Shop[]>([])
   const [daily,          setDaily]          = useState<Record<string, DailyRow>>({})
   const [wages,          setWages]          = useState<Record<string, number>>({})
+  const [purchases,      setPurchases]      = useState<Record<string, number>>({})
   const [settings,       setSettings]       = useState<Settings | null>(null)
   const [saving,         setSaving]         = useState(false)
   const [isDirty,        setIsDirty]        = useState(false)
   const [savingSettings, setSavingSettings] = useState(false)
   const [showSettings,   setShowSettings]   = useState(false)
-  const [toast,          setToast]          = useState<{ msg: string; ok: boolean } | null>(null)
   const [wagesVisible,   setWagesVisible]   = useState(false)
+  const [toast,          setToast]          = useState<{ msg: string; ok: boolean } | null>(null)
 
   const saveTimer = useRef<NodeJS.Timeout | null>(null)
 
@@ -108,7 +119,7 @@ export default function WeeklyShopReport() {
 
   const loadData = useCallback(async () => {
     const res = await fetch(`/api/admin/shop-reports/${param}`)
-    const { shops: s, daily: d, wages: w, settings: st } = await res.json()
+    const { shops: s, daily: d, wages: w, settings: st, purchases: p } = await res.json()
 
     setShops(s ?? [])
     setSettings(st ?? null)
@@ -131,6 +142,15 @@ export default function WeeklyShopReport() {
       wagesMap[shop.id] = found?.wages ?? 0
     })
     setWages(wagesMap)
+
+    // Load purchases by supplier
+    const purchasesMap: Record<string, number> = {}
+    SUPPLIERS.forEach(sup => { purchasesMap[sup] = 0 })
+    p?.forEach((row: { supplier: string; amount: number }) => {
+      purchasesMap[row.supplier] = row.amount
+    })
+    setPurchases(purchasesMap)
+
     setIsDirty(false)
   }, [param])
 
@@ -162,16 +182,27 @@ export default function WeeklyShopReport() {
     triggerAutoSave()
   }
 
+  function updatePurchase(supplier: string, val: string) {
+    setPurchases(prev => ({ ...prev, [supplier]: parseFloat(val) || 0 }))
+    setIsDirty(true)
+    triggerAutoSave()
+  }
+
   async function handleSave() {
     setSaving(true)
     const dailyRows = Object.values(daily)
     const wageRows  = shops.map(s => ({
       shop_id: s.id, week_start: param, wages: wages[s.id] ?? 0
     }))
+    const purchaseRows = SUPPLIERS.map(sup => ({
+      week_start: param,
+      supplier:   sup,
+      amount:     purchases[sup] ?? 0,
+    }))
     const res = await fetch(`/api/admin/shop-reports/${param}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dailyRows, wageRows })
+      body: JSON.stringify({ dailyRows, wageRows, purchaseRows })
     })
     setSaving(false)
     if (res.ok) { showToast('✅ Week saved'); setIsDirty(false) }
@@ -192,9 +223,12 @@ export default function WeeklyShopReport() {
     else showToast('❌ Failed to save settings', false)
   }
 
+  // ── Total purchases from supplier breakdown
+  const totalPurchases = SUPPLIERS.reduce((a, s) => a + (purchases[s] ?? 0), 0)
+
   function getCombined() {
     let totalSales = 0, totalGst = 0, totalEftpos = 0, totalCash = 0,
-        totalPaidOut = 0, totalActualBanking = 0, totalPurchases = 0,
+        totalPaidOut = 0, totalActualBanking = 0,
         totalCustomers = 0, totalHours = 0, totalWages = 0
 
     shops.forEach(shop => {
@@ -207,7 +241,6 @@ export default function WeeklyShopReport() {
       totalCash          += colSum(rows, 'cash')
       totalPaidOut       += colSum(rows, 'paid_out')
       totalActualBanking += colSum(rows, 'actual_banking')
-      totalPurchases     += colSum(rows, 'purchases')
       totalCustomers     += colSum(rows, 'customer_count')
       totalHours         += colSum(rows, 'hours')
       totalWages         += wages[shop.id] ?? 0
@@ -222,14 +255,13 @@ export default function WeeklyShopReport() {
     return {
       totalSales, totalGst, totalNetSales,
       totalEftpos, totalCash, totalPaidOut, totalActualBanking,
-      totalPurchases, totalVariance,
-      totalCustomers, totalHours, totalWages, overhead,
+      totalVariance, totalCustomers, totalHours, totalWages, overhead,
       grossProfit, netProfit,
-      wagesPct:       pct(totalWages,     totalNetSales),
-      purchasesPct:   pct(totalPurchases, totalNetSales),
-      grossProfitPct: pct(grossProfit,    totalNetSales),
-      overheadPct:    pct(overhead,       totalNetSales),
-      netProfitPct:   pct(netProfit,      totalNetSales),
+      wagesPct:       pct(totalWages,      totalNetSales),
+      purchasesPct:   pct(totalPurchases,  totalNetSales),
+      grossProfitPct: pct(grossProfit,     totalNetSales),
+      overheadPct:    pct(overhead,        totalNetSales),
+      netProfitPct:   pct(netProfit,       totalNetSales),
     }
   }
 
@@ -267,12 +299,12 @@ export default function WeeklyShopReport() {
             onClick={() => router.push(`/admin/shop-reports/${formatWeekStart(nextWeek(weekStart))}`)}
             className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm">Next ▶</button>
         </div>
-     <button
-  onClick={() => router.push(`/admin/temperature/${param}`)}
-  className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm text-gray-600">
-  🌡️ Temp Log
-</button>
         <div className="flex gap-2 ml-auto">
+          <button
+            onClick={() => router.push(`/admin/temperature/${param}`)}
+            className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm text-gray-600">
+            🌡️ Temp Log
+          </button>
           <button onClick={() => setShowSettings(true)}
             className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm text-gray-600">
             ⚙️ Settings
@@ -404,7 +436,7 @@ export default function WeeklyShopReport() {
                     </td>
                   </tr>
 
-                  {/* Wages row — masked when wagesVisible = false */}
+                  {/* Wages */}
                   <tr className="bg-amber-50 border-t-2 border-amber-200">
                     <td className="px-3 py-2 font-semibold text-amber-800 text-xs">
                       Wages<br/>
@@ -447,6 +479,69 @@ export default function WeeklyShopReport() {
           )
         })}
 
+        {/* ── Purchases by Supplier ── */}
+        <div className="bg-white rounded-xl shadow border overflow-hidden">
+          <div className="bg-teal-700 text-white px-4 py-2.5 font-semibold rounded-t-xl flex items-center justify-between">
+            <span>📦 Weekly Purchases — All Shops</span>
+            <span className="text-teal-200 text-sm font-normal">
+              Total: {fmtMoney(totalPurchases)}
+            </span>
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 border-b text-gray-600 text-xs">
+                <th className="text-left px-4 py-2">Supplier</th>
+                <th className="text-right px-4 py-2 w-48">Amount</th>
+                <th className="text-right px-4 py-2 w-24">% of Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {SUPPLIERS.map((supplier, idx) => {
+                const amount = purchases[supplier] ?? 0
+                const supPct = totalPurchases > 0
+                  ? (amount / totalPurchases * 100).toFixed(1)
+                  : '0.0'
+                return (
+                  <tr key={supplier}
+                    className={`border-b hover:bg-gray-50 ${idx % 2 === 0 ? '' : 'bg-gray-50/50'}`}>
+                    <td className="px-4 py-2 font-medium text-gray-700">{supplier}</td>
+                    <td className="px-4 py-2">
+                      <div className="flex items-center justify-end gap-2">
+                        <span className="text-gray-400 text-sm no-print">$</span>
+                        <input
+                          type="number" min="0" step="0.01"
+                          value={amount === 0 ? '' : amount}
+                          onChange={e => updatePurchase(supplier, e.target.value)}
+                          placeholder="0.00"
+                          className="no-print w-36 border rounded px-2 py-1 text-right text-sm
+                            focus:outline-none focus:ring-1 focus:ring-teal-400"
+                        />
+                        <span className="hidden print:block font-medium">
+                          {fmtMoney(amount)}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2 text-right text-gray-500 text-sm">
+                      {supPct}%
+                    </td>
+                  </tr>
+                )
+              })}
+
+              {/* Total row */}
+              <tr className="border-t-2 bg-teal-50">
+                <td className="px-4 py-2.5 font-bold text-teal-800">Total Purchases</td>
+                <td className="px-4 py-2.5 text-right font-bold text-teal-900 text-base">
+                  {fmtMoney(totalPurchases)}
+                </td>
+                <td className="px-4 py-2.5 text-right font-bold text-teal-700">
+                  100%
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
         {/* Combined Totals */}
         <div className="bg-white rounded-xl shadow border overflow-x-auto">
           <div className="bg-gray-800 text-white px-4 py-2.5 font-semibold rounded-t-xl">
@@ -467,7 +562,6 @@ export default function WeeklyShopReport() {
                 { label: 'Total Cash',           value: fmtMoney(c.totalCash),          hl: ''      },
                 { label: 'Total Paid Out',       value: fmtMoney(c.totalPaidOut),       hl: ''      },
                 { label: 'Total Actual Banking', value: fmtMoney(c.totalActualBanking), hl: ''      },
-                { label: 'Total Purchases',      value: fmtMoney(c.totalPurchases),     hl: ''      },
                 { label: 'Variance',             value: fmtMoney(c.totalVariance),
                   hl: c.totalVariance !== 0 ? 'red' : 'green' },
               ].map(({ label, value, hl }) => (
@@ -523,9 +617,12 @@ export default function WeeklyShopReport() {
                 </td>
               </tr>
               <tr className="border-b">
-                <td className="px-4 py-2 font-medium text-gray-600">Total Purchases</td>
+                <td className="px-4 py-2 font-medium text-gray-600">
+                  Total Purchases
+                  <span className="ml-2 text-xs text-gray-400">(all suppliers)</span>
+                </td>
                 <td className="px-4 py-2 text-right font-bold text-gray-800">
-                  {fmtMoney(c.totalPurchases)}
+                  {fmtMoney(totalPurchases)}
                 </td>
                 <td className={`px-4 py-2 text-right font-bold
                   ${c.purchasesPct > 30 ? 'text-red-600' : 'text-green-600'}`}>
@@ -575,35 +672,26 @@ export default function WeeklyShopReport() {
             <form onSubmit={handleSaveSettings} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Bookkeeper Name</label>
-                <input
-                  type="text"
-                  value={settings.bookkeeper_name}
+                <input type="text" value={settings.bookkeeper_name}
                   onChange={e => setSettings({ ...settings, bookkeeper_name: e.target.value })}
                   className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  placeholder="e.g. Jane Smith"
-                />
+                  placeholder="e.g. Jane Smith" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Bookkeeper Email</label>
-                <input
-                  type="email"
-                  value={settings.bookkeeper_email}
+                <input type="email" value={settings.bookkeeper_email}
                   onChange={e => setSettings({ ...settings, bookkeeper_email: e.target.value })}
                   className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  placeholder="bookkeeper@example.com"
-                />
+                  placeholder="bookkeeper@example.com" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Weekly Overhead ($)</label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-                  <input
-                    type="number" min="0" step="0.01"
-                    value={settings.weekly_overhead}
+                  <input type="number" min="0" step="0.01" value={settings.weekly_overhead}
                     onChange={e => setSettings({ ...settings, weekly_overhead: parseFloat(e.target.value) || 0 })}
                     className="w-full border rounded pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                    placeholder="2000.00"
-                  />
+                    placeholder="2000.00" />
                 </div>
                 <p className="text-xs text-gray-400 mt-1">Fixed weekly overhead used in net profit calculation</p>
               </div>
@@ -615,15 +703,11 @@ export default function WeeklyShopReport() {
                   <p className="text-sm font-medium text-gray-700">Show Individual Wages</p>
                   <p className="text-xs text-gray-400">When off, wages per shop are hidden on screen</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setWagesVisible(v => !v)}
+                <button type="button" onClick={() => setWagesVisible(v => !v)}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors
-                    ${wagesVisible ? 'bg-blue-600' : 'bg-gray-300'}`}
-                >
+                    ${wagesVisible ? 'bg-blue-600' : 'bg-gray-300'}`}>
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
-                    ${wagesVisible ? 'translate-x-6' : 'translate-x-1'}`}
-                  />
+                    ${wagesVisible ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
               </div>
 
