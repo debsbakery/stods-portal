@@ -1,5 +1,5 @@
 'use client';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 
 interface CalcRow {
   id: string;
@@ -25,89 +25,193 @@ const emptyRow = (): CalcRow => ({
 
 export default function PriceMarginCalculator() {
   const [rows, setRows] = useState<CalcRow[]>([emptyRow()]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+  const saveTimer = useRef<NodeJS.Timeout | null>(null);
 
-  const updateRow = useCallback((id: string, field: string, value: string) => {
-    setRows(prev => prev.map(row => {
-      if (row.id !== id) return row;
+  function showToast(msg: string, ok = true) {
+    setToast({ msg, ok });
+    setTimeout(() => setToast(null), 3000);
+  }
 
-      const updated = { ...row, [field]: value };
-      const cost = parseFloat(updated.cost) || 0;
-      const margin = parseFloat(updated.marginPercent) || 0;
-
-      switch (field) {
-        case 'cost': {
-          if (margin > 0 && margin < 100) {
-            const spExGst = cost / (1 - margin / 100);
-            const gst = spExGst * GST_RATE;
-            updated.salePriceExGst = spExGst.toFixed(2);
-            updated.gst = gst.toFixed(2);
-            updated.salePriceIncGst = (spExGst + gst).toFixed(2);
-          }
-          break;
+  // ── Load saved rows on mount
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch('/api/admin/price-calculator');
+        const { rows: saved } = await res.json();
+        if (saved && saved.length > 0) {
+          const mapped: CalcRow[] = saved.map((r: any) => ({
+            id: r.id,
+            product: r.product || '',
+            cost: r.cost ? String(r.cost) : '',
+            gst: r.gst ? String(r.gst) : '',
+            marginPercent: r.margin_percent ? String(r.margin_percent) : '',
+            salePriceExGst: r.sale_price_ex_gst ? String(r.sale_price_ex_gst) : '',
+            salePriceIncGst: r.sale_price_inc_gst ? String(r.sale_price_inc_gst) : '',
+          }));
+          setRows(mapped);
         }
-        case 'marginPercent': {
-          if (cost > 0 && margin > 0 && margin < 100) {
-            const spExGst = cost / (1 - margin / 100);
-            const gst = spExGst * GST_RATE;
-            updated.salePriceExGst = spExGst.toFixed(2);
-            updated.gst = gst.toFixed(2);
-            updated.salePriceIncGst = (spExGst + gst).toFixed(2);
-          }
-          break;
-        }
-        case 'salePriceIncGst': {
-          const spInc = parseFloat(value) || 0;
-          if (spInc > 0) {
-            const spExGst = spInc / (1 + GST_RATE);
-            const gst = spInc - spExGst;
-            updated.salePriceExGst = spExGst.toFixed(2);
-            updated.gst = gst.toFixed(2);
-            if (cost > 0) {
-              updated.marginPercent = (((spExGst - cost) / spExGst) * 100).toFixed(2);
-            }
-          }
-          break;
-        }
-        case 'salePriceExGst': {
-          const spEx = parseFloat(value) || 0;
-          if (spEx > 0) {
-            const gst = spEx * GST_RATE;
-            updated.gst = gst.toFixed(2);
-            updated.salePriceIncGst = (spEx + gst).toFixed(2);
-            if (cost > 0) {
-              updated.marginPercent = (((spEx - cost) / spEx) * 100).toFixed(2);
-            }
-          }
-          break;
-        }
-        case 'gst': {
-          const gstVal = parseFloat(value) || 0;
-          const spEx = parseFloat(updated.salePriceExGst) || 0;
-          if (spEx > 0) {
-            updated.salePriceIncGst = (spEx + gstVal).toFixed(2);
-          }
-          break;
-        }
+      } catch (err) {
+        console.error('Failed to load calculator rows:', err);
       }
-
-      return updated;
-    }));
+      setLoading(false);
+    }
+    load();
   }, []);
 
-  const addRow = () => setRows(prev => [...prev, emptyRow()]);
+  // ── Auto-save after 2 seconds of inactivity
+  function triggerAutoSave(updatedRows: CalcRow[]) {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      doSave(updatedRows);
+    }, 2000);
+  }
 
-  const removeRow = (id: string) => {
-    setRows(prev => prev.length > 1 ? prev.filter(r => r.id !== id) : prev);
+  async function doSave(rowsToSave: CalcRow[]) {
+    setSaving(true);
+    try {
+      const res = await fetch('/api/admin/price-calculator', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows: rowsToSave }),
+      });
+      if (res.ok) {
+        setIsDirty(false);
+        showToast('✅ Calculator saved');
+      } else {
+        showToast('❌ Save failed', false);
+      }
+    } catch {
+      showToast('❌ Save failed', false);
+    }
+    setSaving(false);
+  }
+
+  const updateRow = useCallback((id: string, field: string, value: string) => {
+    setRows(prev => {
+      const updated = prev.map(row => {
+        if (row.id !== id) return row;
+
+        const newRow = { ...row, [field]: value };
+        const cost = parseFloat(newRow.cost) || 0;
+        const margin = parseFloat(newRow.marginPercent) || 0;
+
+        switch (field) {
+          case 'cost': {
+            if (margin > 0 && margin < 100) {
+              const spExGst = cost / (1 - margin / 100);
+              const gst = spExGst * GST_RATE;
+              newRow.salePriceExGst = spExGst.toFixed(2);
+              newRow.gst = gst.toFixed(2);
+              newRow.salePriceIncGst = (spExGst + gst).toFixed(2);
+            }
+            break;
+          }
+          case 'marginPercent': {
+            if (cost > 0 && margin > 0 && margin < 100) {
+              const spExGst = cost / (1 - margin / 100);
+              const gst = spExGst * GST_RATE;
+              newRow.salePriceExGst = spExGst.toFixed(2);
+              newRow.gst = gst.toFixed(2);
+              newRow.salePriceIncGst = (spExGst + gst).toFixed(2);
+            }
+            break;
+          }
+          case 'salePriceIncGst': {
+            const spInc = parseFloat(value) || 0;
+            if (spInc > 0) {
+              const spExGst = spInc / (1 + GST_RATE);
+              const gst = spInc - spExGst;
+              newRow.salePriceExGst = spExGst.toFixed(2);
+              newRow.gst = gst.toFixed(2);
+              if (cost > 0) {
+                newRow.marginPercent = (((spExGst - cost) / spExGst) * 100).toFixed(2);
+              }
+            }
+            break;
+          }
+          case 'salePriceExGst': {
+            const spEx = parseFloat(value) || 0;
+            if (spEx > 0) {
+              const gst = spEx * GST_RATE;
+              newRow.gst = gst.toFixed(2);
+              newRow.salePriceIncGst = (spEx + gst).toFixed(2);
+              if (cost > 0) {
+                newRow.marginPercent = (((spEx - cost) / spEx) * 100).toFixed(2);
+              }
+            }
+            break;
+          }
+          case 'gst': {
+            const gstVal = parseFloat(value) || 0;
+            const spEx = parseFloat(newRow.salePriceExGst) || 0;
+            if (spEx > 0) {
+              newRow.salePriceIncGst = (spEx + gstVal).toFixed(2);
+            }
+            break;
+          }
+        }
+
+        return newRow;
+      });
+
+      setIsDirty(true);
+      triggerAutoSave(updated);
+      return updated;
+    });
+  }, []);
+
+  const addRow = () => {
+    setRows(prev => {
+      const updated = [...prev, emptyRow()];
+      setIsDirty(true);
+      triggerAutoSave(updated);
+      return updated;
+    });
   };
 
-  const clearAll = () => setRows([emptyRow()]);
+  const removeRow = (id: string) => {
+    setRows(prev => {
+      if (prev.length <= 1) return prev;
+      const updated = prev.filter(r => r.id !== id);
+      setIsDirty(true);
+      triggerAutoSave(updated);
+      return updated;
+    });
+  };
+
+  const clearAll = () => {
+    const fresh = [emptyRow()];
+    setRows(fresh);
+    setIsDirty(true);
+    triggerAutoSave(fresh);
+  };
+
+  if (loading) {
+    return <div className="p-8 text-gray-400">Loading calculator...</div>;
+  }
 
   return (
     <div className="space-y-4">
+      {toast && (
+        <div className={`fixed top-4 right-4 px-4 py-2 rounded shadow-lg z-50 text-white text-sm
+          ${toast.ok ? 'bg-green-600' : 'bg-red-600'}`}>
+          {toast.msg}
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-bold text-gray-800">💰 Price &amp; Margin Calculator</h3>
-          <p className="text-sm text-gray-500">Edit any field — the others recalculate automatically</p>
+          <p className="text-sm text-gray-500">
+            Edit any field — the others recalculate automatically.
+            {saving && <span className="ml-2 text-blue-500">💾 Saving...</span>}
+            {!saving && !isDirty && <span className="ml-2 text-green-500">✅ Saved</span>}
+            {!saving && isDirty && <span className="ml-2 text-amber-500">● Unsaved changes</span>}
+          </p>
         </div>
         <div className="flex gap-2">
           <button
@@ -121,6 +225,17 @@ export default function PriceMarginCalculator() {
             className="px-3 py-1.5 bg-gray-200 text-gray-700 text-sm rounded hover:bg-gray-300 transition"
           >
             Clear All
+          </button>
+          <button
+            onClick={() => doSave(rows)}
+            disabled={saving || !isDirty}
+            className={`px-3 py-1.5 text-sm rounded font-medium transition ${
+              saving ? 'bg-blue-400 text-white cursor-wait'
+                : isDirty ? 'bg-blue-600 text-white hover:bg-blue-700'
+                : 'bg-green-600 text-white'
+            }`}
+          >
+            {saving ? '💾 Saving...' : isDirty ? '💾 Save' : '✅ Saved'}
           </button>
         </div>
       </div>
@@ -237,7 +352,7 @@ export default function PriceMarginCalculator() {
       </div>
 
       <p className="text-xs text-gray-400">
-        💡 GST calculated at 10%. Margin = (Price ex GST − Cost) ÷ Price ex GST. Markup = (Price ex GST − Cost) ÷ Cost.
+        💡 GST calculated at 10%. Auto-saves 2 seconds after last edit. Markup = (Price ex GST − Cost) ÷ Cost.
       </p>
     </div>
   );
