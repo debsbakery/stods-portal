@@ -43,10 +43,8 @@ async function getCustomerLedger(customerId: string) {
     .eq('customer_id', customerId)
     .order('credit_date', { ascending: true })
 
-  // Build invoiceMap (invoice_numbers.id -> invoice_number)
-  // Build orderIdMap (invoice_numbers.id -> order_id)
-  // order_id is what invoice_payments.invoice_id expects (FK to orders.id)
-   const invoiceIds = (arTxRaw ?? [])
+  // Build invoiceMap and orderIdMap
+  const invoiceIds = (arTxRaw ?? [])
     .filter((t: any) => t.invoice_id)
     .map((t: any) => t.invoice_id as string)
 
@@ -57,12 +55,13 @@ async function getCustomerLedger(customerId: string) {
     const { data: invNums } = await supabase
       .from('invoice_numbers')
       .select('id, invoice_number, order_id')
-      .in('order_id', invoiceIds)  // Changed from .in('id', invoiceIds)
+      .in('order_id', invoiceIds)
     for (const inv of invNums ?? []) {
-      invoiceMap[inv.order_id] = inv.invoice_number  // Changed from inv.id
+      invoiceMap[inv.order_id] = inv.invoice_number
       if (inv.order_id) orderIdMap[inv.order_id] = inv.order_id
     }
   }
+
   type LedgerEntry = {
     id: string
     date: string
@@ -81,34 +80,35 @@ async function getCustomerLedger(customerId: string) {
 
   const entries: LedgerEntry[] = []
 
+  // ── AR Transactions (invoices + credits from ar_transactions) ──────────
   for (const tx of arTxRaw ?? []) {
-    const isCredit    = tx.type === 'credit'
-    const txAmount    = Number(tx.amount      || 0)
-    const amtPaid     = Number(tx.amount_paid || 0)
-    const outstanding = isCredit ? 0 : Math.max(txAmount - amtPaid, 0)
-    const invoiceNum  = tx.invoice_id ? invoiceMap[tx.invoice_id] : null
-    const reference   = invoiceNum
+    const isCredit   = tx.type === 'credit'
+    const txAmount   = Number(tx.amount      || 0)
+    const amtPaid    = Number(tx.amount_paid || 0)
+    const invoiceNum = tx.invoice_id ? invoiceMap[tx.invoice_id] : null
+    const reference  = invoiceNum
       ? 'INV-' + String(invoiceNum).padStart(4, '0')
       : String(tx.type ?? '').toUpperCase()
 
     const paidStatus: 'paid' | 'partial' | 'unpaid' | 'na' = isCredit
       ? 'na'
       : amtPaid >= txAmount - 0.01
-      ? 'paid'
-      : amtPaid > 0
-      ? 'partial'
-      : 'unpaid'
+        ? 'paid'
+        : amtPaid > 0
+          ? 'partial'
+          : 'unpaid'
 
     entries.push({
       id:          tx.id,
-date: tx.created_at,
+      date:        tx.created_at,
       type:        isCredit ? 'credit' : 'invoice',
       description: tx.description || reference,
-      debit:       isCredit ? 0 : txAmount,
+      // ── debit = txAmount for ALL types so allocation can read the amount ──
+      debit:       txAmount,
       credit:      isCredit ? txAmount : 0,
       balance:     0,
       amount_paid: amtPaid,
-      outstanding,
+      outstanding: Math.max(txAmount - amtPaid, 0),
       paid_status: paidStatus,
       due_date:    tx.due_date || null,
       invoice_id:  tx.invoice_id || null,
@@ -116,6 +116,7 @@ date: tx.created_at,
     })
   }
 
+  // ── Payments ───────────────────────────────────────────────────────────
   for (const pmt of pmtRaw ?? []) {
     const method = (pmt.payment_method ?? '').replace(/_/g, ' ') || 'payment'
     const ref    = pmt.reference_number ? ' - ' + pmt.reference_number : ''
@@ -136,6 +137,7 @@ date: tx.created_at,
     })
   }
 
+  // ── Credit Memos (separate table) ──────────────────────────────────────
   for (const cm of creditRaw ?? []) {
     const cmAmount  = Math.abs(Number(cm.total_amount || cm.amount || 0))
     const creditNum = cm.credit_number ? cm.credit_number + ' - ' : ''
@@ -145,11 +147,11 @@ date: tx.created_at,
       date:        cm.credit_date || cm.created_at,
       type:        'credit',
       description: 'Credit ' + creditNum + creditTyp,
-      debit:       0,
+      debit:       cmAmount,   // ← set so allocation can read the amount
       credit:      cmAmount,
       balance:     0,
       amount_paid: 0,
-      outstanding: 0,
+      outstanding: cmAmount,
       paid_status: 'na',
       due_date:    null,
       invoice_id:  null,
@@ -157,17 +159,33 @@ date: tx.created_at,
     })
   }
 
+  // ── Sort by date ───────────────────────────────────────────────────────
   entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
+  // ── Running balance ────────────────────────────────────────────────────
   let running = 0
   for (const e of entries) {
-    running += e.debit - e.credit
+    if (e.type === 'invoice') {
+      running += e.debit           // invoices add to balance
+    } else if (e.type === 'credit') {
+      running -= e.debit           // credits reduce balance
+    } else if (e.type === 'payment') {
+      running -= e.credit          // payments reduce balance
+    }
     e.balance = Math.round(running * 100) / 100
   }
 
-  const totalInvoiced = entries.filter(e => e.type === 'invoice').reduce((s, e) => s + e.debit, 0)
-  const totalPaid     = (pmtRaw ?? []).reduce((s, p) => s + Number(p.amount), 0)
-  const totalCredits  = entries.filter(e => e.type === 'credit').reduce((s, e) => s + e.credit, 0)
+  // ── Totals ─────────────────────────────────────────────────────────────
+  const totalInvoiced = entries
+    .filter(e => e.type === 'invoice')
+    .reduce((s, e) => s + e.debit, 0)
+
+  const totalPaid = (pmtRaw ?? [])
+    .reduce((s, p) => s + Number(p.amount), 0)
+
+  const totalCredits = entries
+    .filter(e => e.type === 'credit')
+    .reduce((s, e) => s + e.credit, 0)
 
   return {
     customer,
@@ -195,7 +213,9 @@ export default async function CustomerLedgerPage({
       <div className="container mx-auto px-4 py-8">
         <div className="bg-red-50 border border-red-200 rounded-lg p-8 text-center">
           <p className="text-red-700 font-semibold">Customer not found</p>
-          <Link href="/admin/ar" className="mt-4 inline-block text-red-600 hover:underline">Back to AR</Link>
+          <Link href="/admin/ar" className="mt-4 inline-block text-red-600 hover:underline">
+            Back to AR
+          </Link>
         </div>
       </div>
     )
@@ -208,7 +228,7 @@ export default async function CustomerLedgerPage({
       <Link
         href="/admin/ar"
         className="flex items-center gap-1 text-sm mb-4 hover:opacity-80"
-        style={{ color: '#C4A882' }}
+        style={{ color: '#CE1126' }}
       >
         <ArrowLeft className="h-4 w-4" /> Back to AR
       </Link>
@@ -216,7 +236,7 @@ export default async function CustomerLedgerPage({
       <div className="bg-white rounded-lg shadow-sm border p-6 mb-6">
         <div className="flex justify-between items-start">
           <div>
-            <h1 className="text-2xl font-bold" style={{ color: '#3E1F00' }}>
+            <h1 className="text-2xl font-bold" style={{ color: '#006A4E' }}>
               {customer.business_name || customer.contact_name}
             </h1>
             <p className="text-gray-500 text-sm mt-0.5">{customer.email}</p>
@@ -228,7 +248,7 @@ export default async function CustomerLedgerPage({
             <p className="text-xs text-gray-500 mb-1">Current Balance</p>
             <p
               className="text-3xl font-bold"
-              style={{ color: currentBalance > 0 ? '#C4A882' : '#3E1F00' }}
+              style={{ color: currentBalance > 0 ? '#CE1126' : '#006A4E' }}
             >
               {formatCurrency(Math.abs(currentBalance))}
             </p>
@@ -261,7 +281,7 @@ export default async function CustomerLedgerPage({
             <p className="text-xs text-gray-500">Balance Due</p>
             <p
               className="text-lg font-bold"
-              style={{ color: currentBalance > 0 ? '#C4A882' : '#3E1F00' }}
+              style={{ color: currentBalance > 0 ? '#CE1126' : '#006A4E' }}
             >
               {formatCurrency(currentBalance)}
             </p>
