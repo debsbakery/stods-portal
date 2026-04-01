@@ -28,10 +28,20 @@ interface StatementData {
   closingBalance: number
   startDate: string | null
   endDate: string
+  // ── Brand overrides ──────────────────────────────────────
+  bakeryName?: string
+  bakeryEmail?: string
+  logoUrl?: string
+  headerColor?: [number, number, number]
 }
 
 export async function generateStatementPDF(data: StatementData): Promise<Buffer> {
-  const { customer, lines, openingBalance, closingBalance, startDate, endDate } = data
+  const {
+    customer, lines, openingBalance, closingBalance, startDate, endDate,
+    bakeryName   = "Deb's Bakery",
+    bakeryEmail  = 'noreply@debsbakery.store',
+    headerColor  = [0, 0.416, 0.306],
+  } = data
 
   const pdfDoc   = await PDFDocument.create()
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
@@ -57,8 +67,8 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
   const GREY:  [number, number, number] = [0.4, 0.4, 0.4]
   const DARK:  [number, number, number] = [0.15, 0.15, 0.15]
   const AMBER: [number, number, number] = [0.8, 0.5, 0.0]
+  const HEADER = headerColor
 
-  // Column positions — shifted to fit STATUS column
   const COL = {
     date:    50,
     desc:    115,
@@ -97,7 +107,6 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
     page.drawRectangle({ x, y, width: w, height: h, color: rgb(...color) })
   }
 
-  // Draw status badge for invoice rows
   const drawStatus = (status: string | undefined, x: number, y: number) => {
     if (!status || status === 'na') return
     if (status === 'paid') {
@@ -118,14 +127,13 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
     }
   }
 
-  // Page header
   const addPageHeader = (pageRef: typeof page, isFirst: boolean) => {
     const h = pageRef.getSize().height
     pageRef.drawRectangle({
       x: 0, y: h - 75, width, height: 75,
-      color: rgb(...GREEN),
+      color: rgb(...HEADER),
     })
-    pageRef.drawText("Stods Bakery", {
+    pageRef.drawText(bakeryName, {
       x: 50, y: h - 35, size: 22, font: fontBold, color: rgb(1, 1, 1),
     })
     pageRef.drawText('ACCOUNT STATEMENT', {
@@ -152,22 +160,21 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
     }
   }
 
-  // Draw table header row
   const drawTableHeader = (yRef: number) => {
     drawRect(50, yRef - 4, RIGHT_MARGIN - 50, 18, [0.1, 0.1, 0.1])
     page.drawText('DATE',        { x: COL.date    + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
     page.drawText('DESCRIPTION', { x: COL.desc    + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
     page.drawText('STATUS',      { x: COL.status  + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
-    page.drawText('CHARGES',     { x: COL.debit   + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
-    page.drawText('PAYMENTS',    { x: COL.credit  + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
+   // REPLACE WITH:
+page.drawText('CHARGES/CREDITS', { x: COL.debit  + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
+page.drawText('PAYMENTS',        { x: COL.credit + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
     page.drawText('BALANCE',     { x: COL.balance + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
   }
 
-  // First page
+  // ── First page ────────────────────────────────────────────────────────────
   addPageHeader(page, true)
   let y = height - 95
 
-  // Customer info box
   drawRect(50, y - 55, 260, 65, [0.97, 0.97, 0.97])
   y -= 10
   drawText('TO:', COL.date, y, { size: 7, bold: true, color: GREY })
@@ -180,7 +187,6 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
   if (customer.email)   { y -= 12; drawText(customer.email,   COL.date, y, { size: 8, color: GREY }) }
   y -= 20
 
-  // Opening / Closing balance boxes
   const boxY  = height - 95
   const boxH  = 65
   const box1X = RIGHT_MARGIN - 220
@@ -208,11 +214,9 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
   drawLine(50, y, RIGHT_MARGIN, y, 1)
   y -= 20
 
-  // Table header
   drawTableHeader(y)
   y -= 20
 
-  // Opening balance row
   drawText(startDate ? formatDate(startDate) : '-', COL.date,    y, { size: 8, color: GREY })
   drawText('Opening Balance',                        COL.desc,    y, { size: 8, color: GREY, bold: true })
   drawText(formatCurrency(openingBalance),           COL.balance, y, { size: 8, color: GREY })
@@ -220,11 +224,9 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
   drawLine(50, y, RIGHT_MARGIN, y)
   y -= 12
 
-  // Transaction rows — oldest first (lines already sorted ascending in route)
   let rowIndex = 0
 
   for (const line of lines) {
-    // New page if running out of space
     if (y < 100) {
       page = pdfDoc.addPage([595, 842])
       addPageHeader(page, false)
@@ -234,12 +236,10 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
       rowIndex = 0
     }
 
-    // Alternating row background
     if (rowIndex % 2 === 0) {
       drawRect(50, y - 4, RIGHT_MARGIN - 50, 16, [0.97, 0.97, 0.97])
     }
 
-    // Truncate description to fit shorter column
     const desc = line.description.length > 30
       ? line.description.substring(0, 28) + '..'
       : line.description
@@ -247,14 +247,21 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
     drawText(formatDate(line.date), COL.date, y, { size: 8 })
     drawText(desc,                  COL.desc, y, { size: 8 })
 
-    // Status badge — only on invoice rows
     if (line.transaction_type === 'invoice') {
       drawStatus(line.paid_status, COL.status, y)
     }
 
-    if (line.debit != null && line.debit > 0) {
-      drawText(formatCurrency(line.debit), COL.debit, y, { size: 8 })
-    }
+   // REPLACE WITH:
+if (line.debit != null && line.debit !== 0) {
+  const isNegDebit = line.debit < 0
+  drawText(
+    isNegDebit
+      ? `-$${Math.abs(line.debit).toFixed(2)}`
+      : formatCurrency(line.debit),
+    COL.debit, y,
+    { size: 8, color: isNegDebit ? GREEN : DARK }
+  )
+}
     if (line.credit != null && line.credit > 0) {
       drawText(formatCurrency(line.credit), COL.credit, y, { size: 8, color: GREEN })
     }
@@ -266,23 +273,28 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
     rowIndex++
   }
 
-  // Totals row
   y -= 4
   drawLine(50, y, RIGHT_MARGIN, y, 1)
   y -= 18
 
-  const totalDebits  = lines.reduce((s, l) => s + (l.debit  ?? 0), 0)
-  const totalCredits = lines.reduce((s, l) => s + (l.credit ?? 0), 0)
+ // REPLACE WITH:
+const totalCharges = lines.reduce((s, l) => s + (l.debit ?? 0), 0)  // net of credits
+const totalPayments = lines.reduce((s, l) => s + (l.credit ?? 0), 0)
 
-  drawText('TOTALS',                    COL.desc,    y, { size: 9, bold: true })
-  drawText(formatCurrency(totalDebits), COL.debit,   y, { size: 9, bold: true })
-  drawText(formatCurrency(totalCredits),COL.credit,  y, { size: 9, bold: true, color: GREEN })
+drawText('TOTALS', COL.desc, y, { size: 9, bold: true })
+drawText(
+  totalCharges >= 0
+    ? formatCurrency(totalCharges)
+    : `-$${Math.abs(totalCharges).toFixed(2)}`,
+  COL.debit, y,
+  { size: 9, bold: true, color: totalCharges < 0 ? GREEN : DARK }
+)
+drawText(formatCurrency(totalPayments), COL.credit, y, { size: 9, bold: true, color: GREEN })
 
   y -= 8
   drawLine(50, y, RIGHT_MARGIN, y)
   y -= 20
 
-  // Closing balance highlight
   drawRect(
     300, y - 8, RIGHT_MARGIN - 300, 28,
     closingBalance > 0 ? [0.99, 0.94, 0.94] : [0.94, 0.99, 0.94]
@@ -294,7 +306,7 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
     { size: 11, bold: true, color: closingBalance > 0 ? RED : GREEN }
   )
 
-  // Footer
+  // ── Footer ────────────────────────────────────────────────────────────────
   y -= 45
   drawLine(50, y, RIGHT_MARGIN, y)
   y -= 15
@@ -305,7 +317,7 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
     { size: 8, color: GREY }
   )
   drawText(
-    "Stods Bakery  |  orders@stodsbakery.com",
+    `${bakeryName}  |  ${bakeryEmail}`,
     RIGHT_MARGIN - 250, y,
     { size: 8, color: GREY }
   )

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Save, DollarSign, Search, FileText, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Save, DollarSign, Search, FileText, CheckCircle, MinusCircle } from 'lucide-react';
 
 const PAYMENT_METHODS = [
   { value: 'cash',          label: '💵 Cash' },
@@ -26,17 +26,34 @@ interface Invoice {
   amount_paid:    number | null;
   customer_id:    string;
   invoice_number: number | null;
-  status:         string | null;  // ✅ ADD THIS
+  status:         string | null;
+}
+
+interface Credit {
+  id:          string;
+  customer_id: string;
+  amount:      number;
+  amount_paid: number | null;
+  description: string | null;
+  created_at:  string;
+}
+
+interface Allocation {
+  invoice_id: string;
+  amount:     number;
+  is_credit?: boolean;
 }
 
 interface RecordPaymentWithAllocationProps {
   customers: Customer[];
   invoices:  Invoice[];
+  credits:   Credit[];
 }
 
-export default function RecordPaymentWithAllocation({ 
-  customers = [], 
+export default function RecordPaymentWithAllocation({
+  customers = [],
   invoices  = [],
+  credits   = [],
 }: RecordPaymentWithAllocationProps) {
   const router = useRouter();
 
@@ -49,11 +66,11 @@ export default function RecordPaymentWithAllocation({
     notes:            '',
   });
 
-  const [allocations, setAllocations] = useState<{ invoice_id: string; amount: number }[]>([]);
+  const [allocations, setAllocations] = useState<Allocation[]>([]);
   const [searchTerm,  setSearchTerm]  = useState('');
   const [saving,      setSaving]      = useState(false);
   const [error,       setError]       = useState<string | null>(null);
-  const [success,     setSuccess]     = useState<string | null>(null);  // ✅ NEW
+  const [success,     setSuccess]     = useState<string | null>(null);
 
   // ── Filtering ──────────────────────────────────────────────────────────────
   const filteredCustomers = Array.isArray(customers)
@@ -75,6 +92,10 @@ export default function RecordPaymentWithAllocation({
     ? invoices.filter((inv) => inv?.customer_id === formData.customer_id)
     : [];
 
+  const customerCredits = Array.isArray(credits)
+    ? credits.filter((c) => c?.customer_id === formData.customer_id)
+    : [];
+
   // ── Calculations ───────────────────────────────────────────────────────────
   const currentBalance = (selectedCustomer && typeof selectedCustomer.balance === 'number')
     ? selectedCustomer.balance
@@ -82,23 +103,36 @@ export default function RecordPaymentWithAllocation({
 
   const paymentAmount = parseFloat(formData.amount) || 0;
 
+  // Net allocated — credits are negative so they reduce the total
   const allocatedAmount = Array.isArray(allocations)
     ? allocations.reduce((sum, a) => sum + (parseFloat(String(a?.amount)) || 0), 0)
     : 0;
 
-  const unallocatedAmount = paymentAmount - allocatedAmount;
+  const unallocatedAmount = paymentAmount - allocations
+    .filter(a => !a.is_credit)
+    .reduce((sum, a) => sum + (parseFloat(String(a?.amount)) || 0), 0);
 
   // ── Auto allocate ──────────────────────────────────────────────────────────
   function handleAutoAllocate() {
-    if (paymentAmount <= 0 || !Array.isArray(customerInvoices)) return;
+    if (paymentAmount <= 0) return;
 
-    const newAllocations: { invoice_id: string; amount: number }[] = [];
+    const newAllocations: Allocation[] = [];
     let remaining = paymentAmount;
 
+    // Apply credits first (oldest first)
+    const sortedCredits = [...customerCredits].sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    );
+    for (const credit of sortedCredits) {
+      const creditAmt = Number(credit.amount) || 0;
+      newAllocations.push({ invoice_id: credit.id, amount: -creditAmt, is_credit: true });
+      remaining -= creditAmt;
+    }
+
+    // Then apply to invoices oldest first
     const sorted = [...customerInvoices].sort(
       (a, b) => new Date(a.delivery_date).getTime() - new Date(b.delivery_date).getTime()
     );
-
     for (const invoice of sorted) {
       if (remaining <= 0) break;
       const total    = parseFloat(String(invoice?.total_amount)) || 0;
@@ -113,29 +147,29 @@ export default function RecordPaymentWithAllocation({
     setAllocations(newAllocations);
   }
 
-  // ── Manual allocate ────────────────────────────────────────────────────────
+  // ── Manual allocate invoice ────────────────────────────────────────────────
   function handleManualAllocate(invoiceId: string, amount: number) {
     if (!invoiceId || !Array.isArray(customerInvoices)) return;
 
     const invoice = customerInvoices.find((i) => i?.id === invoiceId);
     if (!invoice) return;
 
-    const total    = parseFloat(String(invoice.total_amount)) || 0;
-    const paid     = parseFloat(String(invoice.amount_paid))  || 0;
-    const due      = total - paid;
-    const current  = Array.isArray(allocations)
-      ? allocations.find(a => a?.invoice_id === invoiceId)?.amount || 0
-      : 0;
-    const maxAllowable = paymentAmount - allocatedAmount + current;
+    const total        = parseFloat(String(invoice.total_amount)) || 0;
+    const paid         = parseFloat(String(invoice.amount_paid))  || 0;
+    const due          = total - paid;
+    const current      = allocations.find(a => a?.invoice_id === invoiceId && !a.is_credit)?.amount || 0;
+    const invoiceAlloc = allocations.filter(a => !a.is_credit).reduce((s, a) => s + a.amount, 0);
+    const maxAllowable = paymentAmount - invoiceAlloc + current;
     const validAmount  = Math.max(0, Math.min(amount, due, maxAllowable));
 
     setAllocations((prev) => {
-      if (!Array.isArray(prev)) return [];
-      const existing = prev.find((a) => a?.invoice_id === invoiceId);
+      const existing = prev.find((a) => a?.invoice_id === invoiceId && !a.is_credit);
       if (existing) {
-        if (validAmount === 0) return prev.filter((a) => a?.invoice_id !== invoiceId);
+        if (validAmount === 0) return prev.filter((a) => !(a?.invoice_id === invoiceId && !a.is_credit));
         return prev.map((a) =>
-          a?.invoice_id === invoiceId ? { invoice_id: invoiceId, amount: validAmount } : a
+          a?.invoice_id === invoiceId && !a.is_credit
+            ? { invoice_id: invoiceId, amount: validAmount }
+            : a
         );
       } else if (validAmount > 0) {
         return [...prev, { invoice_id: invoiceId, amount: validAmount }];
@@ -144,18 +178,27 @@ export default function RecordPaymentWithAllocation({
     });
   }
 
-  // ── Tick box toggle ────────────────────────────────────────────────────────
+  // ── Toggle credit ──────────────────────────────────────────────────────────
+  function handleToggleCredit(credit: Credit) {
+    const creditAmt  = Number(credit.amount) || 0;
+    const isIncluded = allocations.some(a => a.invoice_id === credit.id && a.is_credit);
+    if (isIncluded) {
+      setAllocations(prev => prev.filter(a => !(a.invoice_id === credit.id && a.is_credit)));
+    } else {
+      setAllocations(prev => [...prev, { invoice_id: credit.id, amount: -creditAmt, is_credit: true }]);
+    }
+  }
+
+  // ── Tick invoice toggle ────────────────────────────────────────────────────
   function handleTickInvoice(invoice: Invoice) {
     const total     = parseFloat(String(invoice.total_amount)) || 0;
     const paid      = parseFloat(String(invoice.amount_paid))  || 0;
     const due       = total - paid;
-    const allocated = allocations.find(a => a.invoice_id === invoice.id)?.amount || 0;
+    const allocated = allocations.find(a => a.invoice_id === invoice.id && !a.is_credit)?.amount || 0;
 
     if (allocated > 0) {
-      // ✅ Untick — remove allocation
       handleManualAllocate(invoice.id, 0);
     } else {
-      // ✅ Tick — auto fill the due amount
       handleManualAllocate(invoice.id, due);
     }
   }
@@ -188,16 +231,20 @@ export default function RecordPaymentWithAllocation({
       const data = await response.json();
 
       if (response.ok) {
-        const customerName = data?.payment?.customer    || 'Customer';
-        const amount       = parseFloat(String(data?.payment?.amount))      || 0;
-        const newBalance   = parseFloat(String(data?.payment?.new_balance)) || 0;
-        const allocatedMsg = allocations.length > 0
-          ? ` | Allocated to ${allocations.length} invoice(s): $${allocatedAmount.toFixed(2)}`
+        const customerName  = data?.payment?.customer    || 'Customer';
+        const amount        = parseFloat(String(data?.payment?.amount))      || 0;
+        const newBalance    = parseFloat(String(data?.payment?.new_balance)) || 0;
+        const invoiceAllocs = allocations.filter(a => !a.is_credit);
+        const creditAllocs  = allocations.filter(a => a.is_credit);
+        const allocatedMsg  = invoiceAllocs.length > 0
+          ? ` | Allocated to ${invoiceAllocs.length} invoice(s)`
+          : '';
+        const creditMsg = creditAllocs.length > 0
+          ? ` | ${creditAllocs.length} credit(s) applied`
           : '';
 
-        // ✅ Stay on page — show success banner, reset form
         setSuccess(
-          `✅ Payment recorded for ${customerName} — $${amount.toFixed(2)}${allocatedMsg} | New balance: $${newBalance.toFixed(2)}`
+          `✅ Payment recorded for ${customerName} — $${amount.toFixed(2)}${allocatedMsg}${creditMsg} | New balance: $${newBalance.toFixed(2)}`
         );
 
         setFormData({
@@ -222,6 +269,8 @@ export default function RecordPaymentWithAllocation({
     }
   }
 
+  const hasAllocation = customerInvoices.length > 0 || customerCredits.length > 0;
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="max-w-5xl mx-auto p-6">
@@ -238,7 +287,7 @@ export default function RecordPaymentWithAllocation({
           Record Payment
         </h1>
 
-        {/* ✅ Success banner */}
+        {/* Success banner */}
         {success && (
           <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-green-800 flex justify-between items-center">
             <span className="flex items-center gap-2">
@@ -264,9 +313,7 @@ export default function RecordPaymentWithAllocation({
 
           {/* ── Customer Selection ── */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Customer *
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Customer *</label>
             <div className="relative mb-2">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
               <input
@@ -302,22 +349,20 @@ export default function RecordPaymentWithAllocation({
               <div className="mt-3 grid grid-cols-3 gap-4">
                 <div className="p-3 bg-blue-50 rounded border border-blue-200">
                   <p className="text-xs text-blue-600 mb-1">Current Balance</p>
-                  <p className="text-xl font-bold text-blue-800">
-                    ${currentBalance.toFixed(2)}
-                  </p>
+                  <p className="text-xl font-bold text-blue-800">${currentBalance.toFixed(2)}</p>
                 </div>
                 {formData.amount && paymentAmount > 0 && (
                   <>
                     <div className="p-3 bg-purple-50 rounded border border-purple-200">
-                      <p className="text-xs text-purple-600 mb-1">Allocated to Invoices</p>
-                      <p className="text-xl font-bold text-purple-800">
-                        ${allocatedAmount.toFixed(2)}
-                      </p>
+                      <p className="text-xs text-purple-600 mb-1">Cash Payment</p>
+                      <p className="text-xl font-bold text-purple-800">${paymentAmount.toFixed(2)}</p>
                     </div>
                     <div className="p-3 bg-green-50 rounded border border-green-200">
                       <p className="text-xs text-green-600 mb-1">New Balance</p>
                       <p className="text-xl font-bold text-green-800">
-                        ${(currentBalance - paymentAmount).toFixed(2)}
+                        ${(currentBalance - paymentAmount - Math.abs(
+                          allocations.filter(a => a.is_credit).reduce((s, a) => s + a.amount, 0)
+                        )).toFixed(2)}
                       </p>
                     </div>
                   </>
@@ -329,12 +374,10 @@ export default function RecordPaymentWithAllocation({
           {/* ── Payment Amount ── */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Payment Amount *
+              Cash Amount Received *
             </label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-semibold">
-                $
-              </span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-semibold">$</span>
               <input
                 type="number"
                 step="0.01"
@@ -351,13 +394,13 @@ export default function RecordPaymentWithAllocation({
             </div>
           </div>
 
-          {/* ── Invoice Allocation ── */}
-          {formData.customer_id && customerInvoices.length > 0 && paymentAmount > 0 && (
+          {/* ── Invoice & Credit Allocation ── */}
+          {formData.customer_id && hasAllocation && paymentAmount > 0 && (
             <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
               <div className="flex justify-between items-center mb-3">
                 <h3 className="font-semibold flex items-center gap-2">
                   <FileText className="h-4 w-4" />
-                  Allocate to Invoices (Optional)
+                  Allocate to Invoices &amp; Credits
                 </h3>
                 <button
                   type="button"
@@ -368,75 +411,126 @@ export default function RecordPaymentWithAllocation({
                 </button>
               </div>
 
-              <div className="space-y-2 max-h-72 overflow-y-auto">
-                {customerInvoices.map((invoice) => {
-                  const total     = parseFloat(String(invoice?.total_amount)) || 0;
-                  const paid      = parseFloat(String(invoice?.amount_paid))  || 0;
-                  const due       = total - paid;
-                  const allocated = allocations.find((a) => a?.invoice_id === invoice.id)?.amount || 0;
-                  const isTicked  = allocated > 0;
+              <div className="space-y-2 max-h-96 overflow-y-auto">
 
-// ✅ Already exists — extend it
-if (due <= 0) return null;
-
-// ✅ ADD THIS — hide cancelled and pending
-if (invoice.status === 'cancelled') return null;
-if (invoice.invoice_number == null) return null;  // hides PENDING invoices
-                  return (
-                    <div
-                      key={invoice.id}
-                      className={[
-                        'flex items-center gap-3 p-3 rounded border cursor-pointer transition-colors',
-                        isTicked ? 'bg-green-50 border-green-300' : 'bg-white hover:bg-gray-50 border-gray-200',
-                      ].join(' ')}
-                      onClick={() => handleTickInvoice(invoice)}
-                    >
-                      {/* ✅ Tick box */}
-                      <input
-                        type="checkbox"
-                        checked={isTicked}
-                        onChange={() => {}}
-                        className="w-5 h-5 accent-green-600 shrink-0 cursor-pointer"
-                      />
-
-                      {/* Invoice details */}
-                      <div className="flex-1">
-                        <p className="font-mono text-sm font-semibold text-gray-800">
-                          Invoice #{invoice.invoice_number != null
-                            ? String(invoice.invoice_number).padStart(6, '0')
-                            : 'PENDING'}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                          {new Date(invoice.delivery_date + 'T00:00:00').toLocaleDateString('en-AU')}
-                          {' • '}Total: ${total.toFixed(2)}
-                          {' • '}
-                          <span className={due > 0 ? 'text-red-600 font-medium' : ''}>
-                            Due: ${due.toFixed(2)}
-                          </span>
-                        </p>
-                      </div>
-
-                      {/* Amount input */}
-                      <div className="w-32" onClick={e => e.stopPropagation()}>
-                        <div className="relative">
-                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-500">$</span>
+                {/* ── Credits (shown first) ── */}
+                {customerCredits.length > 0 && (
+                  <div className="mb-1">
+                    <p className="text-xs font-semibold text-orange-700 uppercase tracking-wide mb-1.5 flex items-center gap-1">
+                      <MinusCircle className="h-3 w-3" /> Credit Notes — tick to apply
+                    </p>
+                    {customerCredits.map((credit) => {
+                      const creditAmt  = Number(credit.amount) || 0;
+                      const isIncluded = allocations.some(a => a.invoice_id === credit.id && a.is_credit);
+                      return (
+                        <div
+                          key={credit.id}
+                          className={`flex items-center gap-3 p-3 rounded border cursor-pointer transition-colors mb-1 ${
+                            isIncluded
+                              ? 'bg-orange-50 border-orange-300'
+                              : 'bg-white hover:bg-orange-50 border-orange-200'
+                          }`}
+                          onClick={() => handleToggleCredit(credit)}
+                        >
                           <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            max={due}
-                            value={allocated || ''}
-                            onChange={(e) =>
-                              handleManualAllocate(invoice.id, parseFloat(e.target.value) || 0)
-                            }
-                            placeholder="0.00"
-                            className="w-full pl-5 pr-2 py-1 text-sm border rounded focus:outline-none focus:border-green-500"
+                            type="checkbox"
+                            checked={isIncluded}
+                            onChange={() => {}}
+                            className="w-5 h-5 accent-orange-500 shrink-0 cursor-pointer"
                           />
+                          <div className="flex-1">
+                            <p className="text-sm font-semibold text-orange-700">
+                              {credit.description || 'Credit Note'}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {new Date(credit.created_at).toLocaleDateString('en-AU')}
+                              {' • '}
+                              <span className="text-orange-600 font-medium">
+                                Reduces balance by ${creditAmt.toFixed(2)}
+                              </span>
+                            </p>
+                          </div>
+                          <span className="text-orange-600 font-bold text-sm whitespace-nowrap">
+                            -${creditAmt.toFixed(2)}
+                          </span>
                         </div>
-                      </div>
-                    </div>
-                  );
-                })}
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* ── Invoices ── */}
+                {customerInvoices.length > 0 && (
+                  <div>
+                    {customerCredits.length > 0 && (
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                        Invoices
+                      </p>
+                    )}
+                    {customerInvoices.map((invoice) => {
+                      const total     = parseFloat(String(invoice?.total_amount)) || 0;
+                      const paid      = parseFloat(String(invoice?.amount_paid))  || 0;
+                      const due       = total - paid;
+                      const allocated = allocations.find(
+                        (a) => a?.invoice_id === invoice.id && !a.is_credit
+                      )?.amount || 0;
+                      const isTicked  = allocated > 0;
+
+                      if (due <= 0) return null;
+                      if (invoice.status === 'cancelled') return null;
+                      if (invoice.invoice_number == null) return null;
+
+                      return (
+                        <div
+                          key={invoice.id}
+                          className={`flex items-center gap-3 p-3 rounded border cursor-pointer transition-colors mb-1 ${
+                            isTicked
+                              ? 'bg-green-50 border-green-300'
+                              : 'bg-white hover:bg-gray-50 border-gray-200'
+                          }`}
+                          onClick={() => handleTickInvoice(invoice)}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isTicked}
+                            onChange={() => {}}
+                            className="w-5 h-5 accent-green-600 shrink-0 cursor-pointer"
+                          />
+                          <div className="flex-1">
+                            <p className="font-mono text-sm font-semibold text-gray-800">
+                              Invoice #{String(invoice.invoice_number).padStart(6, '0')}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {new Date(invoice.delivery_date + 'T00:00:00').toLocaleDateString('en-AU')}
+                              {' • '}Total: ${total.toFixed(2)}
+                              {' • '}
+                              <span className={due > 0 ? 'text-red-600 font-medium' : ''}>
+                                Due: ${due.toFixed(2)}
+                              </span>
+                            </p>
+                          </div>
+                          <div className="w-32" onClick={e => e.stopPropagation()}>
+                            <div className="relative">
+                              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-500">$</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                max={due}
+                                value={allocated || ''}
+                                onChange={(e) =>
+                                  handleManualAllocate(invoice.id, parseFloat(e.target.value) || 0)
+                                }
+                                placeholder="0.00"
+                                className="w-full pl-5 pr-2 py-1 text-sm border rounded focus:outline-none focus:border-green-500"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {unallocatedAmount > 0.01 && (
@@ -444,14 +538,32 @@ if (invoice.invoice_number == null) return null;  // hides PENDING invoices
                   💡 Unallocated: ${unallocatedAmount.toFixed(2)} (will reduce overall balance)
                 </div>
               )}
+
+              {/* Summary */}
+              {allocations.length > 0 && (
+                <div className="mt-3 pt-3 border-t space-y-1 text-xs text-gray-600">
+                  {allocations.filter(a => a.is_credit).length > 0 && (
+                    <p className="text-orange-600">
+                      Credits applied: -${Math.abs(
+                        allocations.filter(a => a.is_credit).reduce((s, a) => s + a.amount, 0)
+                      ).toFixed(2)}
+                    </p>
+                  )}
+                  {allocations.filter(a => !a.is_credit).length > 0 && (
+                    <p className="text-green-600">
+                      Cash allocated to invoices: ${
+                        allocations.filter(a => !a.is_credit).reduce((s, a) => s + a.amount, 0).toFixed(2)
+                      }
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
           {/* ── Payment Date ── */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Payment Date *
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Payment Date *</label>
             <input
               type="date"
               value={formData.payment_date}
@@ -463,9 +575,7 @@ if (invoice.invoice_number == null) return null;  // hides PENDING invoices
 
           {/* ── Payment Method ── */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Payment Method *
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method *</label>
             <select
               value={formData.payment_method}
               onChange={(e) => setFormData({ ...formData, payment_method: e.target.value })}
@@ -482,9 +592,7 @@ if (invoice.invoice_number == null) return null;  // hides PENDING invoices
 
           {/* ── Reference Number ── */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Reference Number
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Reference Number</label>
             <input
               type="text"
               value={formData.reference_number}

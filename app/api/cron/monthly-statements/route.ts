@@ -5,12 +5,12 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { generateStatementPDF } from '@/lib/pdf/statement'
 import { Resend } from 'resend'
 import pLimit from 'p-limit'
-
-const resend = new Resend(process.env.RESEND_API_KEY || "re_placeholder")
+const resend      = new Resend(process.env.RESEND_API_KEY)
+const resendStods = new Resend(process.env.STODS_RESEND_API_KEY)
 const limit  = pLimit(3)
 
 export async function GET(request: NextRequest) {
-  // ── Security — Vercel signs cron requests ─────────────────
+  // ── Security ──────────────────────────────────────────────
   const authHeader = request.headers.get('authorization')
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -18,7 +18,6 @@ export async function GET(request: NextRequest) {
 
   const supabase = createAdminClient()
 
-  // Last complete month
   const now       = new Date()
   const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
   const startDate = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1)
@@ -27,13 +26,12 @@ export async function GET(request: NextRequest) {
     .toISOString().split('T')[0]
 
   const monthLabel = lastMonth.toLocaleString('en-AU', { month: 'long', year: 'numeric' })
-
   console.log(`[CRON] Monthly statements — ${monthLabel} (${startDate} to ${endDate})`)
 
-  // ── Customers with balance + email ────────────────────────
+  // ── Customers — include invoice_brand ─────────────────────
   const { data: customers, error } = await supabase
     .from('customers')
-    .select('id, business_name, contact_name, email, balance, address, payment_terms')
+    .select('id, business_name, contact_name, email, balance, address, payment_terms, invoice_brand')
     .gt('balance', 0)
     .not('email', 'is', null)
 
@@ -50,10 +48,10 @@ export async function GET(request: NextRequest) {
   const customerIds = customers.map(c => c.id)
 
   // ── Batch fetch AR data ───────────────────────────────────
-  const [{ data: periodTx }, { data: priorTx }] = await Promise.all([
+  const [{ data: periodTxRaw }, { data: priorTxRaw }] = await Promise.all([
     supabase
       .from('ar_transactions')
-      .select('id, transaction_type, amount, description, created_at, order_id, customer_id')
+      .select('id, type, amount, description, created_at, invoice_id, customer_id')
       .in('customer_id', customerIds)
       .gte('created_at', startDate)
       .lte('created_at', endDate + 'T23:59:59')
@@ -61,29 +59,32 @@ export async function GET(request: NextRequest) {
 
     supabase
       .from('ar_transactions')
-      .select('amount, transaction_type, customer_id')
+      .select('amount, type, customer_id')
       .in('customer_id', customerIds)
       .lt('created_at', startDate),
   ])
 
+  const periodTx = periodTxRaw ?? []
+  const priorTx  = priorTxRaw  ?? []
+
   // ── Invoice number map ────────────────────────────────────
-  const allOrderIds = [...new Set(
-    (periodTx ?? []).filter(t => t.order_id).map(t => t.order_id)
+  const allInvoiceIds = [...new Set(
+    periodTx.filter(t => t.invoice_id).map(t => t.invoice_id as string)
   )]
 
   let invoiceMap: Record<string, string> = {}
-  if (allOrderIds.length > 0) {
+  if (allInvoiceIds.length > 0) {
     const { data: invNums } = await supabase
       .from('invoice_numbers')
-      .select('order_id, invoice_number')
-      .in('order_id', allOrderIds)
-    invoiceMap = Object.fromEntries(
-      (invNums ?? []).map(i => [i.order_id, i.invoice_number])
-    )
+      .select('id, invoice_number')
+      .in('id', allInvoiceIds)
+    for (const inv of invNums ?? []) {
+      invoiceMap[inv.id] = inv.invoice_number
+    }
   }
 
-  const txByCustomer    = groupBy(periodTx   ?? [], 'customer_id')
-  const priorByCustomer = groupBy(priorTx    ?? [], 'customer_id')
+  const txByCustomer    = groupBy(periodTx, 'customer_id')
+  const priorByCustomer = groupBy(priorTx,  'customer_id')
 
   let sent = 0, failed = 0
   const errors: string[] = []
@@ -96,50 +97,86 @@ export async function GET(request: NextRequest) {
           const prior        = priorByCustomer[customer.id] ?? []
 
           const openingBalance = prior.reduce((sum, tx) => {
-            const isCredit = tx.transaction_type === 'payment' || tx.transaction_type === 'credit'
-            return sum + (isCredit ? -tx.amount : tx.amount)
+            const isCredit = tx.type === 'payment' || tx.type === 'credit'
+            return sum + (isCredit ? -Number(tx.amount) : Number(tx.amount))
           }, 0)
 
           let runningBalance = openingBalance
-          const lines = transactions.map(tx => {
-            const isCredit = tx.transaction_type === 'payment' || tx.transaction_type === 'credit'
-            runningBalance = isCredit ? runningBalance - tx.amount : runningBalance + tx.amount
-            const invoiceNum = tx.order_id ? invoiceMap[tx.order_id] : null
-            const reference  = invoiceNum ? `INV-${String(invoiceNum).padStart(4, '0')}` : tx.transaction_type.toUpperCase()
-            return {
-              date: tx.created_at,
-              description: isCredit
-                ? (tx.transaction_type === 'credit' ? 'Credit note' : 'Payment received - thank you')
-                : reference,
-              reference,
-              debit:            isCredit ? null : tx.amount,
-              credit:           isCredit ? tx.amount : null,
-              balance:          Math.round(runningBalance * 100) / 100,
-              transaction_type: tx.transaction_type,
-            }
-          })
+
+        // REPLACE WITH:
+const lines = transactions.map(tx => {
+  const isPayment = tx.type === 'payment'
+  const isCredit  = tx.type === 'credit'
+
+  if (isPayment || isCredit) {
+    runningBalance = runningBalance - Number(tx.amount)
+  } else {
+    runningBalance = runningBalance + Number(tx.amount)
+  }
+
+  const invoiceNum = tx.invoice_id ? invoiceMap[tx.invoice_id] : null
+  const reference  = invoiceNum
+    ? `INV-${String(invoiceNum).padStart(4, '0')}`
+    : String(tx.type ?? '').toUpperCase()
+
+  return {
+    date:             tx.created_at,
+    description:      isPayment
+      ? 'Payment received — thank you'
+      : isCredit
+        ? (tx.description || 'Credit note')
+        : (tx.description || reference),
+    reference:        isCredit ? 'CREDIT' : reference,
+    debit:            isPayment ? null : isCredit ? -Number(tx.amount) : Number(tx.amount),
+    credit:           isPayment ? Number(tx.amount) : null,
+    balance:          Math.round(runningBalance * 100) / 100,
+    transaction_type: tx.type,
+  }
+})
+
+          // ── Brand config per customer ─────────────────────
+          const isStods      = customer.invoice_brand === 'stods'
+          const bakeryName   = isStods ? process.env.STODS_BAKERY_NAME    : process.env.BAKERY_NAME
+          const fromName     = isStods ? process.env.STODS_RESEND_FROM_NAME  : process.env.RESEND_FROM_NAME
+          const fromEmail    = isStods ? process.env.STODS_RESEND_FROM_EMAIL : process.env.RESEND_FROM_EMAIL
+          const headerColor: [number, number, number] = isStods
+            ? [0.584, 0.306, 0.129]
+            : [0, 0.416, 0.306]
+
+          const displayName  = bakeryName || (isStods ? 'Stods Bakery' : "Deb's Bakery")
+          const displayFrom  = `${fromName || displayName} <${fromEmail || 'noreply@debsbakery.store'}>`
+          const headerHex    = isStods ? '#955E30' : '#006A4E'
+          const subHex       = isStods ? '#f5dcc8' : '#a7f3d0'
 
           const pdfBuffer = await generateStatementPDF({
             customer,
             lines,
-            openingBalance:  Math.round(openingBalance  * 100) / 100,
-            closingBalance:  Math.round(runningBalance  * 100) / 100,
+            openingBalance: Math.round(openingBalance * 100) / 100,
+            closingBalance: Math.round(runningBalance  * 100) / 100,
             startDate,
             endDate,
+            bakeryName:  displayName,
+            headerColor,
           })
 
-          await resend.emails.send({
-            from:    "Stods Bakery <orders@stodsbakery.com>",
+          const customerName =
+            customer.business_name ||
+            customer.contact_name  ||
+            customer.email         ||
+            'Valued Customer'
+
+                 await (isStods ? resendStods : resend).emails.send({
+            from:    displayFrom,
             to:      customer.email!,
             subject: `Account Statement — ${monthLabel}`,
             html: `
               <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-                <div style="background:#3E1F00;padding:24px;border-radius:8px 8px 0 0;">
-                  <h1 style="color:white;margin:0;font-size:22px;">Stods Bakery</h1>
-                  <p style="color:#a7f3d0;margin:4px 0 0;font-size:13px;">Monthly Account Statement</p>
+                <div style="background:${headerHex};padding:24px;border-radius:8px 8px 0 0;">
+                  <h1 style="color:white;margin:0;font-size:22px;">${displayName}</h1>
+                  <p style="color:${subHex};margin:4px 0 0;font-size:13px;">Monthly Account Statement</p>
                 </div>
                 <div style="padding:24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px;">
-                  <p>Dear ${customer.business_name || customer.contact_name || 'Valued Customer'},</p>
+                  <p>Dear ${customerName},</p>
                   <p>Please find attached your account statement for <strong>${monthLabel}</strong>.</p>
                   <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:16px;margin:20px 0;">
                     <p style="margin:0;font-size:14px;">
@@ -154,7 +191,7 @@ export async function GET(request: NextRequest) {
                   </p>
                   <p style="margin-top:24px;">
                     Kind regards,<br/>
-                    <strong style="color:#3E1F00;">Stods Bakery Accounts Team</strong>
+                    <strong style="color:${headerHex};">${displayName} Accounts Team</strong>
                   </p>
                 </div>
               </div>
@@ -166,7 +203,8 @@ export async function GET(request: NextRequest) {
           })
 
           sent++
-          console.log(`[CRON] Sent to ${customer.email}`)
+          console.log(`[CRON] Sent to ${customer.email} (${isStods ? 'Stods' : 'Debs'})`)
+
         } catch (err: any) {
           failed++
           errors.push(`${customer.business_name || customer.email}: ${err.message}`)
@@ -176,22 +214,18 @@ export async function GET(request: NextRequest) {
     )
   )
 
-  // ── Log result to Supabase for audit trail ────────────────
   await supabase.from('statement_send_log').insert({
     sent_at:    new Date().toISOString(),
     period:     monthLabel,
     sent_count: sent,
     fail_count: failed,
     errors:     errors.length > 0 ? errors : null,
-  }).then(() => {})  // fire and forget — don't block response
+  }).then(() => {})
 
   console.log(`[CRON] Complete — Sent: ${sent}, Failed: ${failed}`)
 
   return NextResponse.json({
-    success: true,
-    sent,
-    failed,
-    period: monthLabel,
+    success: true, sent, failed, period: monthLabel,
     ...(errors.length > 0 && { errors }),
   })
 }

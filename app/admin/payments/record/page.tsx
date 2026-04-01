@@ -21,16 +21,24 @@ export default async function RecordPaymentPage() {
     .select('id, business_name, contact_name, balance')
     .order('business_name')
 
-  // ✅ Uses view — only genuinely unpaid invoices
   const { data: invoices } = await supabase
     .from('unpaid_orders')
     .select('id, delivery_date, total_amount, amount_paid, customer_id, invoice_number, status')
     .order('delivery_date', { ascending: false })
 
+  // ── Fetch unapplied credits from ar_transactions ──
+  const { data: credits } = await supabase
+    .from('ar_transactions')
+    .select('id, customer_id, amount, amount_paid, description, created_at')
+    .eq('type', 'credit')
+    .eq('amount_paid', 0)
+    .order('created_at', { ascending: true })
+
   return (
     <RecordPaymentWithAllocation
       customers={customers || []}
-      invoices={invoices  || []}
+      invoices={invoices   || []}
+      credits={credits     || []}
     />
   )
 }
