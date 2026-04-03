@@ -18,7 +18,8 @@ export async function POST(request: NextRequest) {
       allocations = [],
     } = body
 
-    if (!customer_id || !amount) {
+    // ── Validation ────────────────────────────────────────────────────────
+    if (!customer_id || !amount || parseFloat(amount) === 0) {
       return NextResponse.json(
         { error: 'customer_id and amount are required' },
         { status: 400 }
@@ -129,12 +130,11 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Overpayment handler ───────────────────────────────────────────────
-    // If payment amount exceeds what was allocated to invoices, create a credit
     const paymentAmount   = Math.round(parseFloat(amount) * 100) / 100
     const allocatedAmount = Math.round(totalAllocatedToInvoices * 100) / 100
     const overpayment     = Math.round((paymentAmount - allocatedAmount) * 100) / 100
 
-    if (overpayment > 0.009) {
+    if (overpayment > 0.009 && paymentAmount > 0) {
       await supabase
         .from('ar_transactions')
         .insert({
@@ -173,13 +173,13 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       payment: {
-        id:            payment.id,
-        customer:      customerName,
-        amount:        paymentAmount,
-        new_balance:   Math.round(newBalance * 100) / 100,
-        allocations:   invoiceAllocs.length,
-        credits_used:  creditAllocs.length,
-        overpayment:   overpayment > 0.009 ? overpayment : 0,
+        id:           payment.id,
+        customer:     customerName,
+        amount:       paymentAmount,
+        new_balance:  Math.round(newBalance * 100) / 100,
+        allocations:  invoiceAllocs.length,
+        credits_used: creditAllocs.length,
+        overpayment:  overpayment > 0.009 && paymentAmount > 0 ? overpayment : 0,
       },
     })
 

@@ -72,7 +72,7 @@ export default function RecordPaymentWithAllocation({
   const [error,       setError]       = useState<string | null>(null);
   const [success,     setSuccess]     = useState<string | null>(null);
 
-  // ── Filtering ──────────────────────────────────────────────────────────────
+  // ── Filtering ─────────────────────────────────────────────────────────────
   const filteredCustomers = Array.isArray(customers)
     ? customers.filter((c) => {
         if (!c || typeof c !== 'object') return false;
@@ -96,30 +96,30 @@ export default function RecordPaymentWithAllocation({
     ? credits.filter((c) => c?.customer_id === formData.customer_id)
     : [];
 
-  // ── Calculations ───────────────────────────────────────────────────────────
+  // ── Calculations ──────────────────────────────────────────────────────────
   const currentBalance = (selectedCustomer && typeof selectedCustomer.balance === 'number')
     ? selectedCustomer.balance
     : 0;
 
   const paymentAmount = parseFloat(formData.amount) || 0;
 
-  // Net allocated — credits are negative so they reduce the total
-  const allocatedAmount = Array.isArray(allocations)
-    ? allocations.reduce((sum, a) => sum + (parseFloat(String(a?.amount)) || 0), 0)
-    : 0;
-
   const unallocatedAmount = paymentAmount - allocations
     .filter(a => !a.is_credit)
     .reduce((sum, a) => sum + (parseFloat(String(a?.amount)) || 0), 0);
 
-  // ── Auto allocate ──────────────────────────────────────────────────────────
+  const totalOutstanding = customerInvoices.reduce((sum, inv) => {
+    const total = parseFloat(String(inv?.total_amount)) || 0;
+    const paid  = parseFloat(String(inv?.amount_paid))  || 0;
+    return sum + Math.max(0, total - paid);
+  }, 0);
+
+  // ── Auto allocate ─────────────────────────────────────────────────────────
   function handleAutoAllocate() {
     if (paymentAmount <= 0) return;
 
     const newAllocations: Allocation[] = [];
     let remaining = paymentAmount;
 
-    // Apply credits first (oldest first)
     const sortedCredits = [...customerCredits].sort(
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     );
@@ -129,7 +129,6 @@ export default function RecordPaymentWithAllocation({
       remaining -= creditAmt;
     }
 
-    // Then apply to invoices oldest first
     const sorted = [...customerInvoices].sort(
       (a, b) => new Date(a.delivery_date).getTime() - new Date(b.delivery_date).getTime()
     );
@@ -147,7 +146,7 @@ export default function RecordPaymentWithAllocation({
     setAllocations(newAllocations);
   }
 
-  // ── Manual allocate invoice ────────────────────────────────────────────────
+  // ── Manual allocate invoice ───────────────────────────────────────────────
   function handleManualAllocate(invoiceId: string, amount: number) {
     if (!invoiceId || !Array.isArray(customerInvoices)) return;
 
@@ -178,7 +177,7 @@ export default function RecordPaymentWithAllocation({
     });
   }
 
-  // ── Toggle credit ──────────────────────────────────────────────────────────
+  // ── Toggle credit ─────────────────────────────────────────────────────────
   function handleToggleCredit(credit: Credit) {
     const creditAmt  = Number(credit.amount) || 0;
     const isIncluded = allocations.some(a => a.invoice_id === credit.id && a.is_credit);
@@ -189,7 +188,7 @@ export default function RecordPaymentWithAllocation({
     }
   }
 
-  // ── Tick invoice toggle ────────────────────────────────────────────────────
+  // ── Tick invoice toggle ───────────────────────────────────────────────────
   function handleTickInvoice(invoice: Invoice) {
     const total     = parseFloat(String(invoice.total_amount)) || 0;
     const paid      = parseFloat(String(invoice.amount_paid))  || 0;
@@ -203,13 +202,13 @@ export default function RecordPaymentWithAllocation({
     }
   }
 
-  // ── Submit ─────────────────────────────────────────────────────────────────
+  // ── Submit ────────────────────────────────────────────────────────────────
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSuccess(null);
 
-    if (!formData.customer_id || !formData.amount || parseFloat(formData.amount) <= 0) {
+    if (!formData.customer_id || !formData.amount || parseFloat(formData.amount) === 0) {
       setError('⚠️ Please select a customer and enter a valid amount');
       return;
     }
@@ -231,23 +230,24 @@ export default function RecordPaymentWithAllocation({
       const data = await response.json();
 
       if (response.ok) {
-        const customerName  = data?.payment?.customer    || 'Customer';
+        const customerName  = data?.payment?.customer                        || 'Customer';
         const amount        = parseFloat(String(data?.payment?.amount))      || 0;
         const newBalance    = parseFloat(String(data?.payment?.new_balance)) || 0;
         const invoiceAllocs = allocations.filter(a => !a.is_credit);
-        const creditAllocs  = allocations.filter(a => a.is_credit);
+        const creditAllocs  = allocations.filter(a =>  a.is_credit);
         const allocatedMsg  = invoiceAllocs.length > 0
           ? ` | Allocated to ${invoiceAllocs.length} invoice(s)`
           : '';
         const creditMsg = creditAllocs.length > 0
           ? ` | ${creditAllocs.length} credit(s) applied`
           : '';
-const overpaymentMsg = data?.payment?.overpayment > 0
-  ? ` | ⚠️ $${data.payment.overpayment.toFixed(2)} overpayment credit created`
-  : '';
-   setSuccess(
-  `✅ Payment recorded for ${customerName} — $${amount.toFixed(2)}${allocatedMsg}${creditMsg}${overpaymentMsg} | New balance: $${newBalance.toFixed(2)}`
-);
+        const overpaymentMsg = data?.payment?.overpayment > 0
+          ? ` | ⚠️ $${parseFloat(data.payment.overpayment).toFixed(2)} overpayment credit created`
+          : '';
+
+        setSuccess(
+          `✅ Payment recorded for ${customerName} — $${amount.toFixed(2)}${allocatedMsg}${creditMsg}${overpaymentMsg} | New balance: $${newBalance.toFixed(2)}`
+        );
 
         setFormData({
           customer_id:      '',
@@ -273,7 +273,7 @@ const overpaymentMsg = data?.payment?.overpayment > 0
 
   const hasAllocation = customerInvoices.length > 0 || customerCredits.length > 0;
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="max-w-5xl mx-auto p-6">
       <button
@@ -347,26 +347,42 @@ const overpaymentMsg = data?.payment?.overpayment > 0
               })}
             </select>
 
+            {/* ── Balance / Payment / New Balance stats ── */}
             {selectedCustomer && (
               <div className="mt-3 grid grid-cols-3 gap-4">
                 <div className="p-3 bg-blue-50 rounded border border-blue-200">
                   <p className="text-xs text-blue-600 mb-1">Current Balance</p>
                   <p className="text-xl font-bold text-blue-800">${currentBalance.toFixed(2)}</p>
                 </div>
-                {formData.amount && paymentAmount > 0 && (
+                {formData.amount && paymentAmount !== 0 && (
                   <>
                     <div className="p-3 bg-purple-50 rounded border border-purple-200">
-                      <p className="text-xs text-purple-600 mb-1">Cash Payment</p>
-                      <p className="text-xl font-bold text-purple-800">${paymentAmount.toFixed(2)}</p>
-                    </div>
-                    <div className="p-3 bg-green-50 rounded border border-green-200">
-                      <p className="text-xs text-green-600 mb-1">New Balance</p>
-                      <p className="text-xl font-bold text-green-800">
-                        ${(currentBalance - paymentAmount - Math.abs(
-                          allocations.filter(a => a.is_credit).reduce((s, a) => s + a.amount, 0)
-                        )).toFixed(2)}
+                      <p className="text-xs text-purple-600 mb-1">
+                        {paymentAmount < 0 ? 'Reversal Amount' : 'Cash Payment'}
+                      </p>
+                      <p className="text-xl font-bold text-purple-800">
+                        ${Math.abs(paymentAmount).toFixed(2)}
                       </p>
                     </div>
+                    {(() => {
+                      const creditOffset    = Math.abs(
+                        allocations.filter(a => a.is_credit).reduce((s, a) => s + a.amount, 0)
+                      );
+                      const projectedBalance = currentBalance - paymentAmount - creditOffset;
+                      const isReversal       = paymentAmount < 0;
+                      return (
+                        <div className={`p-3 rounded border ${
+                          isReversal ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'
+                        }`}>
+                          <p className={`text-xs mb-1 ${isReversal ? 'text-red-600' : 'text-green-600'}`}>
+                            {isReversal ? 'Balance After Reversal' : 'New Balance'}
+                          </p>
+                          <p className={`text-xl font-bold ${isReversal ? 'text-red-800' : 'text-green-800'}`}>
+                            ${projectedBalance.toFixed(2)}
+                          </p>
+                        </div>
+                      );
+                    })()}
                   </>
                 )}
               </div>
@@ -376,14 +392,14 @@ const overpaymentMsg = data?.payment?.overpayment > 0
           {/* ── Payment Amount ── */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Cash Amount Received *
+              Amount Received{' '}
+              <span className="text-gray-400 font-normal">(use negative to reverse a payment)</span> *
             </label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-semibold">$</span>
               <input
                 type="number"
                 step="0.01"
-                min="0.01"
                 value={formData.amount}
                 onChange={(e) => {
                   setFormData({ ...formData, amount: e.target.value });
@@ -391,12 +407,28 @@ const overpaymentMsg = data?.payment?.overpayment > 0
                 }}
                 required
                 placeholder="0.00"
-                className="w-full pl-8 pr-4 py-3 text-lg border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
+                className={`w-full pl-8 pr-4 py-3 text-lg border rounded-md focus:ring-2 focus:ring-green-500 ${
+                  paymentAmount < 0
+                    ? 'border-red-400 bg-red-50 text-red-700 focus:ring-red-400'
+                    : 'border-gray-300'
+                }`}
               />
             </div>
+            {paymentAmount < 0 && (
+              <div className="mt-2 p-3 bg-red-50 border border-red-300 rounded-lg text-sm text-red-800 flex items-start gap-2">
+                <span className="text-base leading-none">↩️</span>
+                <div>
+                  <p className="font-semibold">Payment Reversal</p>
+                  <p className="mt-0.5">
+                    This will <strong>add ${Math.abs(paymentAmount).toFixed(2)}</strong> back
+                    to the customer's balance. Use this to reverse a payment entered in error.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* ── Invoice & Credit Allocation ── */}
+          {/* ── Invoice & Credit Allocation (hidden for reversals) ── */}
           {formData.customer_id && hasAllocation && paymentAmount > 0 && (
             <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
               <div className="flex justify-between items-center mb-3">
@@ -415,7 +447,7 @@ const overpaymentMsg = data?.payment?.overpayment > 0
 
               <div className="space-y-2 max-h-96 overflow-y-auto">
 
-                {/* ── Credits (shown first) ── */}
+                {/* Credits */}
                 {customerCredits.length > 0 && (
                   <div className="mb-1">
                     <p className="text-xs font-semibold text-orange-700 uppercase tracking-wide mb-1.5 flex items-center gap-1">
@@ -461,7 +493,7 @@ const overpaymentMsg = data?.payment?.overpayment > 0
                   </div>
                 )}
 
-                {/* ── Invoices ── */}
+                {/* Invoices */}
                 {customerInvoices.length > 0 && (
                   <div>
                     {customerCredits.length > 0 && (
@@ -478,7 +510,7 @@ const overpaymentMsg = data?.payment?.overpayment > 0
                       )?.amount || 0;
                       const isTicked  = allocated > 0;
 
-                      if (due <= 0) return null;
+                      if (due <= 0)                      return null;
                       if (invoice.status === 'cancelled') return null;
                       if (invoice.invoice_number == null) return null;
 
@@ -535,40 +567,28 @@ const overpaymentMsg = data?.payment?.overpayment > 0
                 )}
               </div>
 
-          {unallocatedAmount > 0.01 && (
-  <div className="mt-3 space-y-2">
-    <div className="p-2 rounded text-sm bg-yellow-50 text-yellow-800 border border-yellow-200">
-      💡 Unallocated: ${unallocatedAmount.toFixed(2)} (will reduce overall balance)
-    </div>
-
-    {/* Overpayment warning — shows when payment exceeds ALL outstanding invoices */}
-    {unallocatedAmount > 0.01 &&
-      paymentAmount > customerInvoices.reduce((sum, inv) => {
-        const total = parseFloat(String(inv?.total_amount)) || 0
-        const paid  = parseFloat(String(inv?.amount_paid))  || 0
-        return sum + Math.max(0, total - paid)
-      }, 0) + 0.01 && (
-      <div className="p-3 rounded text-sm bg-amber-50 border border-amber-400 text-amber-900 flex items-start gap-2">
-        <span className="text-lg leading-none">⚠️</span>
-        <div>
-          <p className="font-semibold">Overpayment detected</p>
-          <p className="mt-0.5">
-            Payment of <strong>${paymentAmount.toFixed(2)}</strong> exceeds all outstanding
-            invoices. A credit of{' '}
-            <strong>
-              ${(paymentAmount - customerInvoices.reduce((sum, inv) => {
-                const total = parseFloat(String(inv?.total_amount)) || 0
-                const paid  = parseFloat(String(inv?.amount_paid))  || 0
-                return sum + Math.max(0, total - paid)
-              }, 0)).toFixed(2)}
-            </strong>{' '}
-            will be automatically created on this account.
-          </p>
-        </div>
-      </div>
-    )}
-  </div>
-)}
+              {/* Unallocated + overpayment warnings */}
+              {unallocatedAmount > 0.01 && (
+                <div className="mt-3 space-y-2">
+                  <div className="p-2 rounded text-sm bg-yellow-50 text-yellow-800 border border-yellow-200">
+                    💡 Unallocated: ${unallocatedAmount.toFixed(2)} (will reduce overall balance)
+                  </div>
+                  {paymentAmount > totalOutstanding + 0.01 && (
+                    <div className="p-3 rounded text-sm bg-amber-50 border border-amber-400 text-amber-900 flex items-start gap-2">
+                      <span className="text-lg leading-none">⚠️</span>
+                      <div>
+                        <p className="font-semibold">Overpayment detected</p>
+                        <p className="mt-0.5">
+                          Payment of <strong>${paymentAmount.toFixed(2)}</strong> exceeds all
+                          outstanding invoices. A credit of{' '}
+                          <strong>${(paymentAmount - totalOutstanding).toFixed(2)}</strong>{' '}
+                          will be automatically created on this account.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Summary */}
               {allocations.length > 0 && (
