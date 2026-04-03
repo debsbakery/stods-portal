@@ -546,18 +546,23 @@ export default function RecordPaymentWithAllocation({
                           <div className="w-32" onClick={e => e.stopPropagation()}>
                             <div className="relative">
                               <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-500">$</span>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                max={due}
-                                value={allocated || ''}
-                                onChange={(e) =>
-                                  handleManualAllocate(invoice.id, parseFloat(e.target.value) || 0)
-                                }
-                                placeholder="0.00"
-                                className="w-full pl-5 pr-2 py-1 text-sm border rounded focus:outline-none focus:border-green-500"
-                              />
+                          <input
+  type="number"
+  step="0.01"
+  min="-999999"
+  value={formData.amount}
+  onChange={(e) => {
+    setFormData({ ...formData, amount: e.target.value });
+    setAllocations([]);
+  }}
+  required
+  placeholder="0.00"
+  className={`w-full pl-8 pr-4 py-3 text-lg border rounded-md focus:ring-2 focus:ring-green-500 ${
+    paymentAmount < 0
+      ? 'border-red-400 bg-red-50 text-red-700 focus:ring-red-400'
+      : 'border-gray-300'
+  }`}
+/>
                             </div>
                           </div>
                         </div>
