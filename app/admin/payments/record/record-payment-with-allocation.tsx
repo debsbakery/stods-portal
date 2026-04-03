@@ -242,10 +242,12 @@ export default function RecordPaymentWithAllocation({
         const creditMsg = creditAllocs.length > 0
           ? ` | ${creditAllocs.length} credit(s) applied`
           : '';
-
-        setSuccess(
-          `✅ Payment recorded for ${customerName} — $${amount.toFixed(2)}${allocatedMsg}${creditMsg} | New balance: $${newBalance.toFixed(2)}`
-        );
+const overpaymentMsg = data?.payment?.overpayment > 0
+  ? ` | ⚠️ $${data.payment.overpayment.toFixed(2)} overpayment credit created`
+  : '';
+   setSuccess(
+  `✅ Payment recorded for ${customerName} — $${amount.toFixed(2)}${allocatedMsg}${creditMsg}${overpaymentMsg} | New balance: $${newBalance.toFixed(2)}`
+);
 
         setFormData({
           customer_id:      '',
@@ -533,11 +535,40 @@ export default function RecordPaymentWithAllocation({
                 )}
               </div>
 
-              {unallocatedAmount > 0.01 && (
-                <div className="mt-3 p-2 rounded text-sm bg-yellow-50 text-yellow-800">
-                  💡 Unallocated: ${unallocatedAmount.toFixed(2)} (will reduce overall balance)
-                </div>
-              )}
+          {unallocatedAmount > 0.01 && (
+  <div className="mt-3 space-y-2">
+    <div className="p-2 rounded text-sm bg-yellow-50 text-yellow-800 border border-yellow-200">
+      💡 Unallocated: ${unallocatedAmount.toFixed(2)} (will reduce overall balance)
+    </div>
+
+    {/* Overpayment warning — shows when payment exceeds ALL outstanding invoices */}
+    {unallocatedAmount > 0.01 &&
+      paymentAmount > customerInvoices.reduce((sum, inv) => {
+        const total = parseFloat(String(inv?.total_amount)) || 0
+        const paid  = parseFloat(String(inv?.amount_paid))  || 0
+        return sum + Math.max(0, total - paid)
+      }, 0) + 0.01 && (
+      <div className="p-3 rounded text-sm bg-amber-50 border border-amber-400 text-amber-900 flex items-start gap-2">
+        <span className="text-lg leading-none">⚠️</span>
+        <div>
+          <p className="font-semibold">Overpayment detected</p>
+          <p className="mt-0.5">
+            Payment of <strong>${paymentAmount.toFixed(2)}</strong> exceeds all outstanding
+            invoices. A credit of{' '}
+            <strong>
+              ${(paymentAmount - customerInvoices.reduce((sum, inv) => {
+                const total = parseFloat(String(inv?.total_amount)) || 0
+                const paid  = parseFloat(String(inv?.amount_paid))  || 0
+                return sum + Math.max(0, total - paid)
+              }, 0)).toFixed(2)}
+            </strong>{' '}
+            will be automatically created on this account.
+          </p>
+        </div>
+      </div>
+    )}
+  </div>
+)}
 
               {/* Summary */}
               {allocations.length > 0 && (

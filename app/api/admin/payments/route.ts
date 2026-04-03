@@ -57,8 +57,12 @@ export async function POST(request: NextRequest) {
     if (paymentError) throw paymentError
 
     // ── Process invoice allocations ───────────────────────────────────────
+    let totalAllocatedToInvoices = 0
+
     for (const allocation of invoiceAllocs) {
       if (!allocation.invoice_id || !allocation.amount) continue
+
+      totalAllocatedToInvoices += Number(allocation.amount)
 
       // Link payment → invoice
       await supabase.from('invoice_payments').insert({
@@ -67,7 +71,7 @@ export async function POST(request: NextRequest) {
         amount:     allocation.amount,
       })
 
-      // Update ar_transactions.amount_paid (invoice_id = orders.id)
+      // Update ar_transactions.amount_paid
       const { data: arTx } = await supabase
         .from('ar_transactions')
         .select('id, amount, amount_paid')
@@ -105,9 +109,8 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Process credit allocations ────────────────────────────────────────
-    // Mark each credit as applied (amount_paid = amount = fully used)
     for (const creditAlloc of creditAllocs) {
-      if (!creditAlloc.invoice_id) continue  // invoice_id here is actually the credit's ar_transaction id
+      if (!creditAlloc.invoice_id) continue
 
       const { data: creditTx } = await supabase
         .from('ar_transactions')
@@ -123,6 +126,27 @@ export async function POST(request: NextRequest) {
           .update({ amount_paid: creditTx.amount })
           .eq('id', creditTx.id)
       }
+    }
+
+    // ── Overpayment handler ───────────────────────────────────────────────
+    // If payment amount exceeds what was allocated to invoices, create a credit
+    const paymentAmount   = Math.round(parseFloat(amount) * 100) / 100
+    const allocatedAmount = Math.round(totalAllocatedToInvoices * 100) / 100
+    const overpayment     = Math.round((paymentAmount - allocatedAmount) * 100) / 100
+
+    if (overpayment > 0.009) {
+      await supabase
+        .from('ar_transactions')
+        .insert({
+          customer_id,
+          type:        'credit',
+          amount:      overpayment,
+          amount_paid: 0,
+          description: `Overpayment credit — payment of $${paymentAmount.toFixed(2)} exceeded invoices by $${overpayment.toFixed(2)}`,
+          created_at:  new Date().toISOString(),
+        })
+
+      console.log(`[PAYMENTS] Overpayment $${overpayment} → credit created for customer ${customer_id}`)
     }
 
     // ── Recalculate customer balance from scratch ─────────────────────────
@@ -151,10 +175,11 @@ export async function POST(request: NextRequest) {
       payment: {
         id:            payment.id,
         customer:      customerName,
-        amount:        parseFloat(amount),
+        amount:        paymentAmount,
         new_balance:   Math.round(newBalance * 100) / 100,
         allocations:   invoiceAllocs.length,
         credits_used:  creditAllocs.length,
+        overpayment:   overpayment > 0.009 ? overpayment : 0,
       },
     })
 
