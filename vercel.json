@@ -10,7 +10,7 @@
     },
     {
       "path": "/api/cron/process-statement-jobs",
-      "schedule": "*/3 7 1 * *"
+      "schedule": "10 7 1 * *"
     }
   ]
 }

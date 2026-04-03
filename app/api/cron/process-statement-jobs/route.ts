@@ -8,7 +8,7 @@ import { Resend } from 'resend'
 const resend      = new Resend(process.env.RESEND_API_KEY)
 const resendStods = new Resend(process.env.STODS_RESEND_API_KEY)
 
-const BATCH_SIZE = 3
+const BATCH_SIZE = 50
 
 export async function GET(request: NextRequest) {
   // ── Security ──────────────────────────────────────────────
