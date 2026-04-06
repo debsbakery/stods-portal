@@ -147,35 +147,34 @@ export default function RecordPaymentWithAllocation({
   }
 
   // ── Manual allocate invoice ───────────────────────────────────────────────
-  function handleManualAllocate(invoiceId: string, amount: number) {
-    if (!invoiceId || !Array.isArray(customerInvoices)) return;
+ function handleManualAllocate(invoiceId: string, amount: number) {
+  if (!invoiceId || !Array.isArray(customerInvoices)) return;
 
-    const invoice = customerInvoices.find((i) => i?.id === invoiceId);
-    if (!invoice) return;
+  const invoice = customerInvoices.find((i) => i?.id === invoiceId);
+  if (!invoice) return;
 
-    const total        = parseFloat(String(invoice.total_amount)) || 0;
-    const paid         = parseFloat(String(invoice.amount_paid))  || 0;
-    const due          = total - paid;
-    const current      = allocations.find(a => a?.invoice_id === invoiceId && !a.is_credit)?.amount || 0;
-    const invoiceAlloc = allocations.filter(a => !a.is_credit).reduce((s, a) => s + a.amount, 0);
-    const maxAllowable = paymentAmount - invoiceAlloc + current;
-    const validAmount  = Math.max(0, Math.min(amount, due, maxAllowable));
+  const total = parseFloat(String(invoice.total_amount)) || 0;
+  const paid  = parseFloat(String(invoice.amount_paid))  || 0;
+  const due   = total - paid;
 
-    setAllocations((prev) => {
-      const existing = prev.find((a) => a?.invoice_id === invoiceId && !a.is_credit);
-      if (existing) {
-        if (validAmount === 0) return prev.filter((a) => !(a?.invoice_id === invoiceId && !a.is_credit));
-        return prev.map((a) =>
-          a?.invoice_id === invoiceId && !a.is_credit
-            ? { invoice_id: invoiceId, amount: validAmount }
-            : a
-        );
-      } else if (validAmount > 0) {
-        return [...prev, { invoice_id: invoiceId, amount: validAmount }];
-      }
-      return prev;
-    });
-  }
+  // Cap at the invoice due amount
+  const validAmount = Math.max(0, Math.min(amount, due));
+
+  setAllocations((prev) => {
+    const existing = prev.find((a) => a?.invoice_id === invoiceId && !a.is_credit);
+    if (existing) {
+      if (validAmount === 0) return prev.filter((a) => !(a?.invoice_id === invoiceId && !a.is_credit));
+      return prev.map((a) =>
+        a?.invoice_id === invoiceId && !a.is_credit
+          ? { invoice_id: invoiceId, amount: validAmount }
+          : a
+      );
+    } else if (validAmount > 0) {
+      return [...prev, { invoice_id: invoiceId, amount: validAmount }];
+    }
+    return prev;
+  });
+}
 
   // ── Toggle credit ─────────────────────────────────────────────────────────
   function handleToggleCredit(credit: Credit) {
@@ -189,18 +188,22 @@ export default function RecordPaymentWithAllocation({
   }
 
   // ── Tick invoice toggle ───────────────────────────────────────────────────
-  function handleTickInvoice(invoice: Invoice) {
-    const total     = parseFloat(String(invoice.total_amount)) || 0;
-    const paid      = parseFloat(String(invoice.amount_paid))  || 0;
-    const due       = total - paid;
-    const allocated = allocations.find(a => a.invoice_id === invoice.id && !a.is_credit)?.amount || 0;
+ function handleTickInvoice(invoice: Invoice) {
+  const total     = parseFloat(String(invoice.total_amount)) || 0;
+  const paid      = parseFloat(String(invoice.amount_paid))  || 0;
+  const due       = total - paid;
+  const allocated = allocations.find(a => a.invoice_id === invoice.id && !a.is_credit)?.amount || 0;
 
-    if (allocated > 0) {
-      handleManualAllocate(invoice.id, 0);
-    } else {
-      handleManualAllocate(invoice.id, due);
-    }
+  if (allocated > 0) {
+    handleManualAllocate(invoice.id, 0);
+  } else {
+    const currentlyAllocated = allocations
+      .filter(a => !a.is_credit)
+      .reduce((sum, a) => sum + (parseFloat(String(a.amount)) || 0), 0);
+    const remaining = paymentAmount - currentlyAllocated;
+    handleManualAllocate(invoice.id, Math.min(due, Math.max(0, remaining)));
   }
+}
 
   // ── Submit ────────────────────────────────────────────────────────────────
   async function handleSubmit(e: React.FormEvent) {
@@ -390,6 +393,7 @@ export default function RecordPaymentWithAllocation({
           </div>
 
           {/* ── Payment Amount ── */}
+              {/* ── Payment Amount ── */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Amount Received{' '}
@@ -400,6 +404,7 @@ export default function RecordPaymentWithAllocation({
               <input
                 type="number"
                 step="0.01"
+                min="-999999"
                 value={formData.amount}
                 onChange={(e) => {
                   setFormData({ ...formData, amount: e.target.value });
@@ -543,26 +548,21 @@ export default function RecordPaymentWithAllocation({
                               </span>
                             </p>
                           </div>
-                          <div className="w-32" onClick={e => e.stopPropagation()}>
+                                              <div className="w-32" onClick={e => e.stopPropagation()}>
                             <div className="relative">
                               <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-500">$</span>
-                          <input
-  type="number"
-  step="0.01"
-  min="-999999"
-  value={formData.amount}
-  onChange={(e) => {
-    setFormData({ ...formData, amount: e.target.value });
-    setAllocations([]);
-  }}
-  required
-  placeholder="0.00"
-  className={`w-full pl-8 pr-4 py-3 text-lg border rounded-md focus:ring-2 focus:ring-green-500 ${
-    paymentAmount < 0
-      ? 'border-red-400 bg-red-50 text-red-700 focus:ring-red-400'
-      : 'border-gray-300'
-  }`}
-/>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                max={due}
+                                value={allocated || ''}
+                                onChange={(e) =>
+                                  handleManualAllocate(invoice.id, parseFloat(e.target.value) || 0)
+                                }
+                                placeholder="0.00"
+                                className="w-full pl-5 pr-2 py-1 text-sm border rounded focus:outline-none focus:border-green-500"
+                              />
                             </div>
                           </div>
                         </div>
