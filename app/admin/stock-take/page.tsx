@@ -9,9 +9,11 @@ import StockTakeView from './stock-take-view'
 async function getData() {
   const supabase = createAdminClient()
 
+  // ✅ Added current_stock to the query
   const { data: ingredients } = await supabase
     .from('ingredients')
-    .select('id, name, unit, unit_cost')
+    .select('id, name, unit, unit_cost, current_stock')
+    .eq('is_active', true)
     .order('name', { ascending: true })
 
   const { data: stockTakes } = await supabase
@@ -22,10 +24,12 @@ async function getData() {
 
   return {
     ingredients: (ingredients ?? []).map((i) => ({
-      id:        i.id,
-      name:      i.name,
-      unit:      i.unit,
-      unit_cost: Number(i.unit_cost),})),
+      id:            i.id,
+      name:          i.name,
+      unit:          i.unit,
+      unit_cost:     Number(i.unit_cost),
+      current_stock: Number(i.current_stock ?? 0),  // ✅ Added
+    })),
     stockTakes: (stockTakes ?? []).map((st) => ({
       id:           st.id,
       take_date:    st.take_date,
@@ -48,7 +52,7 @@ export default async function StockTakePage() {
       <a
         href="/admin"
         className="flex items-center gap-1 text-sm mb-4 hover:opacity-80"
-        style={{ color: '#C4A882' }}
+        style={{ color: '#CE1126' }}
       >
         <ArrowLeft className="h-4 w-4" />
         Back to Admin
@@ -57,7 +61,7 @@ export default async function StockTakePage() {
       <div className="mb-6">
         <h1 className="text-3xl font-bold">Stock Take</h1>
         <p className="text-gray-600 mt-1">
-          Print blank sheet → count physical stock → enter counts
+          Print blank sheet → count physical stock → enter counts → update inventory
         </p>
       </div>
 
