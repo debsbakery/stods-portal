@@ -37,6 +37,9 @@ interface Receipt {
   invoice_ref: string | null
   received_date: string
   notes: string | null
+  packs: number | null           // ✅ NEW
+  pack_size_kg: number | null    // ✅ NEW
+  cost_per_pack: number | null   // ✅ NEW
   ingredients: { id: string; name: string; unit: string } | null
   suppliers: { id: string; name: string } | null
 }
@@ -71,14 +74,16 @@ export default function InventoryDashboard({ ingredients, initialReceipts, suppl
   const [saving, setSaving]     = useState(false)
   const [message, setMessage]   = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
+  // ✅ UPDATED FORM STATE
   const [form, setForm] = useState({
-    ingredient_id: '',
-    supplier_id:   '',
-    quantity_kg:   '',
-    unit_cost:     '',
-    invoice_ref:   '',
-    received_date: new Date().toISOString().split('T')[0],
-    notes:         '',
+    ingredient_id:  '',
+    supplier_id:    '',
+    packs:          '',      // ✅ NEW
+    pack_size_kg:   '',      // ✅ NEW
+    cost_per_pack:  '',      // ✅ NEW (what's on invoice)
+    invoice_ref:    '',
+    received_date:  new Date().toISOString().split('T')[0],
+    notes:          '',
   })
 
   // Stats
@@ -104,53 +109,68 @@ export default function InventoryDashboard({ ingredients, initialReceipts, suppl
     return aDays - bDays
   })
 
-  // Auto-fill unit cost when ingredient selected
+  // ✅ UPDATED: Auto-fill when ingredient selected
   function handleIngredientChange(ingredientId: string) {
     const ing = ingredients.find(i => i.id === ingredientId)
     setForm({
       ...form,
       ingredient_id: ingredientId,
-      unit_cost:     ing ? String(ing.unit_cost) : '',
       supplier_id:   ing?.supplier_id || '',
+      // Don't auto-fill costs - user enters from invoice
     })
   }
 
+  // ✅ CALCULATED VALUES
+  const totalKg = (parseFloat(form.packs || '0') * parseFloat(form.pack_size_kg || '0'))
+  const costPerKg = form.pack_size_kg ? 
+    (parseFloat(form.cost_per_pack || '0') / parseFloat(form.pack_size_kg)) : 0
+  const totalCost = (parseFloat(form.packs || '0') * parseFloat(form.cost_per_pack || '0'))
+
+  // ✅ UPDATED SUBMIT HANDLER
   async function handleReceive() {
-    if (!form.ingredient_id || !form.quantity_kg || !form.unit_cost) {
-      setMessage({ type: 'error', text: 'Ingredient, quantity and unit cost are required' })
+    if (!form.ingredient_id || !form.packs || !form.pack_size_kg || !form.cost_per_pack) {
+      setMessage({ type: 'error', text: 'Please fill in: Ingredient, Packs, Pack Size, and Cost per Pack' })
       return
     }
+    
+    if (totalKg <= 0) {
+      setMessage({ type: 'error', text: 'Total kg must be greater than 0' })
+      return
+    }
+
     setSaving(true)
     setMessage(null)
 
     try {
-      const qty  = parseFloat(form.quantity_kg)
-      const cost = parseFloat(form.unit_cost)
-
       const res = await fetch('/api/admin/inventory/receive', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ingredient_id: form.ingredient_id,
-          supplier_id:   form.supplier_id || null,
-          quantity_kg:   qty,
-          unit_cost:     cost,
-          total_cost:    Math.round(qty * cost * 100) / 100,
-          invoice_ref:   form.invoice_ref || null,
-          received_date: form.received_date,
-          notes:         form.notes || null,
+          ingredient_id:  form.ingredient_id,
+          supplier_id:    form.supplier_id || null,
+          packs:          parseFloat(form.packs),           // ✅ NEW
+          pack_size_kg:   parseFloat(form.pack_size_kg),    // ✅ NEW
+          cost_per_pack:  parseFloat(form.cost_per_pack),   // ✅ NEW
+          quantity_kg:    totalKg,                          // Calculated
+          unit_cost:      costPerKg,                        // Calculated $/kg
+          total_cost:     totalCost,                        // Calculated
+          invoice_ref:    form.invoice_ref || null,
+          received_date:  form.received_date,
+          notes:          form.notes || null,
         }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to record')
 
       const ingName = ingredients.find(i => i.id === form.ingredient_id)?.name || ''
-      setMessage({ type: 'success', text: `✅ Received ${qty}kg ${ingName} — stock updated` })
+      setMessage({ 
+        type: 'success', 
+        text: `✅ Received ${form.packs} × ${form.pack_size_kg}kg ${ingName} (${totalKg.toFixed(2)}kg total) — stock updated` 
+      })
       setShowForm(false)
       setForm({
-        ingredient_id: '', supplier_id: '', quantity_kg: '',
-        unit_cost: '', invoice_ref: '',
-        received_date: new Date().toISOString().split('T')[0], notes: '',
+        ingredient_id: '', supplier_id: '', packs: '', pack_size_kg: '', cost_per_pack: '',
+        invoice_ref: '', received_date: new Date().toISOString().split('T')[0], notes: '',
       })
       router.refresh()
     } catch (err: any) {
@@ -310,12 +330,12 @@ export default function InventoryDashboard({ ingredients, initialReceipts, suppl
         </>
       )}
 
-      {/* ── RECEIVE TAB ── */}
+      {/* ── RECEIVE TAB ── ✅ UPDATED */}
       {tab === 'receive' && (
         <div className="bg-white rounded-lg shadow-sm border p-6 max-w-2xl">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <Truck className="h-5 w-5 text-green-700" />
-            Record Delivery
+            Record Delivery (Invoice Format)
           </h2>
 
           <div className="space-y-4">
@@ -349,36 +369,68 @@ export default function InventoryDashboard({ ingredients, initialReceipts, suppl
               </select>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Quantity (kg) *</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  value={form.quantity_kg}
-                  onChange={e => setForm({ ...form, quantity_kg: e.target.value })}
-                  placeholder="0.00"
-                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Unit Cost ($/kg) *</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={form.unit_cost}
-                  onChange={e => setForm({ ...form, unit_cost: e.target.value })}
-                  placeholder="0.00"
-                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                />
+            {/* ✅ NEW: Invoice Format Inputs */}
+            <div className="border-2 border-blue-200 rounded-lg p-4 bg-blue-50">
+              <p className="text-xs font-semibold text-blue-700 mb-3 flex items-center gap-2">
+                <Package className="h-4 w-4" />
+                Enter from Invoice
+              </p>
+              
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Packs *</label>
+                  <input
+                    type="number"
+                    step="1"
+                    min="1"
+                    value={form.packs}
+                    onChange={e => setForm({ ...form, packs: e.target.value })}
+                    placeholder="10"
+                    className="w-full border rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Pack Size (kg) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={form.pack_size_kg}
+                    onChange={e => setForm({ ...form, pack_size_kg: e.target.value })}
+                    placeholder="20"
+                    className="w-full border rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Cost per Pack *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={form.cost_per_pack}
+                    onChange={e => setForm({ ...form, cost_per_pack: e.target.value })}
+                    placeholder="35.00"
+                    className="w-full border rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                </div>
               </div>
             </div>
 
-            {form.quantity_kg && form.unit_cost && (
-              <div className="p-3 bg-blue-50 rounded-lg text-sm text-blue-800">
-                Total: <strong>${(parseFloat(form.quantity_kg || '0') * parseFloat(form.unit_cost || '0')).toFixed(2)}</strong>
+            {/* ✅ CALCULATIONS DISPLAY */}
+            {form.packs && form.pack_size_kg && form.cost_per_pack && (
+              <div className="grid grid-cols-3 gap-3 p-4 bg-green-50 border border-green-200 rounded-lg">
+                <div>
+                  <p className="text-xs text-green-600 mb-1">Total Quantity</p>
+                  <p className="text-lg font-bold text-green-800">{totalKg.toFixed(2)} kg</p>
+                </div>
+                <div>
+                  <p className="text-xs text-green-600 mb-1">Cost per kg</p>
+                  <p className="text-lg font-bold text-green-800">${costPerKg.toFixed(4)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-green-600 mb-1">Total Cost</p>
+                  <p className="text-lg font-bold text-green-800">${totalCost.toFixed(2)}</p>
+                </div>
               </div>
             )}
 
@@ -398,7 +450,7 @@ export default function InventoryDashboard({ ingredients, initialReceipts, suppl
                   type="text"
                   value={form.invoice_ref}
                   onChange={e => setForm({ ...form, invoice_ref: e.target.value })}
-                  placeholder="Optional"
+                  placeholder="INV-12345"
                   className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
@@ -410,7 +462,7 @@ export default function InventoryDashboard({ ingredients, initialReceipts, suppl
                 type="text"
                 value={form.notes}
                 onChange={e => setForm({ ...form, notes: e.target.value })}
-                placeholder="Optional"
+                placeholder="Optional notes"
                 className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
               />
             </div>
@@ -418,7 +470,7 @@ export default function InventoryDashboard({ ingredients, initialReceipts, suppl
             <button
               onClick={handleReceive}
               disabled={saving}
-              className="flex items-center gap-2 px-6 py-3 text-white font-medium rounded-lg disabled:opacity-50"
+              className="flex items-center gap-2 px-6 py-3 text-white font-medium rounded-lg disabled:opacity-50 hover:opacity-90"
               style={{ backgroundColor: '#006A4E' }}
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -428,7 +480,7 @@ export default function InventoryDashboard({ ingredients, initialReceipts, suppl
         </div>
       )}
 
-      {/* ── HISTORY TAB ── */}
+      {/* ── HISTORY TAB ── ✅ UPDATED TO SHOW PACK INFO */}
       {tab === 'history' && (
         <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
           <table className="w-full text-sm">
@@ -437,16 +489,18 @@ export default function InventoryDashboard({ ingredients, initialReceipts, suppl
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Date</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Ingredient</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Supplier</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Qty</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">$/Unit</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Total</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Packs</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Pack Size</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Total (kg)</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">$/Pack</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Total Cost</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Ref</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {receipts.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={9} className="px-4 py-8 text-center text-gray-400">
                     No deliveries recorded yet
                   </td>
                 </tr>
@@ -457,12 +511,22 @@ export default function InventoryDashboard({ ingredients, initialReceipts, suppl
                     <td className="px-4 py-3 font-medium text-gray-900">
                       {(r.ingredients as any)?.name || '-'}
                     </td>
-                    <td className="px-4 py-3 text-gray-600">
+                    <td className="px-4 py-3 text-gray-600 text-xs">
                       {(r.suppliers as any)?.name || r.supplier || '-'}
                     </td>
-                    <td className="px-4 py-3 text-right font-mono">{r.quantity_kg} kg</td>
-                    <td className="px-4 py-3 text-right font-mono">${Number(r.unit_cost).toFixed(2)}</td>
+                    <td className="px-4 py-3 text-right font-mono">
+                      {r.packs ?? '-'}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-gray-600">
+                      {r.pack_size_kg ? `${r.pack_size_kg}kg` : '-'}
+                    </td>
                     <td className="px-4 py-3 text-right font-mono font-semibold">
+                      {r.quantity_kg.toFixed(2)} kg
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono">
+                      {r.cost_per_pack ? `$${Number(r.cost_per_pack).toFixed(2)}` : '-'}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono font-bold text-green-700">
                       ${Number(r.total_cost).toFixed(2)}
                     </td>
                     <td className="px-4 py-3 text-gray-500 text-xs">{r.invoice_ref || '-'}</td>

@@ -1,58 +1,56 @@
-export const dynamic = 'force-dynamic'
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+import { cookies } from 'next/headers';
+import { NextResponse } from 'next/server';
 
-import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+export async function POST(request: Request) {
+  const supabase = createRouteHandlerClient({ cookies });
 
-export async function POST(request: NextRequest) {
-  const supabase = createAdminClient()
-  const body = await request.json()
-
-  const {
-    ingredient_id, supplier_id, quantity_kg,
-    unit_cost, total_cost, invoice_ref,
-    received_date, notes,
-  } = body
-
-  if (!ingredient_id || !quantity_kg || !unit_cost) {
-    return NextResponse.json(
-      { error: 'ingredient_id, quantity_kg and unit_cost are required' },
-      { status: 400 }
-    )
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return new NextResponse('Unauthorized', { status: 401 });
   }
 
-  // Insert receipt (triggers auto stock update + price update)
-  const { data: receipt, error } = await supabase
-    .from('ingredient_receipts')
-    .insert({
-      ingredient_id,
-      supplier_id:   supplier_id || null,
-      supplier:      null,
-      quantity_kg:   parseFloat(quantity_kg),
-      unit_cost:     parseFloat(unit_cost),
-      total_cost:    parseFloat(total_cost),
-      invoice_ref:   invoice_ref || null,
-      received_date: received_date || new Date().toISOString().split('T')[0],
-      notes:         notes || null,
-    })
-    .select()
-    .single()
+  const {
+    ingredient_id,
+    supplier_id,
+    packs,           // ✅ NEW
+    pack_size_kg,    // ✅ NEW
+    cost_per_pack,   // ✅ NEW
+    quantity_kg,
+    unit_cost,
+    total_cost,
+    invoice_ref,
+    received_date,
+    notes
+  } = await request.json();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (!ingredient_id || !quantity_kg || !unit_cost) {
+    return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+  }
 
-  // Update ingredient unit_cost to latest price
-  await supabase
-    .from('ingredients')
-    .update({ unit_cost: parseFloat(unit_cost) })
-    .eq('id', ingredient_id)
+  try {
+    // Insert receipt
+    const { error: receiptError } = await supabase
+      .from('ingredient_receipts')
+      .insert({
+        ingredient_id,
+        supplier_id: supplier_id || null,
+        quantity_kg,
+        unit_cost,
+        total_cost,
+        packs,           // ✅ NEW
+        pack_size_kg,    // ✅ NEW
+        cost_per_pack,   // ✅ NEW
+        invoice_ref: invoice_ref || null,
+        received_date,
+        notes: notes || null,
+      });
 
-  // Add price history
-  await supabase
-    .from('ingredient_price_history')
-    .insert({
-      ingredient_id,
-      unit_cost: parseFloat(unit_cost),
-      effective_date: received_date || new Date().toISOString().split('T')[0],
-    })
+    if (receiptError) throw receiptError;
 
-  return NextResponse.json({ receipt })
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    console.error('Receive delivery error:', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 }
