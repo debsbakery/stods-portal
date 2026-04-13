@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import { checkAdmin } from '@/lib/auth'
 import { redirect } from 'next/navigation'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Building2 } from 'lucide-react'
 import { createAdminClient } from '@/lib/supabase/admin'
 import InventoryDashboard from './inventory-dashboard'
 
@@ -63,9 +63,9 @@ async function getData() {
     }
 
     usageMap[c.ingredient_id] = {
-      daily_avg:       Math.round(dailyAvg * 100) / 100,
-      weekly_avg:      Math.round(weeklyAvg * 100) / 100,
-      days_remaining:  daysRemaining,
+      daily_avg: Math.round(dailyAvg * 100) / 100,
+      weekly_avg: Math.round(weeklyAvg * 100) / 100,
+      days_remaining: daysRemaining,
       weeks_remaining: weeksRemaining,
     }
   }
@@ -77,8 +77,8 @@ async function getData() {
 
   return {
     ingredients: enrichedIngredients,
-    receipts:    receipts  ?? [],
-    suppliers:   suppliers ?? [],
+    receipts: receipts ?? [],
+    suppliers: suppliers ?? [],
   }
 }
 
@@ -99,6 +99,16 @@ export default async function InventoryPage() {
         Back to Admin
       </a>
 
+      <div className="flex gap-2 mb-4">
+        <a
+          href="/suppliers"
+          className="flex items-center gap-2 px-4 py-2 text-sm border rounded-lg hover:bg-gray-50 transition-colors"
+        >
+          <Building2 className="h-4 w-4" />
+          Manage Suppliers
+        </a>
+      </div>
+
       <div className="mb-6">
         <h1 className="text-3xl font-bold">📦 Inventory Management</h1>
         <p className="text-gray-600 mt-1">
@@ -107,9 +117,9 @@ export default async function InventoryPage() {
       </div>
 
       <InventoryDashboard
-        ingredients={ingredients}
-        initialReceipts={receipts}
-        suppliers={suppliers}
+        ingredients={ingredients as any}
+        initialReceipts={receipts as any}
+        suppliers={suppliers as any}
       />
     </div>
   )
