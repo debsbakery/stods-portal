@@ -25,7 +25,6 @@ export async function POST(request: NextRequest) {
     }
 
     const quantity_kg = packs * pack_size_kg;
-    const total_cost = packs * cost_per_pack;
     const unit_cost = cost_per_pack / pack_size_kg;
 
     const { data: receipt, error: receiptError } = await supabase
@@ -39,7 +38,6 @@ export async function POST(request: NextRequest) {
           cost_per_pack,
           quantity_kg,
           unit_cost,
-          total_cost,
           invoice_ref: invoice_ref || null,
           received_date: received_date || new Date().toISOString().split('T')[0],
           notes: notes || null,
@@ -65,7 +63,7 @@ export async function POST(request: NextRequest) {
       
       const oldValue = (ingredient.current_stock || 0) * (ingredient.unit_cost || 0);
       const newValue = quantity_kg * unit_cost;
-      const newUnitCost = (oldValue + newValue) / newStock;
+      const newUnitCost = newStock > 0 ? (oldValue + newValue) / newStock : unit_cost;
 
       const { error: updateError } = await supabase
         .from('ingredients')
