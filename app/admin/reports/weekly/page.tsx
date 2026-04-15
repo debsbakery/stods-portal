@@ -2,6 +2,7 @@
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import WeeklyReportView from './weekly-report-view'
+import { ArrowLeft } from 'lucide-react'
 
 export default async function WeeklyReportPage() {
   const supabase = createAdminClient()
@@ -15,38 +16,38 @@ export default async function WeeklyReportPage() {
     settings?.find(s => s.setting_key === 'overhead_per_kg')?.value ?? 1.50
   )
 
- // ── Fetch ALL order items in pages of 1000 ───────────────
-let rawItems: any[] = []
-let from = 0
-const pageSize = 1000
+  // ── Fetch ALL order items in pages of 1000 ───────────────
+  let rawItems: any[] = []
+  let from = 0
+  const pageSize = 1000
 
-while (true) {
-  const { data: page, error } = await supabase
-    .from('order_items')
-    .select(`
-      subtotal,
-      quantity,
-      product_name,
-      product_id,
-      gst_applicable,
-      order_id,
-      orders!inner (
-        id,
-        delivery_date,
-        status,
-        customer_id
-      )
-    `)
-    .gte('orders.delivery_date', '2026-01-01')
-    .range(from, from + pageSize - 1)
+  while (true) {
+    const { data: page, error } = await supabase
+      .from('order_items')
+      .select(`
+        subtotal,
+        quantity,
+        product_name,
+        product_id,
+        gst_applicable,
+        order_id,
+        orders!inner (
+          id,
+          delivery_date,
+          status,
+          customer_id
+        )
+      `)
+      .gte('orders.delivery_date', '2026-01-01')
+      .range(from, from + pageSize - 1)
 
-  if (error || !page || page.length === 0) break
-  rawItems = rawItems.concat(page)
-  if (page.length < pageSize) break
-  from += pageSize
-}
+    if (error || !page || page.length === 0) break
+    rawItems = rawItems.concat(page)
+    if (page.length < pageSize) break
+    from += pageSize
+  }
 
-console.log('[weekly] total rawItems fetched:', rawItems.length)
+  console.log('[weekly] total rawItems fetched:', rawItems.length)
 
   // ── Filter out cancelled in JS (join filter unreliable) ──
   const items = (rawItems ?? [])
@@ -54,16 +55,16 @@ console.log('[weekly] total rawItems fetched:', rawItems.length)
       const o = item.orders as any
       return o?.status === 'invoiced' || o?.status === 'pending'
     })
-   // ✅ NEW — cast via unknown to avoid overlap error
-.map(item => ({
-  ...item,
-  orders: (item.orders as unknown) as {
-    id: string
-    delivery_date: string
-    status: string
-    customer_id: string | null
-  } | null,
-}))
+    .map(item => ({
+      ...item,
+      orders: (item.orders as unknown) as {
+        id: string
+        delivery_date: string
+        status: string
+        customer_id: string | null
+      } | null,
+    }))
+  
   console.log('[weekly] total items after filter:', items.length)
 
   // ── Fetch all products with weight ────────────────────────
@@ -95,7 +96,6 @@ console.log('[weekly] total rawItems fetched:', rawItems.length)
   const productIngCostMap = new Map<string, number>()
 
   if (allRecipeIds.length > 0) {
-
     const { data: topLines } = await supabase
       .from('recipe_lines')
       .select(`
@@ -201,7 +201,7 @@ console.log('[weekly] total rawItems fetched:', rawItems.length)
     const weightGrams = item.product_id ? productWeightMap.get(item.product_id) : null
     if (!weightGrams) continue
     const date = new Date(order.delivery_date + 'T00:00:00Z')
-const sun  = new Date(date)
+    const sun  = new Date(date)
     sun.setUTCDate(date.getUTCDate() - date.getUTCDay())
     const weekKey = sun.toISOString().split('T')[0]
     weekWeightMap.set(weekKey,
@@ -277,30 +277,30 @@ const sun  = new Date(date)
     }
   }
 
- const todayStr = new Date().toISOString().split('T')[0]  // e.g. '2026-03-18'
+  const todayStr = new Date().toISOString().split('T')[0]
 
-const weeks = Array.from(weekMap.values())
-  .map(w => ({
-    week_start:        w.week_start,
-    first_day:         w.first_day,
-    last_day:          w.last_day,
-    order_count:       w.order_ids.size,
-    revenue:           w.revenue,
-    invoiced_revenue:  w.invoiced_revenue,
-    pending_revenue:   w.pending_revenue,
-    customer_count:    w.customers.size,
-    total_weight_kg:   (weekWeightMap.get(w.week_start) ?? 0) / 1000,
-    ingredient_actual: w.ingredient_actual,
-    ingredient_est:    w.ingredient_est,
-    ingredient_total:  w.ingredient_actual + w.ingredient_est,
-    has_any_actual:    w.actual_item_count > 0,
-    all_actual:        w.actual_item_count === w.item_count && w.item_count > 0,
-    actual_item_count: w.actual_item_count,
-    item_count:        w.item_count,
-  }))
-  .filter(w => w.week_start <= todayStr)   // ← ADD THIS LINE
-  .sort((a, b) => b.week_start.localeCompare(a.week_start))
-  .slice(0, 12)
+  const weeks = Array.from(weekMap.values())
+    .map(w => ({
+      week_start:        w.week_start,
+      first_day:         w.first_day,
+      last_day:          w.last_day,
+      order_count:       w.order_ids.size,
+      revenue:           w.revenue,
+      invoiced_revenue:  w.invoiced_revenue,
+      pending_revenue:   w.pending_revenue,
+      customer_count:    w.customers.size,
+      total_weight_kg:   (weekWeightMap.get(w.week_start) ?? 0) / 1000,
+      ingredient_actual: w.ingredient_actual,
+      ingredient_est:    w.ingredient_est,
+      ingredient_total:  w.ingredient_actual + w.ingredient_est,
+      has_any_actual:    w.actual_item_count > 0,
+      all_actual:        w.actual_item_count === w.item_count && w.item_count > 0,
+      actual_item_count: w.actual_item_count,
+      item_count:        w.item_count,
+    }))
+    .filter(w => w.week_start <= todayStr)
+    .sort((a, b) => b.week_start.localeCompare(a.week_start))
+    .slice(0, 12)
 
   // ── Top products per week ─────────────────────────────────
   const weekProductMap = new Map<string, Map<string, {
@@ -311,7 +311,7 @@ const weeks = Array.from(weekMap.values())
     const order = item.orders
     if (!order?.delivery_date) continue
     const date = new Date(order.delivery_date + 'T00:00:00Z')
-const sun  = new Date(date)
+    const sun  = new Date(date)
     sun.setUTCDate(date.getUTCDate() - date.getUTCDay())
     const weekKey = sun.toISOString().split('T')[0]
     if (!weekProductMap.has(weekKey)) weekProductMap.set(weekKey, new Map())
@@ -345,12 +345,23 @@ const sun  = new Date(date)
   }
 
   return (
-    <WeeklyReportView
-      weeks={weeks}
-      topProductsByWeek={topProductsByWeek}
-      thisWeekStart={weeks[0]?.week_start ?? ''}
-      overheadPerKg={overheadPerKg}
-      savedWages={savedWages}
-    />
+    <div className="container mx-auto px-4 py-8">
+      <a
+        href="/admin"
+        className="flex items-center gap-1 text-sm mb-4 hover:opacity-80"
+        style={{ color: '#CE1126' }}
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back to Admin
+      </a>
+
+      <WeeklyReportView
+        weeks={weeks}
+        topProductsByWeek={topProductsByWeek}
+        thisWeekStart={weeks[0]?.week_start ?? ''}
+        overheadPerKg={overheadPerKg}
+        savedWages={savedWages}
+      />
+    </div>
   )
 }
