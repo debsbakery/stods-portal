@@ -78,6 +78,23 @@ export async function POST(request: NextRequest) {
         console.error('Stock update error:', updateError);
         throw updateError;
       }
+
+      // ── NEW: Log price history ─────────────────────────────────
+      if (newUnitCost !== ingredient.unit_cost) {
+        const supplierName = supplier_id
+          ? (await supabase.from('suppliers').select('name').eq('id', supplier_id).single())?.data?.name
+          : null
+
+        await supabase
+          .from('ingredient_price_history')
+          .insert({
+            ingredient_id,
+            unit_cost:      newUnitCost,
+            effective_date: received_date || new Date().toISOString().split('T')[0],
+            notes:          `Delivery: ${packs}×${pack_size_kg}kg @ $${unit_cost.toFixed(4)}/kg${supplierName ? ` from ${supplierName}` : ''}${invoice_ref ? ` (${invoice_ref})` : ''}`,
+          })
+      }
+      // ─────────────────────────────────────────────────────────────
     }
 
     return NextResponse.json({ success: true, data: receipt });
