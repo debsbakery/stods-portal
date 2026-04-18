@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Plus, Printer, Save, Trash2, CheckCircle, Edit, AlertTriangle } from 'lucide-react'
 
 interface Ingredient {
@@ -34,12 +34,13 @@ export default function StockTakeView({ ingredients, initialStockTakes }: Props)
   const [stockTakes, setStockTakes] = useState<StockTake[]>(initialStockTakes)
   const [activeId, setActiveId]     = useState<string | null>(null)
   const [counts, setCounts]         = useState<Record<string, CountEntry>>({})
-  const [takeDate, setTakeDate]     = useState(new Date().toISOString().split('T')[0])
-  const [notes, setNotes]           = useState('')
+const [takeDate, setTakeDate] = useState('')  const [notes, setNotes]           = useState('')
   const [saving, setSaving]         = useState(false)
   const [error, setError]           = useState('')
   const [success, setSuccess]       = useState('')
-
+useEffect(() => {
+  setTakeDate(new Date().toISOString().split('T')[0])
+}, [])
   // ── helpers ──────────────────────────────────────────────────────────────
 
   function getPhysicalKg(ingId: string) {
