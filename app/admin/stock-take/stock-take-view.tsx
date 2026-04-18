@@ -31,17 +31,36 @@ interface CountEntry {
 }
 
 export default function StockTakeView({ ingredients, initialStockTakes }: Props) {
+  const [mounted, setMounted]       = useState(false)
   const [stockTakes, setStockTakes] = useState<StockTake[]>(initialStockTakes)
   const [activeId, setActiveId]     = useState<string | null>(null)
   const [counts, setCounts]         = useState<Record<string, CountEntry>>({})
-const [takeDate, setTakeDate] = useState('') 
- const [notes, setNotes]           = useState('')
+  const [takeDate, setTakeDate]     = useState('')
+  const [notes, setNotes]           = useState('')
   const [saving, setSaving]         = useState(false)
   const [error, setError]           = useState('')
   const [success, setSuccess]       = useState('')
-useEffect(() => {
-  setTakeDate(new Date().toISOString().split('T')[0])
-}, [])
+
+  useEffect(() => {
+    setMounted(true)
+    setTakeDate(new Date().toISOString().split('T')[0])
+  }, [])
+
+  // ... all your helper functions stay the same ...
+
+  // Add this right before the main return:
+  if (!mounted) {
+    return (
+      <div className="space-y-6">
+        <div className="animate-pulse">
+          <div className="h-8 bg-gray-200 rounded w-1/3 mb-4"></div>
+          <div className="h-64 bg-gray-100 rounded"></div>
+        </div>
+      </div>
+    )
+  }
+
+  // ... existing return JSX stays exactly the same ...
   // ── helpers ──────────────────────────────────────────────────────────────
 
   function getPhysicalKg(ingId: string) {
