@@ -25,6 +25,7 @@ interface Customer {
   business_name: string | null
   contact_name: string | null
   email: string | null
+  email_2: string | null        // ✅ NEW
   phone: string | null
   address: string | null
   abn: string | null
@@ -315,7 +316,7 @@ export async function POST(request: NextRequest) {
       delivery_date,
       sendEmails  = false,
       emailOnly   = false,
-      customer_id = null,   // ✅ NEW — filter by customer for resend
+      customer_id = null,
     } = await request.json()
 
     if (!delivery_date || !/^\d{4}-\d{2}-\d{2}$/.test(delivery_date)) {
@@ -329,7 +330,6 @@ export async function POST(request: NextRequest) {
       ? ['pending', 'invoiced']
       : ['pending']
 
-    // ✅ Build query — filter by customer_id if provided
     let ordersQuery = supabase
       .from('orders')
       .select(`
@@ -337,7 +337,7 @@ export async function POST(request: NextRequest) {
         invoice_number, created_at, notes,
         purchase_order_number, docket_number,
         customers (
-          id, business_name, contact_name, email,
+          id, business_name, contact_name, email, email_2,
           phone, address, abn, payment_terms, invoice_brand
         ),
         order_items (
@@ -348,13 +348,11 @@ export async function POST(request: NextRequest) {
       .in('status', statusFilter)
       .eq('delivery_date', delivery_date)
 
-    // ✅ Only filter by customer when resending — not during normal batch invoice
     if (customer_id) {
       ordersQuery = ordersQuery.eq('customer_id', customer_id)
     }
 
     const { data: orders, error: ordersError } = await ordersQuery
-
     if (ordersError) throw ordersError
 
     if (!orders || orders.length === 0) {
@@ -370,33 +368,28 @@ export async function POST(request: NextRequest) {
     }
 
     const typedOrders = orders as unknown as Order[]
-    console.log(`Found ${typedOrders.length} orders for ${delivery_date} (emailOnly: ${emailOnly}, customer_id: ${customer_id ?? 'all'})`)
+    console.log(`Found ${typedOrders.length} orders for ${delivery_date}`)
 
     const orderInvoiceMap = new Map<string, number>()
 
     if (!emailOnly) {
-      // ── STEP 1: Generate invoice numbers ─────────────────────
+      // ── STEP 1: Generate invoice numbers ──────────────────────────────────
       for (const order of typedOrders) {
         const invoiceNum = await generateInvoiceNumber(supabase as any, order.id)
         orderInvoiceMap.set(order.id, invoiceNum)
       }
 
-      // ── STEP 2: Write invoice numbers back to orders ──────────
+      // ── STEP 2: Write invoice numbers back to orders ───────────────────────
       for (const [orderId, invoiceNum] of orderInvoiceMap.entries()) {
         const { error: writeBackError } = await supabase
           .from('orders')
           .update({ invoice_number: invoiceNum })
           .eq('id', orderId)
 
-        if (writeBackError) {
-          console.error(`Failed to write invoice_number to order ${orderId}:`, writeBackError)
-          throw writeBackError
-        }
+        if (writeBackError) throw writeBackError
       }
 
-      console.log(`Invoice numbers written to ${orderInvoiceMap.size} orders`)
-
-      // ── STEP 3: Create AR transactions ────────────────────────
+      // ── STEP 3: Create AR transactions ────────────────────────────────────
       const arTransactions = typedOrders.map((order) => {
         const paymentTerms = order.customers?.payment_terms ?? 30
         const dueDate      = computeDueDate(order.delivery_date, paymentTerms)
@@ -418,19 +411,17 @@ export async function POST(request: NextRequest) {
         .insert(arTransactions)
 
       if (arError) throw arError
-      console.log('AR transactions created')
 
-      // ── STEP 4: Mark orders as invoiced ───────────────────────
+      // ── STEP 4: Mark orders as invoiced ───────────────────────────────────
       const { error: updateError } = await supabase
         .from('orders')
         .update({ status: 'invoiced', invoiced_at: new Date().toISOString() })
         .in('id', typedOrders.map((o) => o.id))
 
       if (updateError) throw updateError
-      console.log('Orders marked as invoiced')
 
     } else {
-      // ── Email only — load existing invoice numbers ────────────
+      // Email only — load existing invoice numbers
       for (const order of typedOrders) {
         const { data: existing } = await supabase
           .from('invoice_numbers')
@@ -444,13 +435,11 @@ export async function POST(request: NextRequest) {
           orderInvoiceMap.set(order.id, order.invoice_number)
         }
       }
-
-      console.log(`Loaded ${orderInvoiceMap.size} existing invoice numbers for resend`)
     }
 
     const totalAmount = typedOrders.reduce((sum, o) => sum + (o.total_amount ?? 0), 0)
 
-    // ── STEP 5: Send emails ───────────────────────────────────────
+    // ── STEP 5: Send emails ───────────────────────────────────────────────────
     let emailsSent = 0
     const emailErrors: string[] = []
 
@@ -490,15 +479,28 @@ export async function POST(request: NextRequest) {
           const invoiceNumber = String(invoiceNum).padStart(6, '0')
           const html = buildInvoiceEmail({ order, invoiceNumber, bakery, siteUrl, invoiceUrl })
 
+          // ── Send to primary email ──────────────────────────────────────────
           await sendEmail({
             to:      customer.email,
             subject: `Invoice ${invoiceNumber} - ${bakery.name}`,
             html,
             from:    `${fromName} <${fromEmail}>`,
           })
-
           emailsSent++
-          console.log(`[${i + 1}/${typedOrders.length}] Sent to ${customer.email} (${isStods ? 'Stods' : 'Debs'})`)
+          console.log(`[${i + 1}/${typedOrders.length}] Sent to ${customer.email}`)
+
+          // ── Send to second email if set ────────────────────────────────────
+          if (customer.email_2) {
+            await sleep(300)
+            await sendEmail({
+              to:      customer.email_2,
+              subject: `Invoice ${invoiceNumber} - ${bakery.name}`,
+              html,
+              from:    `${fromName} <${fromEmail}>`,
+            })
+            emailsSent++
+            console.log(`  Also sent to email_2: ${customer.email_2}`)
+          }
 
           if (i < typedOrders.length - 1) await sleep(500)
 
@@ -509,7 +511,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      console.log(`Emails complete: ${emailsSent}/${typedOrders.length} sent`)
+      console.log(`Emails complete: ${emailsSent} sent`)
     }
 
     return NextResponse.json({

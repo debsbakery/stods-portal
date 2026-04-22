@@ -8,6 +8,7 @@ interface Customer {
   business_name: string
   contact_name: string
   email: string
+  email_2?: string       // ✅ NEW
   phone?: string
   address?: string
   abn?: string
@@ -33,6 +34,7 @@ export default function CustomerForm({ customer, isEditing = false }: Props) {
     business_name:  customer?.business_name  ?? '',
     contact_name:   customer?.contact_name   ?? '',
     email:          customer?.email          ?? '',
+    email_2:        customer?.email_2        ?? '',   // ✅ NEW
     phone:          customer?.phone          ?? '',
     address:        customer?.address        ?? '',
     abn:            customer?.abn            ?? '',
@@ -53,11 +55,12 @@ export default function CustomerForm({ customer, isEditing = false }: Props) {
       const url    = isEditing ? `/api/admin/customers/${customer?.id}` : '/api/customers'
       const method = isEditing ? 'PUT' : 'POST'
 
-      const res  = await fetch(url, {
+      const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...form,
+          email_2:               form.email_2 || null,  // ✅ send null if empty
           allow_duplicate_email: allowDuplicate,
         }),
       })
@@ -97,15 +100,10 @@ export default function CustomerForm({ customer, isEditing = false }: Props) {
     <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-md p-6 space-y-5">
 
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded p-3 text-red-700 text-sm">
-          {error}
-        </div>
+        <div className="bg-red-50 border border-red-200 rounded p-3 text-red-700 text-sm">{error}</div>
       )}
-
       {success && (
-        <div className="bg-green-50 border border-green-200 rounded p-3 text-green-700 text-sm">
-          {success}
-        </div>
+        <div className="bg-green-50 border border-green-200 rounded p-3 text-green-700 text-sm">{success}</div>
       )}
 
       {duplicateWarning && (
@@ -166,18 +164,36 @@ export default function CustomerForm({ customer, isEditing = false }: Props) {
         />
       </div>
 
-      <div>
-        <label className={labelClass}>
-          Email <span className="text-red-500">*</span>
-        </label>
-        <input
-          type="email"
-          required
-          value={form.email}
-          onChange={e => set('email', e.target.value)}
-          className={inputClass}
-          placeholder="deb@cafe.com.au"
-        />
+      {/* ── Email fields ── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className={labelClass}>
+            Email <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="email"
+            required
+            value={form.email}
+            onChange={e => set('email', e.target.value)}
+            className={inputClass}
+            placeholder="deb@cafe.com.au"
+          />
+          <p className="text-xs text-gray-400 mt-1">Primary — used for portal login</p>
+        </div>
+        <div>
+          <label className={labelClass}>
+            Second Email
+            <span className="ml-2 text-xs font-normal text-gray-400">(CC on all invoices)</span>
+          </label>
+          <input
+            type="email"
+            value={form.email_2}
+            onChange={e => set('email_2', e.target.value)}
+            className={inputClass}
+            placeholder="accounts@cafe.com.au"
+          />
+          <p className="text-xs text-gray-400 mt-1">Optional — accounts payable, owner, etc.</p>
+        </div>
       </div>
 
       <div>
@@ -258,7 +274,7 @@ export default function CustomerForm({ customer, isEditing = false }: Props) {
           type="submit"
           disabled={loading}
           className="flex-1 py-3 rounded-md text-white font-semibold hover:opacity-90 disabled:opacity-50"
-          style={{ backgroundColor: '#3E1F00' }}
+          style={{ backgroundColor: '#006A4E' }}
         >
           {loading ? 'Saving...' : isEditing ? 'Update Customer' : 'Add Customer'}
         </button>
