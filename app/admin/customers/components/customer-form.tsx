@@ -8,7 +8,8 @@ interface Customer {
   business_name: string
   contact_name: string
   email: string
-  email_2?: string       // ✅ NEW
+  email_2?: string
+  statement_email?: string    // ✅ NEW
   phone?: string
   address?: string
   abn?: string
@@ -31,16 +32,17 @@ export default function CustomerForm({ customer, isEditing = false }: Props) {
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null)
 
   const [form, setForm] = useState({
-    business_name:  customer?.business_name  ?? '',
-    contact_name:   customer?.contact_name   ?? '',
-    email:          customer?.email          ?? '',
-    email_2:        customer?.email_2        ?? '',   // ✅ NEW
-    phone:          customer?.phone          ?? '',
-    address:        customer?.address        ?? '',
-    abn:            customer?.abn            ?? '',
-    delivery_notes: customer?.delivery_notes ?? '',
-    status:         customer?.status         ?? 'active',
-    payment_terms:  customer?.payment_terms  ?? 30,
+    business_name:   customer?.business_name   ?? '',
+    contact_name:    customer?.contact_name    ?? '',
+    email:           customer?.email           ?? '',
+    email_2:         customer?.email_2         ?? '',
+    statement_email: customer?.statement_email ?? '',   // ✅ NEW
+    phone:           customer?.phone           ?? '',
+    address:         customer?.address         ?? '',
+    abn:             customer?.abn             ?? '',
+    delivery_notes:  customer?.delivery_notes  ?? '',
+    status:          customer?.status          ?? 'active',
+    payment_terms:   customer?.payment_terms   ?? 30,
   })
 
   const set = (field: string, value: any) =>
@@ -60,7 +62,8 @@ export default function CustomerForm({ customer, isEditing = false }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...form,
-          email_2:               form.email_2 || null,  // ✅ send null if empty
+          email_2:               form.email_2         || null,
+          statement_email:       form.statement_email || null,   // ✅ NEW
           allow_duplicate_email: allowDuplicate,
         }),
       })
@@ -164,35 +167,73 @@ export default function CustomerForm({ customer, isEditing = false }: Props) {
         />
       </div>
 
-      {/* ── Email fields ── */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className={labelClass}>
-            Email <span className="text-red-500">*</span>
-          </label>
-          <input
-            type="email"
-            required
-            value={form.email}
-            onChange={e => set('email', e.target.value)}
-            className={inputClass}
-            placeholder="deb@cafe.com.au"
-          />
-          <p className="text-xs text-gray-400 mt-1">Primary — used for portal login</p>
+      {/* ── Invoice emails (primary + CC) ── */}
+      <div>
+        <p className="text-sm font-semibold text-gray-700 mb-2">
+          📧 Invoice Emails
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className={labelClass}>
+              Primary Email <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="email"
+              required
+              value={form.email}
+              onChange={e => set('email', e.target.value)}
+              className={inputClass}
+              placeholder="deb@cafe.com.au"
+            />
+            <p className="text-xs text-gray-400 mt-1">Used for portal login + invoices</p>
+          </div>
+          <div>
+            <label className={labelClass}>
+              Second Email
+              <span className="ml-2 text-xs font-normal text-gray-400">(CC on invoices)</span>
+            </label>
+            <input
+              type="email"
+              value={form.email_2}
+              onChange={e => set('email_2', e.target.value)}
+              className={inputClass}
+              placeholder="accounts@cafe.com.au"
+            />
+            <p className="text-xs text-gray-400 mt-1">Optional — accounts payable, owner, etc.</p>
+          </div>
         </div>
-        <div>
-          <label className={labelClass}>
-            Second Email
-            <span className="ml-2 text-xs font-normal text-gray-400">(CC on all invoices)</span>
-          </label>
-          <input
-            type="email"
-            value={form.email_2}
-            onChange={e => set('email_2', e.target.value)}
-            className={inputClass}
-            placeholder="accounts@cafe.com.au"
-          />
-          <p className="text-xs text-gray-400 mt-1">Optional — accounts payable, owner, etc.</p>
+      </div>
+
+      {/* ── Statement email ── */}
+      <div>
+        <p className="text-sm font-semibold text-gray-700 mb-2">
+          📊 Statement Email
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className={labelClass}>
+              Statement Email
+              <span className="ml-2 text-xs font-normal text-gray-400">
+                (if different from primary)
+              </span>
+            </label>
+            <input
+              type="email"
+              value={form.statement_email}
+              onChange={e => set('statement_email', e.target.value)}
+              className={inputClass}
+              placeholder="accounts@cafe.com.au"
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              Monthly statements sent here. Blank = uses primary email.
+            </p>
+          </div>
+          <div className="flex items-center">
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700">
+              💡 Set a separate statement email if the person who receives invoices
+              is different from who manages the account (e.g. owner vs bookkeeper).
+            </div>
+          </div>
         </div>
       </div>
 
