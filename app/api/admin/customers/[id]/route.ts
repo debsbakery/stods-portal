@@ -12,25 +12,40 @@ export async function PUT(
 ) {
   try {
     const body = await request.json()
-    const { business_name, contact_name, phone, address, email, abn,
-            delivery_notes, status, payment_terms } = body
+    const {
+      business_name,
+      contact_name,
+      phone,
+      address,
+      email,
+      email_2,           // ✅ NEW
+      statement_email,   // ✅ NEW
+      abn,
+      delivery_notes,
+      status,
+      payment_terms,
+    } = body
 
-    if (!business_name?.trim()) return NextResponse.json({ error: 'Business name required' }, { status: 400 })
-    if (!contact_name?.trim())  return NextResponse.json({ error: 'Contact name required' }, { status: 400 })
+    if (!business_name?.trim())
+      return NextResponse.json({ error: 'Business name required' }, { status: 400 })
+    if (!contact_name?.trim())
+      return NextResponse.json({ error: 'Contact name required' }, { status: 400 })
 
     const { error } = await supabaseAdmin
       .from('customers')
       .update({
-        business_name:  business_name.trim(),
-        contact_name:   contact_name.trim(),
-        email:          email?.trim().toLowerCase() || undefined,
-        phone:          phone?.trim()          || null,
-        address:        address?.trim()        || null,
-        abn:            abn?.trim()            || null,
-        delivery_notes: delivery_notes?.trim() || null,
+        business_name:   business_name.trim(),
+        contact_name:    contact_name.trim(),
+        email:           email?.trim().toLowerCase() || undefined,
+        email_2:         email_2?.trim().toLowerCase()         || null,  // ✅ NEW
+        statement_email: statement_email?.trim().toLowerCase() || null,  // ✅ NEW
+        phone:           phone?.trim()          || null,
+        address:         address?.trim()        || null,
+        abn:             abn?.trim()            || null,
+        delivery_notes:  delivery_notes?.trim() || null,
         status,
-        payment_terms:  Number(payment_terms),
-        updated_at:     new Date().toISOString(),
+        payment_terms:   Number(payment_terms),
+        updated_at:      new Date().toISOString(),
       })
       .eq('id', params.id)
 
@@ -50,7 +65,7 @@ export async function DELETE(
   try {
     const customerId = params.id
 
-    // ── Safety check — block if customer has orders ────────────────────────
+    // Safety check — block if customer has orders
     const { count: orderCount, error: countError } = await supabaseAdmin
       .from('orders')
       .select('*', { count: 'exact', head: true })
@@ -67,13 +82,13 @@ export async function DELETE(
       )
     }
 
-    // ── Clean up contract pricing first ───────────────────────────────────
+    // Clean up contract pricing first
     await supabaseAdmin
       .from('customer_pricing')
       .delete()
       .eq('customer_id', customerId)
 
-    // ── Delete customer ────────────────────────────────────────────────────
+    // Delete customer
     const { error: deleteError } = await supabaseAdmin
       .from('customers')
       .delete()
