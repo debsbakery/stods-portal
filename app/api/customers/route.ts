@@ -33,6 +33,8 @@ export async function POST(request: NextRequest) {
       business_name,
       contact_name,
       email,
+      email_2,              // ✅ NEW
+      statement_email,      // ✅ NEW
       phone,
       address,
       abn,
@@ -80,7 +82,6 @@ export async function POST(request: NextRequest) {
 
       customerId = authUser?.user?.id || crypto.randomUUID()
     } catch {
-      // Auth user already exists (shared email) — use new UUID for customer record
       customerId = crypto.randomUUID()
     }
 
@@ -88,17 +89,19 @@ export async function POST(request: NextRequest) {
     const { error: insertError } = await supabaseAdmin
       .from('customers')
       .insert({
-        id:             customerId,
-        business_name:  business_name.trim(),
-        contact_name:   contact_name.trim(),
-        email:          email.trim().toLowerCase(),
-        phone:          phone?.trim()          || null,
-        address:        address?.trim()        || null,
-        abn:            abn?.trim()            || null,
-        delivery_notes: delivery_notes?.trim() || null,
+        id:              customerId,
+        business_name:   business_name.trim(),
+        contact_name:    contact_name.trim(),
+        email:           email.trim().toLowerCase(),
+        email_2:         email_2?.trim().toLowerCase()         || null,  // ✅ NEW
+        statement_email: statement_email?.trim().toLowerCase() || null,  // ✅ NEW
+        phone:           phone?.trim()          || null,
+        address:         address?.trim()        || null,
+        abn:             abn?.trim()            || null,
+        delivery_notes:  delivery_notes?.trim() || null,
         status,
-        payment_terms:  Number(payment_terms),
-        balance:        0,
+        payment_terms:   Number(payment_terms),
+        balance:         0,
       })
 
     if (insertError) {
