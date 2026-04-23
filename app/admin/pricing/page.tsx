@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Trash2, DollarSign } from 'lucide-react'
+import { Plus, Trash2, DollarSign, Copy, X, Loader2 } from 'lucide-react'
 import { SearchableSelect, SelectOption } from '@/components/ui/searchable-select'
 
 interface Customer {
@@ -39,6 +39,14 @@ export default function ContractPricingPage() {
   const [showForm, setShowForm] = useState(false)
   const [formError, setFormError] = useState('')
 
+  // ── Clone modal state ─────────────────────────────────────────
+  const [showCloneModal, setShowCloneModal]       = useState(false)
+  const [sourceCustomerId, setSourceCustomerId]   = useState('')
+  const [sourceContracts, setSourceContracts]     = useState<ContractPrice[]>([])
+  const [cloneMode, setCloneMode]                 = useState<'replace' | 'merge'>('merge')
+  const [cloning, setCloning]                     = useState(false)
+  const [cloneMessage, setCloneMessage]           = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
   const [formData, setFormData] = useState({
     productId: '',
     contractPrice: '',
@@ -56,6 +64,19 @@ export default function ContractPricingPage() {
       loadContracts(selectedCustomer)
     }
   }, [selectedCustomer])
+
+  // ── Load source contracts when source customer changes in modal ──
+  useEffect(() => {
+    if (!sourceCustomerId) {
+      setSourceContracts([])
+      return
+    }
+    fetch(`/api/admin/contract-pricing?customerId=${sourceCustomerId}`)
+      .then(r => r.json())
+      .then(result => {
+        if (result.success) setSourceContracts(result.contracts)
+      })
+  }, [sourceCustomerId])
 
   async function loadCustomers() {
     try {
@@ -148,13 +169,81 @@ export default function ContractPricingPage() {
     if (result.success) loadContracts(selectedCustomer)
   }
 
+  // ── Clone handler ────────────────────────────────────────────────
+  function openCloneModal() {
+    setSourceCustomerId('')
+    setSourceContracts([])
+    setCloneMode('merge')
+    setCloneMessage(null)
+    setShowCloneModal(true)
+  }
+
+  async function handleClone() {
+    if (!sourceCustomerId || !selectedCustomer) return
+    if (sourceCustomerId === selectedCustomer) {
+      setCloneMessage({ type: 'error', text: 'Source and target customers are the same' })
+      return
+    }
+    if (sourceContracts.length === 0) {
+      setCloneMessage({ type: 'error', text: 'Source customer has no contract prices' })
+      return
+    }
+
+    const confirmMsg = cloneMode === 'replace'
+      ? `⚠️ REPLACE ALL contract prices?\n\nThis will DELETE ${contracts.length} existing contract price(s) and copy ${sourceContracts.length} from the source customer.\n\nContinue?`
+      : `Clone ${sourceContracts.length} contract prices (merge mode)?\n\nOnly products not already in the current contracts will be added.\n${contracts.length} existing prices will be kept.\n\nContinue?`
+
+    if (!confirm(confirmMsg)) return
+
+    setCloning(true)
+    setCloneMessage(null)
+
+    try {
+      const res = await fetch('/api/admin/contract-pricing/clone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceCustomerId,
+          targetCustomerId: selectedCustomer,
+          mode: cloneMode,
+        }),
+      })
+
+      const result = await res.json()
+
+      if (result.success) {
+        setCloneMessage({
+          type: 'success',
+          text: `✅ Cloned ${result.added} price${result.added !== 1 ? 's' : ''}${result.skipped > 0 ? `, skipped ${result.skipped} duplicate${result.skipped !== 1 ? 's' : ''}` : ''}${result.replaced > 0 ? `, replaced ${result.replaced}` : ''}`,
+        })
+        loadContracts(selectedCustomer)
+        setTimeout(() => setShowCloneModal(false), 1800)
+      } else {
+        setCloneMessage({ type: 'error', text: result.error || 'Clone failed' })
+      }
+    } catch (err: any) {
+      setCloneMessage({ type: 'error', text: err.message })
+    } finally {
+      setCloning(false)
+    }
+  }
+
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('en-AU', {
       style: 'currency',
       currency: 'AUD'
     }).format(amount)
 
-  // Build SearchableSelect options — badge = code, sublabel = price
+  // Source customer options for clone modal (exclude current customer)
+  const sourceCustomerOptions = customers
+    .filter(c => c.id !== selectedCustomer)
+    .sort((a, b) => (a.business_name || a.email).localeCompare(b.business_name || b.email))
+
+  const selectedCustomerName =
+    customers.find(c => c.id === selectedCustomer)?.business_name ||
+    customers.find(c => c.id === selectedCustomer)?.email ||
+    'Customer'
+
   const productOptions: SelectOption[] = products.map((p) => ({
     value: p.id,
     label: p.name,
@@ -166,11 +255,183 @@ export default function ContractPricingPage() {
 
   return (
     <div className="p-8">
-      {/* Header */}
+
+      {/* ══════════ CLONE MODAL ══════════ */}
+      {showCloneModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold flex items-center gap-2" style={{ color: '#006A4E' }}>
+                <Copy className="h-5 w-5" />
+                Clone Contract Pricing
+              </h2>
+              <button onClick={() => setShowCloneModal(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+
+              {/* Source customer */}
+              <div>
+                <label className="block text-sm font-semibold mb-2">
+                  Copy <span className="text-green-700">FROM</span>:
+                </label>
+                <select
+                  value={sourceCustomerId}
+                  onChange={e => setSourceCustomerId(e.target.value)}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
+                >
+                  <option value="">— Select source customer —</option>
+                  {sourceCustomerOptions.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.business_name || c.email}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Target customer (read-only display) */}
+              <div>
+                <label className="block text-sm font-semibold mb-2">
+                  Copy <span className="text-red-600">TO</span>:
+                </label>
+                <div className="px-4 py-2.5 bg-gray-100 border border-gray-300 rounded-md text-gray-700">
+                  {selectedCustomerName}
+                </div>
+              </div>
+
+              {/* Source preview */}
+              {sourceCustomerId && (
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  {sourceContracts.length === 0 ? (
+                    <p className="text-sm text-blue-700">
+                      Source customer has <strong>no contract prices</strong> to clone.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-sm font-semibold text-blue-900 mb-2">
+                        📋 Source has {sourceContracts.length} contract price{sourceContracts.length !== 1 ? 's' : ''}
+                      </p>
+                      <div className="max-h-40 overflow-y-auto text-xs text-blue-700 space-y-1">
+                        {sourceContracts.slice(0, 20).map(c => (
+                          <div key={c.id} className="flex justify-between">
+                            <span className="truncate">
+                              <span className="font-mono text-gray-500">{c.product_number}</span>{' '}
+                              {c.product_name}
+                            </span>
+                            <span className="font-bold font-mono ml-2 shrink-0">
+                              {formatCurrency(c.contract_price)}
+                            </span>
+                          </div>
+                        ))}
+                        {sourceContracts.length > 20 && (
+                          <p className="text-xs italic text-blue-500 pt-1">
+                            ...and {sourceContracts.length - 20} more
+                          </p>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Mode selection */}
+              {sourceContracts.length > 0 && (
+                <div>
+                  <label className="block text-sm font-semibold mb-2">Clone Mode</label>
+                  <div className="space-y-2">
+                    <label className="flex items-start gap-3 p-3 border-2 rounded-lg cursor-pointer transition-colors"
+                      style={{
+                        borderColor: cloneMode === 'merge' ? '#006A4E' : '#e5e7eb',
+                        backgroundColor: cloneMode === 'merge' ? '#f0fdf4' : 'white',
+                      }}>
+                      <input
+                        type="radio"
+                        checked={cloneMode === 'merge'}
+                        onChange={() => setCloneMode('merge')}
+                        className="mt-0.5 accent-green-600"
+                      />
+                      <div>
+                        <p className="font-semibold text-sm">
+                          🟢 Merge <span className="text-xs font-normal text-gray-500">(safe)</span>
+                        </p>
+                        <p className="text-xs text-gray-600 mt-0.5">
+                          Only add prices for products <strong>not already</strong> in current contracts.
+                          Keep existing prices unchanged.
+                        </p>
+                      </div>
+                    </label>
+
+                    <label className="flex items-start gap-3 p-3 border-2 rounded-lg cursor-pointer transition-colors"
+                      style={{
+                        borderColor: cloneMode === 'replace' ? '#CE1126' : '#e5e7eb',
+                        backgroundColor: cloneMode === 'replace' ? '#fef2f2' : 'white',
+                      }}>
+                      <input
+                        type="radio"
+                        checked={cloneMode === 'replace'}
+                        onChange={() => setCloneMode('replace')}
+                        className="mt-0.5 accent-red-600"
+                      />
+                      <div>
+                        <p className="font-semibold text-sm">
+                          🔴 Replace All <span className="text-xs font-normal text-gray-500">(destructive)</span>
+                        </p>
+                        <p className="text-xs text-gray-600 mt-0.5">
+                          <strong>Delete</strong> all {contracts.length} existing contract price(s),
+                          then copy exactly from source.
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* Message */}
+              {cloneMessage && (
+                <div className={`p-3 rounded-lg text-sm ${
+                  cloneMessage.type === 'success'
+                    ? 'bg-green-50 border border-green-200 text-green-800'
+                    : 'bg-red-50 border border-red-200 text-red-800'
+                }`}>
+                  {cloneMessage.text}
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div className="flex gap-3 justify-end pt-4 border-t">
+                <button
+                  onClick={() => setShowCloneModal(false)}
+                  disabled={cloning}
+                  className="px-5 py-2 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleClone}
+                  disabled={cloning || !sourceCustomerId || sourceContracts.length === 0}
+                  className="flex items-center gap-2 px-5 py-2 rounded-md text-white font-semibold hover:opacity-90 disabled:opacity-50"
+                  style={{ backgroundColor: cloneMode === 'replace' ? '#CE1126' : '#006A4E' }}
+                >
+                  {cloning ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" /> Cloning...</>
+                  ) : (
+                    <><Copy className="h-4 w-4" /> Clone {sourceContracts.length} Price{sourceContracts.length !== 1 ? 's' : ''}</>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════ HEADER ══════════ */}
       <div className="mb-8">
         <h1
           className="text-3xl font-bold flex items-center gap-2"
-          style={{ color: '#3E1F00' }}
+          style={{ color: '#006A4E' }}
         >
           <DollarSign className="h-8 w-8" />
           Contract Pricing
@@ -178,7 +439,7 @@ export default function ContractPricingPage() {
         <p className="text-gray-600 mt-2">Manage customer-specific pricing</p>
       </div>
 
-      {/* Customer Selector */}
+      {/* ══════════ CUSTOMER SELECTOR ══════════ */}
       <div className="bg-white rounded-lg shadow-md p-6 mb-6">
         <label className="block text-sm font-medium mb-2">Select Customer</label>
         <select
@@ -199,19 +460,28 @@ export default function ContractPricingPage() {
         </select>
       </div>
 
-      {/* Contracts Section */}
+      {/* ══════════ CONTRACTS SECTION ══════════ */}
       {selectedCustomer && (
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <div className="flex justify-between items-center mb-4">
+          <div className="flex justify-between items-center mb-4 flex-wrap gap-3">
             <h2 className="text-xl font-bold">Active Contract Prices</h2>
-            <button
-              onClick={() => { setShowForm(!showForm); setFormError('') }}
-              className="flex items-center gap-2 px-4 py-2 rounded text-white hover:opacity-90"
-              style={{ backgroundColor: '#3E1F00' }}
-            >
-              <Plus className="h-4 w-4" />
-              Add Contract Price
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={openCloneModal}
+                className="flex items-center gap-2 px-4 py-2 rounded border-2 border-blue-600 text-blue-600 font-medium hover:bg-blue-50 transition-colors"
+              >
+                <Copy className="h-4 w-4" />
+                Clone from Customer
+              </button>
+              <button
+                onClick={() => { setShowForm(!showForm); setFormError('') }}
+                className="flex items-center gap-2 px-4 py-2 rounded text-white hover:opacity-90"
+                style={{ backgroundColor: '#006A4E' }}
+              >
+                <Plus className="h-4 w-4" />
+                Add Contract Price
+              </button>
+            </div>
           </div>
 
           {/* Add Form */}
@@ -227,7 +497,6 @@ export default function ContractPricingPage() {
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Product searchable select */}
                 <div className="md:col-span-2">
                   <SearchableSelect
                     label="Product"
@@ -242,7 +511,6 @@ export default function ContractPricingPage() {
                   />
                 </div>
 
-                {/* Contract Price */}
                 <div>
                   <label className="block text-sm font-medium mb-1">
                     Contract Price <span className="text-red-500">*</span>
@@ -262,7 +530,6 @@ export default function ContractPricingPage() {
                       placeholder="5.50"
                     />
                   </div>
-                  {/* Show selected product standard price as hint */}
                   {formData.productId && (() => {
                     const p = products.find(p => p.id === formData.productId)
                     return p ? (
@@ -273,7 +540,6 @@ export default function ContractPricingPage() {
                   })()}
                 </div>
 
-                {/* Effective From */}
                 <div>
                   <label className="block text-sm font-medium mb-1">
                     Effective From <span className="text-red-500">*</span>
@@ -289,7 +555,6 @@ export default function ContractPricingPage() {
                   />
                 </div>
 
-                {/* Effective To */}
                 <div>
                   <label className="block text-sm font-medium mb-1">
                     Effective To
@@ -310,7 +575,7 @@ export default function ContractPricingPage() {
                 <button
                   type="submit"
                   className="px-5 py-2 rounded text-white font-medium hover:opacity-90"
-                  style={{ backgroundColor: '#3E1F00' }}
+                  style={{ backgroundColor: '#006A4E' }}
                 >
                   Save Contract Price
                 </button>
@@ -363,7 +628,7 @@ export default function ContractPricingPage() {
                         </td>
                         <td
                           className="text-right py-2 px-3 font-bold text-sm"
-                          style={{ color: '#3E1F00' }}
+                          style={{ color: '#006A4E' }}
                         >
                           {formatCurrency(contract.contract_price)}
                         </td>
