@@ -35,17 +35,51 @@ interface DoughSummary {
 
 const SAFETY_MARGIN = 0.05
 
+// ── Constants for White Dough split rules ────────────────────────────────────
+const FLOUR_RATIO              = 0.60   // flour = 60% of dough weight (rolls)
+const MAX_FLOUR_PER_DOUGH_ROLL = 30     // kg flour per dough (rolls)
+const MAX_KG_PER_DOUGH_BREAD   = 100    // kg dough per dough (bread)
+
 const fmt = (n: number) => n.toFixed(1)
+const fmt2 = (n: number) => n.toFixed(2)
 
 function getWeekday(dateStr: string): string {
   return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short' })
 }
 
+// ── White Dough Split Helpers ────────────────────────────────────────────────
+
+// Is this a white dough (case-insensitive match)
+function isWhiteDough(doughType: string): boolean {
+  return doughType.trim().toLowerCase() === 'white'
+}
+
+// Rolls: split by flour (max 30 kg flour per dough)
+// Returns { numDoughs, kgPerDough, flourKg, flourPerDough } or null if not applicable
+function calcRollSplit(totalDoughKg: number) {
+  if (totalDoughKg <= 0) return null
+  const flourKg       = totalDoughKg * FLOUR_RATIO
+  const numDoughs     = Math.max(1, Math.ceil(flourKg / MAX_FLOUR_PER_DOUGH_ROLL))
+  const kgPerDough    = totalDoughKg / numDoughs
+  const flourPerDough = flourKg / numDoughs
+  return { numDoughs, kgPerDough, flourKg, flourPerDough }
+}
+
+// Bread: split by dough weight (max 100 kg per dough)
+function calcBreadSplit(totalDoughKg: number) {
+  if (totalDoughKg <= 0) return null
+  const numDoughs  = Math.max(1, Math.ceil(totalDoughKg / MAX_KG_PER_DOUGH_BREAD))
+  const kgPerDough = totalDoughKg / numDoughs
+  const flourKg    = totalDoughKg * FLOUR_RATIO
+  return { numDoughs, kgPerDough, flourKg }
+}
+
+// ── Component ────────────────────────────────────────────────────────────────
+
 export default function DoughCalculator() {
   const supabase = createClient()
   const printRef = useRef<HTMLDivElement>(null)
 
-  // Default: today only
   const today = new Date().toISOString().split('T')[0]
   const [dateFrom, setDateFrom]         = useState(today)
   const [dateTo, setDateTo]             = useState(today)
@@ -57,7 +91,6 @@ export default function DoughCalculator() {
   const [showDetail, setShowDetail]     = useState(true)
   const [orderCount, setOrderCount]     = useState(0)
 
-  // Quick date presets
   function setToday() {
     const t = new Date().toISOString().split('T')[0]
     setDateFrom(t)
@@ -90,7 +123,6 @@ export default function DoughCalculator() {
     setOrderCount(0)
 
     try {
-      // 1. Get pending orders for date range
       const { data: orders } = await supabase
         .from('orders')
         .select('id')
@@ -106,7 +138,6 @@ export default function DoughCalculator() {
       setOrderCount(orders.length)
       const orderIds = orders.map(o => o.id)
 
-      // 2. Get order items with product details
       const { data: items } = await supabase
         .from('order_items')
         .select(`
@@ -129,7 +160,6 @@ export default function DoughCalculator() {
         return
       }
 
-      // 3. Get recipe dough types
       const productIds = [...new Set(items.map((i: any) => i.product_id).filter(Boolean))]
 
       const { data: recipes } = await supabase
@@ -144,7 +174,6 @@ export default function DoughCalculator() {
         })
       }
 
-      // 4. Aggregate quantities per product
       const productTotals: Record<string, { name: string; code: string; qty: number; product: any }> = {}
 
       items.forEach((item: any) => {
@@ -164,7 +193,6 @@ export default function DoughCalculator() {
         productTotals[pid].qty += Math.abs(item.quantity)
       })
 
-      // 5. Build roll and bread lines
       const rolls: RollLine[]   = []
       const breads: BreadLine[] = []
       const missing: string[]   = []
@@ -203,11 +231,9 @@ export default function DoughCalculator() {
         }
       })
 
-      // Sort by dough type then code
       rolls.sort((a, b) => a.doughType.localeCompare(b.doughType) || a.productCode.localeCompare(b.productCode))
       breads.sort((a, b) => a.doughType.localeCompare(b.doughType) || a.productCode.localeCompare(b.productCode))
 
-      // 6. Build summaries — SEPARATE roll and bread totals
       const doughTotals: Record<string, { rollKg: number; breadKg: number }> = {}
 
       rolls.forEach(r => {
@@ -241,14 +267,12 @@ export default function DoughCalculator() {
     }
   }
 
-  // Auto-load on date change
   useEffect(() => {
     if (dateFrom && dateTo && dateFrom <= dateTo) {
       loadCalculation()
     }
   }, [dateFrom, dateTo])
 
-  // Print
   function handlePrint() {
     const printContent = printRef.current
     if (!printContent) return
@@ -275,6 +299,11 @@ export default function DoughCalculator() {
             }
             .summary-title { font-size: 14px; font-weight: bold; margin-bottom: 8px; text-transform: uppercase; }
             .make-line { font-size: 15px; font-weight: bold; border-top: 2px solid #333; padding-top: 4px; margin-top: 6px; }
+            .split-box {
+              margin-top: 6px; padding: 6px 8px; background: #f7f7f7;
+              border-left: 3px solid #333; font-size: 11px;
+            }
+            .split-box .split-title { font-weight: bold; margin-bottom: 3px; }
             .timestamp { margin-top: 20px; font-size: 10px; color: #999; }
             @media print { body { padding: 10px; } }
           </style>
@@ -292,7 +321,6 @@ export default function DoughCalculator() {
     printWindow.print()
   }
 
-  // Date display
   const isSingleDay = dateFrom === dateTo
   const dateRangeDisplay = isSingleDay
     ? new Date(dateFrom + 'T00:00:00').toLocaleDateString('en-AU', {
@@ -336,7 +364,6 @@ export default function DoughCalculator() {
             />
           </div>
 
-          {/* Quick presets */}
           <div className="flex gap-1.5">
             <button onClick={setToday}
               className="px-3 py-2 text-xs font-medium bg-gray-100 hover:bg-gray-200 rounded-md transition-colors">
@@ -371,7 +398,6 @@ export default function DoughCalculator() {
           )}
         </div>
 
-        {/* Date range info */}
         <div className="mt-3 text-sm text-gray-500">
           📅 {dateRangeDisplay}
           {orderCount > 0 && (
@@ -402,7 +428,6 @@ export default function DoughCalculator() {
         </div>
       )}
 
-      {/* ── Empty state ── */}
       {!loading && !hasData && (
         <div className="text-center py-12 text-gray-400">
           <Calculator className="h-12 w-12 mx-auto mb-3 opacity-50" />
@@ -418,63 +443,115 @@ export default function DoughCalculator() {
       {hasData && (
         <div ref={printRef}>
 
-          {/* ── DOUGH SUMMARY — SEPARATE ROLL + BREAD per type ── */}
+          {/* ── DOUGH SUMMARY ── */}
           <div className="mb-8">
             <h2 className="text-lg font-bold mb-4 flex items-center gap-2" style={{ color: '#006A4E' }}>
               🧮 Dough Required — {dateRangeDisplay}
             </h2>
             <div className="flex flex-wrap gap-4">
-              {summaries.map(s => (
-                <div key={s.doughType} className="border-2 border-gray-800 rounded-lg p-5 min-w-[260px]">
-                  <div className="text-sm font-bold uppercase tracking-wide text-gray-600 mb-3">
-                    {s.doughType} Dough
+              {summaries.map(s => {
+                const isWhite    = isWhiteDough(s.doughType)
+
+                // Compute splits only for white dough
+                const rollSplit  = isWhite && s.rollWithSafety  > 0 ? calcRollSplit(s.rollWithSafety)   : null
+                const breadSplit = isWhite && s.breadWithSafety > 0 ? calcBreadSplit(s.breadWithSafety) : null
+
+                return (
+                  <div key={s.doughType} className="border-2 border-gray-800 rounded-lg p-5 min-w-[280px]">
+                    <div className="text-sm font-bold uppercase tracking-wide text-gray-600 mb-3">
+                      {s.doughType} Dough
+                    </div>
+
+                    {/* ── Roll dough block ── */}
+                    {s.rollKg > 0 && (
+                      <div className="mb-3">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">🥖 Roll dough:</span>
+                          <span className="font-semibold">{fmt(s.rollKg)} kg</span>
+                        </div>
+                        <div className="flex justify-between text-lg font-bold mt-1 pt-1 border-t border-gray-300"
+                          style={{ color: '#006A4E' }}>
+                          <span>MAKE Rolls:</span>
+                          <span>{fmt(s.rollWithSafety)} kg</span>
+                        </div>
+                        <div className="text-xs text-gray-400 text-right">incl. 5% safety</div>
+
+                        {/* White Rolls: flour weight + dough split (hide if 1 dough) */}
+                        {isWhite && rollSplit && (
+                          <div className="mt-2 pl-2 border-l-4 border-amber-400 bg-amber-50 rounded-r py-2 pr-2 text-sm">
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">Flour weight (60%):</span>
+                              <span className="font-semibold">{fmt(rollSplit.flourKg)} kg</span>
+                            </div>
+                            {rollSplit.numDoughs > 1 && (
+                              <div className="mt-2 pt-2 border-t border-amber-200">
+                                <div className="text-xs font-bold text-amber-800 mb-1">
+                                  Split into {rollSplit.numDoughs} doughs:
+                                </div>
+                                <div className="flex justify-between text-xs">
+                                  <span className="text-gray-600">Dough size each:</span>
+                                  <span className="font-semibold">{fmt2(rollSplit.kgPerDough)} kg</span>
+                                </div>
+                                <div className="flex justify-between text-xs">
+                                  <span className="text-gray-600">Flour each:</span>
+                                  <span className="font-semibold">{fmt2(rollSplit.flourPerDough)} kg</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* ── Bread dough block ── */}
+                    {s.breadKg > 0 && (
+                      <div className={s.rollKg > 0 ? 'pt-3 border-t-2 border-gray-300' : ''}>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">🍞 Bread dough:</span>
+                          <span className="font-semibold">{fmt(s.breadKg)} kg</span>
+                        </div>
+                        <div className="flex justify-between text-lg font-bold mt-1 pt-1 border-t border-gray-300"
+                          style={{ color: '#006A4E' }}>
+                          <span>MAKE Bread:</span>
+                          <span>{fmt(s.breadWithSafety)} kg</span>
+                        </div>
+                        <div className="text-xs text-gray-400 text-right">incl. 5% safety</div>
+
+                        {/* White Bread: flour weight (one line) + dough split (hide if 1 dough) */}
+                        {isWhite && breadSplit && (
+                          <div className="mt-2 pl-2 border-l-4 border-amber-400 bg-amber-50 rounded-r py-2 pr-2 text-sm">
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">Flour weight (60%):</span>
+                              <span className="font-semibold">{fmt(breadSplit.flourKg)} kg</span>
+                            </div>
+                            {breadSplit.numDoughs > 1 && (
+                              <div className="mt-2 pt-2 border-t border-amber-200">
+                                <div className="text-xs font-bold text-amber-800 mb-1">
+                                  Split into {breadSplit.numDoughs} doughs:
+                                </div>
+                                <div className="flex justify-between text-xs">
+                                  <span className="text-gray-600">Dough size each:</span>
+                                  <span className="font-semibold">{fmt2(breadSplit.kgPerDough)} kg</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {s.rollKg > 0 && s.breadKg > 0 && (
+                      <div className="mt-3 pt-2 border-t-2 border-gray-800 flex justify-between text-sm text-gray-500">
+                        <span>Combined {s.doughType}:</span>
+                        <span className="font-semibold">{fmt(s.rollWithSafety + s.breadWithSafety)} kg</span>
+                      </div>
+                    )}
                   </div>
-
-                  {/* Roll dough */}
-                  {s.rollKg > 0 && (
-                    <div className="mb-3">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">🥖 Roll dough:</span>
-                        <span className="font-semibold">{fmt(s.rollKg)} kg</span>
-                      </div>
-                      <div className="flex justify-between text-lg font-bold mt-1 pt-1 border-t border-gray-300"
-                        style={{ color: '#006A4E' }}>
-                        <span>MAKE Rolls:</span>
-                        <span>{fmt(s.rollWithSafety)} kg</span>
-                      </div>
-                      <div className="text-xs text-gray-400 text-right">incl. 5% safety</div>
-                    </div>
-                  )}
-
-                  {/* Bread dough */}
-                  {s.breadKg > 0 && (
-                    <div className={s.rollKg > 0 ? 'pt-3 border-t-2 border-gray-300' : ''}>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">🍞 Bread dough:</span>
-                        <span className="font-semibold">{fmt(s.breadKg)} kg</span>
-                      </div>
-                      <div className="flex justify-between text-lg font-bold mt-1 pt-1 border-t border-gray-300"
-                        style={{ color: '#006A4E' }}>
-                        <span>MAKE Bread:</span>
-                        <span>{fmt(s.breadWithSafety)} kg</span>
-                      </div>
-                      <div className="text-xs text-gray-400 text-right">incl. 5% safety</div>
-                    </div>
-                  )}
-
-                  {/* Combined total at bottom */}
-                  {s.rollKg > 0 && s.breadKg > 0 && (
-                    <div className="mt-3 pt-2 border-t-2 border-gray-800 flex justify-between text-sm text-gray-500">
-                      <span>Combined {s.doughType}:</span>
-                      <span className="font-semibold">{fmt(s.rollWithSafety + s.breadWithSafety)} kg</span>
-                    </div>
-                  )}
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
 
-          {/* ── Detail toggle ── */}
           <button
             onClick={() => setShowDetail(!showDetail)}
             className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 mb-4"
@@ -483,7 +560,6 @@ export default function DoughCalculator() {
             {showDetail ? 'Hide detail breakdown' : 'Show detail breakdown'}
           </button>
 
-          {/* ── ROLLS DETAIL ── */}
           {showDetail && rollLines.length > 0 && (
             <div className="mb-6">
               <h3 className="text-md font-bold mb-2 text-gray-700">🥖 Rolls Breakdown</h3>
@@ -524,7 +600,6 @@ export default function DoughCalculator() {
             </div>
           )}
 
-          {/* ── BREAD DETAIL ── */}
           {showDetail && breadLines.length > 0 && (
             <div className="mb-6">
               <h3 className="text-md font-bold mb-2 text-gray-700">🍞 Bread Breakdown</h3>
