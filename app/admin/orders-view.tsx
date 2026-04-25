@@ -69,7 +69,7 @@ export default function OrdersView() {
   const [loading, setLoading]           = useState(true)
   const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set())
   const [weekOffset, setWeekOffset]     = useState(getInitialWeekOffset)
-  const [cancelling, setCancelling]     = useState<string | null>(null) // ✅ INSIDE component
+  const [cancelling, setCancelling]     = useState<string | null>(null)
 
   useEffect(() => {
     loadOrders()
@@ -113,29 +113,36 @@ export default function OrdersView() {
   }
 
   async function loadStats() {
+    // ✅ Total Orders — exclude cancelled
     const { count: totalOrders } = await supabase
       .from('orders')
       .select('*', { count: 'exact', head: true })
+      .neq('status', 'cancelled')
 
+    // ✅ Pending — already filtered correctly
     const { count: pendingOrders } = await supabase
       .from('orders')
       .select('*', { count: 'exact', head: true })
       .eq('status', 'pending')
 
+    // ✅ Total Revenue — exclude cancelled
     const { data: revenueData } = await supabase
       .from('orders')
       .select('total_amount')
       .not('total_amount', 'is', null)
+      .neq('status', 'cancelled')
 
     const totalRevenue = revenueData?.reduce(
       (sum, o) => sum + (o.total_amount || 0), 0
     ) || 0
 
+    // ✅ Delivering Today — exclude cancelled
     const today = getBrisbaneToday()
     const { count: todayOrders } = await supabase
       .from('orders')
       .select('*', { count: 'exact', head: true })
       .eq('delivery_date', today)
+      .neq('status', 'cancelled')
 
     setStats({
       totalOrders:   totalOrders   || 0,
@@ -145,7 +152,6 @@ export default function OrdersView() {
     })
   }
 
-  // ✅ Cancel order — sets status to cancelled via API
   async function cancelOrder(orderId: string, customerName: string) {
     if (!confirm(`Cancel order for ${customerName}? This cannot be undone.`)) return
     setCancelling(orderId)
@@ -244,13 +250,13 @@ export default function OrdersView() {
 
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-4">
-        <div className="bg-white rounded-lg shadow-md p-5 border-l-4" style={{ borderColor: '#C4A882' }}>
+        <div className="bg-white rounded-lg shadow-md p-5 border-l-4" style={{ borderColor: '#8B0000' }}>
           <p className="text-sm text-gray-600">Total Orders</p>
           <p className="text-3xl font-bold">{stats.totalOrders}</p>
         </div>
-        <div className="bg-white rounded-lg shadow-md p-5 border-l-4" style={{ borderColor: '#3E1F00' }}>
+        <div className="bg-white rounded-lg shadow-md p-5 border-l-4" style={{ borderColor: '#2c2c2c' }}>
           <p className="text-sm text-gray-600">Pending</p>
-          <p className="text-3xl font-bold" style={{ color: '#C4A882' }}>{stats.pendingOrders}</p>
+          <p className="text-3xl font-bold" style={{ color: '#8B0000' }}>{stats.pendingOrders}</p>
         </div>
         <div className="bg-white rounded-lg shadow-md p-5 border-l-4 border-blue-500">
           <p className="text-sm text-gray-600">Delivering Today</p>
@@ -323,7 +329,9 @@ export default function OrdersView() {
           {sortedDates.map(date => {
             const dayOrders  = ordersByDate[date]
             const isExpanded = expandedDays.has(date)
-            const dayTotal   = dayOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0)
+            const dayTotal   = dayOrders
+              .filter(o => o.status !== 'cancelled')
+              .reduce((sum, o) => sum + (o.total_amount || 0), 0)
             const colorClass = getDayColor(date)
             const today      = isToday(date)
 
@@ -356,7 +364,7 @@ export default function OrdersView() {
                       {dayOrders.length} order{dayOrders.length !== 1 ? 's' : ''}
                     </span>
                   </div>
-                  <span className="font-bold text-lg" style={{ color: '#3E1F00' }}>
+                  <span className="font-bold text-lg" style={{ color: '#2c2c2c' }}>
                     {formatCurrency(dayTotal)}
                   </span>
                 </button>
@@ -418,7 +426,7 @@ export default function OrdersView() {
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded text-white hover:opacity-90"
-                                  style={{ backgroundColor: '#C4A882' }}
+                                  style={{ backgroundColor: '#8B0000' }}
                                 >
                                   <FileDown className="h-3 w-3" />Inv
                                 </a>
@@ -427,12 +435,11 @@ export default function OrdersView() {
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded text-white hover:opacity-90"
-                                  style={{ backgroundColor: '#3E1F00' }}
+                                  style={{ backgroundColor: '#2c2c2c' }}
                                 >
                                   <Package className="h-3 w-3" />Slip
                                 </a>
 
-                                {/* ✅ Cancel button — hidden if already cancelled or invoiced */}
                                 {order.status !== 'cancelled' && order.status !== 'invoiced' && (
                                   <button
                                     onClick={() => cancelOrder(
@@ -457,7 +464,7 @@ export default function OrdersView() {
                             className="px-4 py-2 text-sm font-semibold text-gray-600 text-right">
                             Day Total
                           </td>
-                          <td className="px-4 py-2 text-right font-bold" style={{ color: '#3E1F00' }}>
+                          <td className="px-4 py-2 text-right font-bold" style={{ color: '#2c2c2c' }}>
                             {formatCurrency(dayTotal)}
                           </td>
                           <td colSpan={2} />
