@@ -309,7 +309,7 @@ export default function AdminOrderEditView({ order, products }: any) {
                               </span>
                               <input
                                 type="number"
-                                min="0.01"
+                                min="0.0"
                                 step="0.01"
                                 value={unitPrice || ''}
                                 onChange={e =>
