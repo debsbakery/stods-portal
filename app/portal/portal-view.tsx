@@ -1,6 +1,7 @@
 // app/portal/portal-view.tsx
 'use client';
-
+import { useCartCount } from './use-cart-count'
+import RepeatOrderCard from './repeat-order-card'
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
@@ -10,6 +11,7 @@ import {
   FileText,
   Bell,
   LogOut,
+  ShoppingCart,
   TrendingUp,
   Clock,
   AlertCircle,
@@ -52,6 +54,8 @@ interface PortalData {
   };
   invoices: any[];
   notifications: any[];
+   lastOrder?: any;          // ✅ ADD
+  cutoffTime?: string;      // ✅ ADD
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -80,18 +84,23 @@ export default function CustomerPortalView({ data }: { data: PortalData }) {
     'overview' | 'standing' | 'orders' | 'invoices' | 'account'
   >('overview');
   const [currentTime, setCurrentTime] = useState(new Date());
-
+ const cartCount = useCartCount();
   useEffect(() => {
     const t = setInterval(() => setCurrentTime(new Date()), 60_000);
     return () => clearInterval(t);
   }, []);
 
-  const handleLogout = async () => {
+ const handleLogout = async () => {
+  try {
     const { createClient } = await import('@/lib/supabase/client');
     const supabase = createClient();
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: 'local' });   // avoids 403 noise
+  } catch (err) {
+    console.warn('Logout error (non-fatal):', err);
+  } finally {
     router.push('/login');
-  };
+  }
+};
 
   const totalOverdue =
     data.arBalance.days_1_30 +
@@ -131,28 +140,53 @@ export default function CustomerPortalView({ data }: { data: PortalData }) {
         <div className="container mx-auto px-4 py-4">
           <div className="flex justify-between items-center">
             <div>
-              <h1 className="text-2xl font-bold" style={{ color: '#3E1F00' }}>
+              <h1 className="text-2xl font-bold" style={{ color: '#006A4E' }}>
                 Customer Portal
               </h1>
               <p className="text-sm text-gray-600">{data.customer.business_name}</p>
             </div>
-            <div className="flex gap-3">
-              {data.notifications.length > 0 && (
-                <button className="relative p-2 rounded-full hover:bg-gray-100">
-                  <Bell className="h-5 w-5 text-gray-600" />
-                  <span className="absolute top-0 right-0 w-4 h-4 bg-red-500 rounded-full text-white text-xs flex items-center justify-center">
-                    {data.notifications.length}
-                  </span>
-                </button>
-              )}
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-2 px-4 py-2 rounded-md border border-gray-300 hover:bg-gray-50"
-              >
-                <LogOut className="h-4 w-4" />
-                Logout
-              </button>
-            </div>
+         <div className="flex gap-3 items-center">
+  {/* ✅ Cart button — only shows when cart has items */}
+  {cartCount > 0 && (
+    <button
+      onClick={() => router.push('/order')}
+      className="relative flex items-center gap-2 px-4 py-2 text-white rounded-md font-medium shadow-md hover:opacity-90 transition"
+      style={{ backgroundColor: '#CE1126' }}
+    >
+      <ShoppingCart className="h-4 w-4" />
+      <span>View Cart</span>
+      <span className="bg-white text-red-700 text-xs font-bold rounded-full min-w-[24px] h-6 flex items-center justify-center px-1.5">
+        {cartCount}
+      </span>
+    </button>
+  )}
+
+  {/* ✅ "Browse Catalog" quick access — always visible */}
+  <button
+    onClick={() => router.push('/catalog')}
+    className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-md border border-gray-300 hover:bg-gray-50"
+  >
+    <Package className="h-4 w-4" />
+    Browse Catalog
+  </button>
+
+  {data.notifications.length > 0 && (
+    <button className="relative p-2 rounded-full hover:bg-gray-100">
+      <Bell className="h-5 w-5 text-gray-600" />
+      <span className="absolute top-0 right-0 w-4 h-4 bg-red-500 rounded-full text-white text-xs flex items-center justify-center">
+        {data.notifications.length}
+      </span>
+    </button>
+  )}
+
+  <button
+    onClick={handleLogout}
+    className="flex items-center gap-2 px-4 py-2 rounded-md border border-gray-300 hover:bg-gray-50"
+  >
+    <LogOut className="h-4 w-4" />
+    <span className="hidden sm:inline">Logout</span>
+  </button>
+</div>
           </div>
 
           {/* Tabs */}
@@ -211,12 +245,17 @@ export default function CustomerPortalView({ data }: { data: PortalData }) {
 function OverviewTab({ data, totalOverdue }: { data: PortalData; totalOverdue: number }) {
   return (
     <div className="space-y-6">
+        {/* ✅ NEW: Repeat last order — appears first if last order exists */}
+      <RepeatOrderCard
+        lastOrder={data.lastOrder ?? null}
+        cutoffTime={data.cutoffTime}
+      />
       {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <a href="/catalog" className="block">
           <button
             className="w-full px-6 py-4 text-white font-semibold rounded-lg shadow-md hover:opacity-90 transition flex items-center justify-center gap-2"
-            style={{ backgroundColor: '#3E1F00' }}
+            style={{ backgroundColor: '#006A4E' }}
           >
             Browse Products and Place Order
           </button>
@@ -234,28 +273,28 @@ function OverviewTab({ data, totalOverdue }: { data: PortalData; totalOverdue: n
           label="Standing Orders"
           value={String(data.standingOrders.filter((o) => o.active).length)}
           sub="Active"
-          color="#3E1F00"
+          color="#006A4E"
           icon={<Package className="h-8 w-8 text-green-600" />}
         />
         <StatCard
           label="Account Balance"
           value={fmt(data.customer.balance)}
           sub={`${data.customer.payment_terms} day terms`}
-          color={data.customer.balance > 0 ? '#C4A882' : '#3E1F00'}
+          color={data.customer.balance > 0 ? '#CE1126' : '#006A4E'}
           icon={<DollarSign className={`h-8 w-8 ${data.customer.balance > 0 ? 'text-red-600' : 'text-green-600'}`} />}
         />
         <StatCard
           label="Overdue"
           value={fmt(totalOverdue)}
           sub={totalOverdue > 0 ? 'Payment required' : 'All current'}
-          color={totalOverdue > 0 ? '#C4A882' : '#3E1F00'}
+          color={totalOverdue > 0 ? '#CE1126' : '#006A4E'}
           icon={<AlertCircle className={`h-8 w-8 ${totalOverdue > 0 ? 'text-red-600' : 'text-green-600'}`} />}
         />
         <StatCard
           label="Recent Orders"
           value={String(data.recentOrders.length)}
           sub="Last 30 days"
-          color="#3E1F00"
+          color="#006A4E"
           icon={<TrendingUp className="h-8 w-8 text-green-600" />}
         />
       </div>
@@ -267,7 +306,7 @@ function OverviewTab({ data, totalOverdue }: { data: PortalData; totalOverdue: n
           <div>
             <p className="font-semibold text-red-800">Overdue Balance: {fmt(totalOverdue)}</p>
             <p className="text-sm text-red-600 mt-1">
-              Please contact Stods Bakery to arrange payment. Ph: 0414748716
+              Please contact Deb's Bakery to arrange payment. Ph: (03) 9000 0000
             </p>
           </div>
         </div>
@@ -340,12 +379,22 @@ function StandingOrdersTab({ orders }: { orders: any[] }) {
       <h2 className="text-2xl font-bold mb-6">Standing Orders</h2>
 
       {sorted.length === 0 ? (
-        <div className="text-center py-12">
-          <Package className="h-16 w-16 mx-auto text-gray-300 mb-4" />
-          <p className="text-gray-500 text-lg">No standing orders set up</p>
-          <p className="text-gray-400 text-sm mt-2">Contact Stods Bakery to set up a standing order</p>
-        </div>
-      ) : (
+  <div className="text-center py-12">
+    <Package className="h-16 w-16 mx-auto text-gray-300 mb-4" />
+    <p className="text-gray-500 text-lg mb-2">No standing orders set up</p>
+    <p className="text-gray-400 text-sm mb-6">
+      Standing orders auto-deliver on the same day each week.
+      Contact us to set one up — meanwhile you can place orders manually.
+    </p>
+    <button
+      onClick={() => window.location.href = '/catalog'}
+      className="px-6 py-3 text-white font-semibold rounded-lg shadow hover:opacity-90"
+      style={{ backgroundColor: '#006A4E' }}
+    >
+      Place an Order Now
+    </button>
+  </div>
+) : (
         <div className="space-y-4">
           {sorted.map((order) => {
             const items: any[] = order.standing_order_items || [];
@@ -409,7 +458,7 @@ function StandingOrdersTab({ orders }: { orders: any[] }) {
                       <tfoot className="bg-gray-50">
                         <tr>
                           <td colSpan={3} className="py-2 px-4 font-semibold text-right">Total</td>
-                          <td className="py-2 px-4 font-bold text-right" style={{ color: '#3E1F00' }}>
+                          <td className="py-2 px-4 font-bold text-right" style={{ color: '#006A4E' }}>
                             {fmt(total)}
                           </td>
                         </tr>
@@ -424,7 +473,7 @@ function StandingOrdersTab({ orders }: { orders: any[] }) {
       )}
 
       <p className="mt-6 text-sm text-gray-500">
-        To add, change or pause standing orders please contact Stods Bakery directly.
+        To add, change or pause standing orders please contact Deb's Bakery directly.
       </p>
     </div>
   );
@@ -450,12 +499,27 @@ function RecentOrdersTab({
     <div className="bg-white rounded-lg shadow-md p-6">
       <h2 className="text-2xl font-bold mb-6">Recent Orders (Last 30 Days)</h2>
 
-      {orders.length === 0 ? (
-        <div className="text-center py-12">
-          <Package className="h-16 w-16 mx-auto text-gray-300 mb-4" />
-          <p className="text-gray-500 text-lg">No recent orders</p>
-        </div>
-      ) : (
+   {orders.length === 0 ? (
+  <div className="text-center py-12">
+    <Package className="h-16 w-16 mx-auto text-gray-300 mb-4" />
+    <p className="text-gray-500 text-lg mb-6">No recent orders</p>
+    <div className="flex gap-3 justify-center">
+      <button
+        onClick={() => router.push('/catalog')}
+        className="px-6 py-3 text-white font-semibold rounded-lg shadow hover:opacity-90"
+        style={{ backgroundColor: '#006A4E' }}
+      >
+        Browse Products
+      </button>
+      <button
+        onClick={() => router.push('/order/shadow')}
+        className="px-6 py-3 bg-yellow-500 text-white font-semibold rounded-lg shadow hover:bg-yellow-600"
+      >
+        ⭐ Order My Usuals
+      </button>
+    </div>
+  </div>
+) : (
         <div className="space-y-4">
           {orders.map((order) => {
             const expanded  = expandedId === order.id;
@@ -485,7 +549,7 @@ function RecentOrdersTab({
                   </div>
 
                   <div className="text-right ml-4">
-                    <p className="text-xl font-bold" style={{ color: '#3E1F00' }}>
+                    <p className="text-xl font-bold" style={{ color: '#006A4E' }}>
                       {fmt(order.total_amount)}
                     </p>
                     <p className="text-xs text-gray-500">{order.order_items?.length ?? 0} items</p>
@@ -494,7 +558,7 @@ function RecentOrdersTab({
                         <button
                           onClick={() => router.push(`/portal/orders/${order.id}/edit`)}
                           className="flex items-center gap-1 px-3 py-1.5 text-white rounded text-sm"
-                          style={{ backgroundColor: '#3E1F00' }}
+                          style={{ backgroundColor: '#006A4E' }}
                         >
                           <Edit className="h-3.5 w-3.5" />
                           Edit
@@ -534,7 +598,7 @@ function RecentOrdersTab({
                       <tfoot className="bg-gray-50">
                         <tr>
                           <td colSpan={3} className="py-2 px-3 font-semibold text-right">Total</td>
-                          <td className="py-2 px-3 font-bold text-right" style={{ color: '#3E1F00' }}>
+                          <td className="py-2 px-3 font-bold text-right" style={{ color: '#006A4E' }}>
                             {fmt(order.total_amount)}
                           </td>
                         </tr>
@@ -595,7 +659,7 @@ function InvoicesTab({ invoices }: { invoices: any[] }) {
 
                   <div className="flex items-center gap-3">
                     <div className="text-right">
-                      <p className="text-xl font-bold" style={{ color: '#3E1F00' }}>
+                      <p className="text-xl font-bold" style={{ color: '#006A4E' }}>
                         {fmt(inv.total_amount)}
                       </p>
                       {gstTotal > 0 && (
@@ -670,7 +734,7 @@ function InvoicesTab({ invoices }: { invoices: any[] }) {
                           )}
                           <tr>
                             <td colSpan={4} className="py-2 px-3 text-right font-bold">Total</td>
-                            <td className="py-2 px-3 text-right font-bold" style={{ color: '#3E1F00' }}>
+                            <td className="py-2 px-3 text-right font-bold" style={{ color: '#006A4E' }}>
                               {fmt(inv.total_amount)}
                             </td>
                           </tr>
@@ -723,7 +787,7 @@ function AccountTab({
           )}
         </dl>
         <p className="mt-6 text-sm text-gray-500">
-          To update your account details please contact Stods Bakery directly.
+          To update your account details please contact Deb's Bakery directly.
         </p>
       </div>
 
@@ -750,7 +814,7 @@ function AccountTab({
             <tfoot className="border-t">
               <tr className="font-bold">
                 <td className="py-2 px-3">Total Outstanding</td>
-                <td className="py-2 px-3 text-right" style={{ color: arBalance.total_due > 0 ? '#C4A882' : '#3E1F00' }}>
+                <td className="py-2 px-3 text-right" style={{ color: arBalance.total_due > 0 ? '#CE1126' : '#006A4E' }}>
                   {fmt(arBalance.total_due)}
                 </td>
               </tr>

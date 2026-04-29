@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Star, Plus, Minus, ShoppingCart, Trash2 } from 'lucide-react';
+import { ArrowLeft, Star, Plus, Minus, ShoppingCart } from 'lucide-react';
 
 export default function ShadowOrderView({ customer, shadowOrders }: any) {
   const router = useRouter();
@@ -35,7 +35,7 @@ export default function ShadowOrderView({ customer, shadowOrders }: any) {
     const selectedItems = items.filter((item: any) => (quantities[item.id] || 0) > 0);
 
     if (selectedItems.length === 0) {
-      alert('⚠️ Please add at least one item');
+      alert('Please add at least one item');
       return;
     }
 
@@ -54,15 +54,14 @@ export default function ShadowOrderView({ customer, shadowOrders }: any) {
       });
 
       if (response.ok) {
-        const { order_id } = await response.json();
-        alert('✅ Order placed successfully!');
+        alert('Order placed successfully!');
         router.push('/portal');
       } else {
         const error = await response.json();
-        alert(`❌ Failed: ${error.error}`);
+        alert(`Failed: ${error.error}`);
       }
     } catch (error) {
-      alert('❌ Error placing order');
+      alert('Error placing order');
       console.error(error);
     } finally {
       setPlacing(false);
@@ -80,7 +79,7 @@ export default function ShadowOrderView({ customer, shadowOrders }: any) {
 
       <div className="bg-white rounded-lg shadow p-6">
         <h1 className="text-3xl font-bold mb-6 flex items-center gap-2">
-          <Star className="h-8 w-8 text-yellow-500" />
+          <Star className="h-8 w-8 text-yellow-500 fill-current" />
           My Usual Items
         </h1>
 
@@ -91,7 +90,7 @@ export default function ShadowOrderView({ customer, shadowOrders }: any) {
               No usual items saved yet
             </p>
             <p className="text-gray-400 text-sm mb-6">
-              Contact admin to add your frequently ordered items
+              Browse the catalog and tap the star on products you order regularly.
             </p>
             <button
               onClick={() => router.push('/catalog')}
@@ -111,7 +110,7 @@ export default function ShadowOrderView({ customer, shadowOrders }: any) {
                   <div className="flex-1">
                     <p className="font-medium">{item.product?.name || 'Unknown Product'}</p>
                     <p className="text-sm text-gray-500">
-                      #{item.product?.product_number || '—'} • $
+                      #{item.product?.product_number || '—'} · $
                       {item.product?.price?.toFixed(2) || '0.00'} per {item.product?.unit || 'ea'}
                     </p>
                   </div>
