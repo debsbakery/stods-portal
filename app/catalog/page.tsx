@@ -10,12 +10,11 @@ import { formatCurrency } from "@/lib/utils";
 import {
   ShoppingCart, Search, Loader2, Plus, Minus,
   ArrowLeft, Image as ImageIcon, ShoppingBag, ChefHat,
+  Star,
 } from "lucide-react";
 
-// Stods colours — change these 2 lines only
-const PRIMARY   = "#3E1F00"   // dark brown
-const SECONDARY = "#C4A882"   // warm tan
-
+const PRIMARY   = "#3E1F00"   // Stods dark brown
+const SECONDARY = "#C4A882"   // Stods warm tan
 type OrderCategory = 'bakery' | 'catering'
 
 interface ProductWithPricing extends Product {
@@ -27,20 +26,18 @@ export default function CatalogPage() {
   const router = useRouter();
   const [supabase, setSupabase] = useState<any>(null);
 
-  // ── Category gate ─────────────────────────────────────────
   const [orderCategory, setOrderCategory] = useState<OrderCategory | null>(null)
 
-  const [products, setProducts]               = useState<ProductWithPricing[]>([]);
-  const [cart, setCart]                       = useState<CartItem[]>([]);
-  const [loading, setLoading]                 = useState(true);
-  const [error, setError]                     = useState<string | null>(null);
-  const [searchQuery, setSearchQuery]         = useState("");
+  const [products, setProducts]                       = useState<ProductWithPricing[]>([]);
+  const [cart, setCart]                               = useState<CartItem[]>([]);
+  const [loading, setLoading]                         = useState(true);
+  const [error, setError]                             = useState<string | null>(null);
+  const [searchQuery, setSearchQuery]                 = useState("");
   const [showOnlyShadowItems, setShowOnlyShadowItems] = useState(false);
   const [shadowProductIds, setShadowProductIds]       = useState<Set<string>>(new Set());
 
   useEffect(() => { setSupabase(createClient()); }, []);
 
-  // ── Restore category from localStorage ───────────────────
   useEffect(() => {
     const saved = localStorage.getItem("cart_category") as OrderCategory | null
     if (saved) setOrderCategory(saved)
@@ -49,9 +46,9 @@ export default function CatalogPage() {
   const handleSelectCategory = (cat: OrderCategory) => {
     setOrderCategory(cat)
     localStorage.setItem("cart_category", cat)
-    // Clear cart when switching category
     setCart([])
     localStorage.removeItem("cart")
+    window.dispatchEvent(new Event('cart-changed'))
   }
 
   const loadShadowProductIds = async () => {
@@ -78,12 +75,12 @@ export default function CatalogPage() {
     const fetchProducts = async () => {
       setLoading(true)
       try {
-        // ✅ Filter by category at DB level
         const { data, error: fetchError } = await supabase
           .from("products")
           .select("*")
           .eq("is_available", true)
-          .eq("category", orderCategory)   // ← KEY: only load selected category
+          .eq("category", orderCategory)
+          .neq("category", "admin")              // ✅ never show admin products
           .order("code", { ascending: true })
 
         if (fetchError) { setError(fetchError.message); setLoading(false); return; }
@@ -101,7 +98,10 @@ export default function CatalogPage() {
         const pricingData = await pricingRes.json();
         setProducts(data.map((product: any) => ({
           ...product,
-          customerPrice:   pricingData.pricing[product.id]?.price || parseFloat(product.price),
+          customerPrice:
+            pricingData.pricing[product.id]?.price !== undefined
+              ? pricingData.pricing[product.id].price
+              : parseFloat(product.price),
           isContractPrice: pricingData.pricing[product.id]?.isContractPrice || false,
           image_url:       product.image_url || null,
         })));
@@ -119,16 +119,17 @@ export default function CatalogPage() {
 
     fetchProducts();
     loadShadowProductIds();
-  }, [supabase, orderCategory]);  // ← re-fetch when category changes
+  }, [supabase, orderCategory]);
 
   const saveCart = (newCart: CartItem[]) => {
     setCart(newCart);
     localStorage.setItem("cart", JSON.stringify(newCart));
+    window.dispatchEvent(new Event('cart-changed'))   // ✅ notify cart badge
   };
 
   const handleAddToCart = (product: ProductWithPricing, quantity: number) => {
     const existingIndex = cart.findIndex(item => item.product.id === product.id);
-    const productForCart = { ...product, price: product.customerPrice || product.price };
+    const productForCart = { ...product, price: product.customerPrice ?? product.price };
     let newCart: CartItem[];
     if (existingIndex >= 0) {
       newCart = [...cart];
@@ -149,7 +150,6 @@ export default function CatalogPage() {
 
   const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
-  // ── Loading spinner ───────────────────────────────────────
   if (!supabase) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -158,7 +158,7 @@ export default function CatalogPage() {
     );
   }
 
-  // ── Category picker screen ────────────────────────────────
+  // ── Category picker screen ──────────────────────────────────────────────────
   if (!orderCategory) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
@@ -214,7 +214,6 @@ export default function CatalogPage() {
     )
   }
 
-  // ── Product loading ───────────────────────────────────────
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -243,7 +242,6 @@ export default function CatalogPage() {
     );
   }
 
-  // ── Main catalog ──────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="container mx-auto px-4 py-8">
@@ -251,12 +249,12 @@ export default function CatalogPage() {
         {/* Back + Change category */}
         <div className="flex items-center gap-4 mb-6">
           <button
-            onClick={() => router.push("/")}
+            onClick={() => router.push("/portal")}                      
             className="flex items-center"
             style={{ color: PRIMARY }}
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Home
+            Back to Portal
           </button>
           <span className="text-gray-300">|</span>
           <button
@@ -265,6 +263,7 @@ export default function CatalogPage() {
               localStorage.removeItem("cart_category")
               setCart([])
               localStorage.removeItem("cart")
+              window.dispatchEvent(new Event('cart-changed'))
             }}
             className="text-sm text-gray-500 hover:opacity-80"
           >
@@ -278,10 +277,14 @@ export default function CatalogPage() {
             <div className="flex items-center gap-3">
               <h1 className="text-3xl font-bold">Product Catalog</h1>
               <span
-                className="px-3 py-1 rounded-full text-white text-sm font-semibold capitalize"
+                className="px-3 py-1 rounded-full text-white text-sm font-semibold capitalize flex items-center gap-1.5"
                 style={{ backgroundColor: orderCategory === 'catering' ? SECONDARY : PRIMARY }}
               >
-                {orderCategory === 'catering' ? '🍽️' : '🍞'} {orderCategory}
+                {orderCategory === 'catering'
+                  ? <ChefHat className="h-3.5 w-3.5" />
+                  : <ShoppingBag className="h-3.5 w-3.5" />
+                }
+                {orderCategory}
               </span>
             </div>
             {shadowProductIds.size > 0 && (
@@ -301,7 +304,8 @@ export default function CatalogPage() {
                   showOnlyShadowItems ? "bg-yellow-500 text-white" : "bg-white text-gray-700 border-2"
                 }`}
               >
-                ⭐ {showOnlyShadowItems
+                <Star className="h-4 w-4 fill-current" />
+                {showOnlyShadowItems
                   ? `Showing My Usual (${filteredProducts.length})`
                   : "Show My Usual"
                 }
@@ -340,9 +344,7 @@ export default function CatalogPage() {
         {/* Product Grid */}
         {filteredProducts.length === 0 ? (
           <div className="text-center py-12 bg-white rounded-lg shadow-md">
-            <div className="text-6xl mb-4">
-              {orderCategory === 'catering' ? '🍽️' : '🍞'}
-            </div>
+            <Search className="h-16 w-16 mx-auto text-gray-300 mb-4" />
             <p className="text-xl text-gray-600 mb-2">
               No {orderCategory} products found
             </p>
@@ -359,6 +361,7 @@ export default function CatalogPage() {
                 onAddToCart={handleAddToCart}
                 currentQuantity={cart.find(item => item.product.id === product.id)?.quantity || 0}
                 onFavoriteAdded={loadShadowProductIds}
+                isFavorite={shadowProductIds.has(product.id)}
                 primaryColor={PRIMARY}
                 secondaryColor={SECONDARY}
               />
@@ -370,28 +373,30 @@ export default function CatalogPage() {
   );
 }
 
-// ══════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────────────
 // ProductCard Component
-// ══════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────────────
 function ProductCard({
-  product, onAddToCart, currentQuantity, onFavoriteAdded,
+  product, onAddToCart, currentQuantity, onFavoriteAdded, isFavorite,
   primaryColor, secondaryColor,
 }: {
   product: ProductWithPricing;
   onAddToCart: (product: ProductWithPricing, quantity: number) => void;
   currentQuantity: number;
   onFavoriteAdded?: () => void;
+  isFavorite?: boolean;
   primaryColor: string;
   secondaryColor: string;
 }) {
   const [quantity, setQuantity]     = useState(currentQuantity || product.min_quantity);
   const [imageError, setImageError] = useState(false);
+  const [adding, setAdding]         = useState(false);
 
   const handleQuantityChange = (value: number) => {
     setQuantity(Math.max(product.min_quantity, Math.min(product.max_quantity, value)));
   };
 
-  const displayPrice = product.customerPrice || parseFloat(product.price as any);
+  const displayPrice = product.customerPrice ?? parseFloat(product.price as any);
 
   return (
     <div className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow">
@@ -408,10 +413,12 @@ function ProductCard({
             className="w-full h-full flex items-center justify-center"
             style={{ background: "linear-gradient(135deg, #FEE7E9 0%, #E6F5F0 100%)" }}
           >
-            {imageError
-              ? <ImageIcon className="h-16 w-16 text-gray-300" />
-              : <span className="text-6xl">🍞</span>
-            }
+            <ImageIcon className="h-16 w-16 text-gray-300" />
+          </div>
+        )}
+        {isFavorite && (
+          <div className="absolute top-2 right-2 bg-yellow-400 text-white p-1.5 rounded-full shadow-md">
+            <Star className="h-4 w-4 fill-current" />
           </div>
         )}
       </div>
@@ -435,6 +442,12 @@ function ProductCard({
           </span>
           <span className="text-sm text-gray-500">per {product.unit}</span>
         </div>
+
+        {product.isContractPrice && (
+          <p className="text-xs text-blue-600 font-medium mb-2">
+            Your contract price
+          </p>
+        )}
 
         <p className="text-xs text-gray-500 mb-3">
           Min: {product.min_quantity} | Max: {product.max_quantity}
@@ -467,12 +480,24 @@ function ProductCard({
           </div>
 
           <button
-            onClick={() => onAddToCart(product, quantity)}
-            className="flex-1 text-white px-4 py-2 rounded-md font-medium flex items-center justify-center gap-2 shadow-md"
-            style={{ backgroundColor: primaryColor }}
+            onClick={() => {
+              onAddToCart(product, quantity);
+              setAdding(true);
+              setTimeout(() => setAdding(false), 800);
+            }}
+            className={`flex-1 text-white px-4 py-2 rounded-md font-medium flex items-center justify-center gap-2 shadow-md transition-colors ${
+              adding ? "bg-green-600" : ""
+            }`}
+            style={!adding ? { backgroundColor: primaryColor } : {}}
           >
-            <ShoppingCart className="h-4 w-4" />
-            Add
+            {adding ? (
+              <>✓ Added</>
+            ) : (
+              <>
+                <ShoppingCart className="h-4 w-4" />
+                Add
+              </>
+            )}
           </button>
 
           <button
@@ -484,7 +509,7 @@ function ProductCard({
                   body:    JSON.stringify({ product_id: product.id, default_quantity: quantity }),
                 });
                 if (res.ok) {
-                  alert("⭐ Added to your usual items!");
+                  alert("Added to your usual items!");
                   onFavoriteAdded?.();
                 } else {
                   const err = await res.json();
@@ -494,11 +519,17 @@ function ProductCard({
                 console.error("Add to favorites error:", error);
               }
             }}
-            className="p-2 border-2 rounded-md hover:bg-yellow-50 transition"
+            className={`p-2 border-2 rounded-md transition ${
+              isFavorite ? "bg-yellow-100 hover:bg-yellow-200" : "hover:bg-yellow-50"
+            }`}
             style={{ borderColor: "#FFD700" }}
-            title="Add to usual items"
+            title={isFavorite ? "Already in your usual items" : "Add to usual items"}
           >
-            ⭐
+            <Star
+              className={`h-4 w-4 ${
+                isFavorite ? "text-yellow-500 fill-current" : "text-gray-400"
+              }`}
+            />
           </button>
         </div>
       </div>
