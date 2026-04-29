@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { generateStatementPDF } from '@/lib/pdf/statement'
 import { Resend } from 'resend'
+import { emailConfig } from '@/lib/email-config'
 
 const resend = new Resend(process.env.RESEND_API_KEY || "re_placeholder")
 
@@ -212,7 +213,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     // ── Send via Resend ───────────────────────────────────────
     const { error: sendError } = await resend.emails.send({
-      from:    "Stods Bakery <orders@stodsbakery.com>",
+      from: emailConfig.fromAddress,
+    replyTo: emailConfig.replyTo,
       to:      customer.email,
       subject: `Account Statement - ${customerName}`,
       html: `

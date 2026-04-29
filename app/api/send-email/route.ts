@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic'
 
 import { Resend } from 'resend';
+import { emailConfig } from '@/lib/email-config'
 import { NextRequest, NextResponse } from 'next/server';
 
 const resend = new Resend(process.env.RESEND_API_KEY || "re_placeholder");
@@ -27,13 +28,15 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('📧 Attempting to send email via Resend:', {
-      from: 'orders@debsbakery.store',
+      from: emailConfig.fromAddress,
+      replyTo: emailConfig.replyTo,
       to,
       subject: subject.substring(0, 50)
     });
 
     const { data, error } = await resend.emails.send({
-      from: 'orders@debsbakery.store',
+      from: emailConfig.fromAddress,
+      replyTo: emailConfig.replyTo,
       to,
       subject,
       html,

@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { emailConfig } from './email-config'
 import { OrderWithItems } from "./types";
 import { formatCurrency, formatDate } from "./utils";
 
@@ -101,7 +102,8 @@ export async function sendOrderEmails({
     // Send to customer
     console.log("📧 Sending to customer:", customerEmail);
     const customerResponse = await resend.emails.send({
-      from: `${bakeryName} <onboarding@resend.dev>`,
+      from: emailConfig.fromAddress,
+      replyTo: emailConfig.replyTo,
       to: customerEmail,
       subject: `Order Confirmation #${order.id.slice(0, 8).toUpperCase()} - ${bakeryName}`,
       html: emailTemplate,
@@ -112,7 +114,8 @@ export async function sendOrderEmails({
     // Send to bakery
     console.log("📧 Sending to bakery:", bakeryEmail);
     const bakeryResponse = await resend.emails.send({
-      from: `${bakeryName} Orders <onboarding@resend.dev>`,
+      from: emailConfig.fromAddress,
+      replyTo: emailConfig.replyTo,
       to: bakeryEmail,
       subject: `🍞 New Order #${order.id.slice(0, 8).toUpperCase()} from ${order.customer_business_name || customerEmail}`,
       html: emailTemplate.replace('Order Confirmation', 'New Order Received'),
