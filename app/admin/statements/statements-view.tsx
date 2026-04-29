@@ -33,39 +33,54 @@ interface SendResult {
 }
 
 export default function StatementsView({ customers, customersWithBalance }: Props) {
+
+  // ── Default to "Last Month" range on first load ─────────────────────────────
+  const lastMonthStart = format(startOfMonth(subMonths(new Date(), 1)), 'yyyy-MM-dd')
+  const lastMonthEnd   = format(endOfMonth(subMonths(new Date(), 1)),   'yyyy-MM-dd')
+
   const [selectedCustomer, setSelectedCustomer] = useState<string>('all')
   const [period, setPeriod]                     = useState<Period>('last_month')
-  const [customFrom, setCustomFrom]             = useState('')
-  const [customTo, setCustomTo]                 = useState('')
+  const [customFrom, setCustomFrom]             = useState(lastMonthStart)
+  const [customTo, setCustomTo]                 = useState(lastMonthEnd)
   const [isSending, setIsSending]               = useState(false)
   const [isPrinting, setIsPrinting]             = useState(false)
   const [results, setResults]                   = useState<SendResult[]>([])
   const [showResults, setShowResults]           = useState(false)
 
+  // ── Always read from the date pickers ───────────────────────────────────────
+  // Presets just fill in the picker values — what you see is what gets used.
   const getDateRange = (): { startDate: string; endDate: string } => {
+    return { startDate: customFrom, endDate: customTo }
+  }
+
+  // ── Apply a preset by filling in the date pickers ───────────────────────────
+  const applyPreset = (preset: Period) => {
+    setPeriod(preset)
     const now = new Date()
-    switch (period) {
+    let from = '', to = ''
+    switch (preset) {
       case 'last_month': {
         const last = subMonths(now, 1)
-        return {
-          startDate: format(startOfMonth(last), 'yyyy-MM-dd'),
-          endDate:   format(endOfMonth(last),   'yyyy-MM-dd'),
-        }
+        from = format(startOfMonth(last), 'yyyy-MM-dd')
+        to   = format(endOfMonth(last),   'yyyy-MM-dd')
+        break
       }
       case 'this_month':
-        return {
-          startDate: format(startOfMonth(now), 'yyyy-MM-dd'),
-          endDate:   format(now,               'yyyy-MM-dd'),
-        }
+        from = format(startOfMonth(now), 'yyyy-MM-dd')
+        to   = format(now,               'yyyy-MM-dd')
+        break
       case 'last_3': {
         const three = subMonths(now, 3)
-        return {
-          startDate: format(startOfMonth(three), 'yyyy-MM-dd'),
-          endDate:   format(now,                 'yyyy-MM-dd'),
-        }
+        from = format(startOfMonth(three), 'yyyy-MM-dd')
+        to   = format(now,                 'yyyy-MM-dd')
+        break
       }
       case 'custom':
-        return { startDate: customFrom, endDate: customTo }
+        return // don't touch the dates, user is editing manually
+    }
+    if (from && to) {
+      setCustomFrom(from)
+      setCustomTo(to)
     }
   }
 
@@ -75,12 +90,26 @@ export default function StatementsView({ customers, customersWithBalance }: Prop
     return customers.filter(c => c.id === selectedCustomer)
   }
 
+  // ── Validation helper ───────────────────────────────────────────────────────
+  const validateDates = (): boolean => {
+    if (!customFrom || !customTo) {
+      alert('Please select both From and To dates')
+      return false
+    }
+    if (customFrom > customTo) {
+      alert('From date must be before To date')
+      return false
+    }
+    return true
+  }
+
   const handlePrint = async (customerId: string, customerName: string) => {
+    if (!validateDates()) return
     const { startDate, endDate } = getDateRange()
     const params = new URLSearchParams({ startDate, endDate })
     setIsPrinting(true)
     try {
-      const res  = await fetch(`/api/statement/${customerId}?${params}`)
+      const res = await fetch(`/api/statement/${customerId}?${params}`)
       if (!res.ok) throw new Error('Failed to generate PDF')
       const blob = await res.blob()
       const url  = URL.createObjectURL(blob)
@@ -97,6 +126,7 @@ export default function StatementsView({ customers, customersWithBalance }: Prop
   }
 
   const handleEmailSingle = async (customerId: string, customerName: string) => {
+    if (!validateDates()) return
     const { startDate, endDate } = getDateRange()
     const params = new URLSearchParams({ startDate, endDate })
     if (!confirm('Send statement to ' + customerName + '?')) return
@@ -114,6 +144,8 @@ export default function StatementsView({ customers, customersWithBalance }: Prop
   }
 
   const handleSendAll = async () => {
+    if (!validateDates()) return
+
     const targets = getTargetCustomers()
     if (targets.length === 0) {
       alert('No customers to send to')
@@ -133,7 +165,7 @@ export default function StatementsView({ customers, customersWithBalance }: Prop
     setShowResults(false)
 
     try {
-      const res  = await fetch('/api/statement/send-all', {
+      const res = await fetch('/api/statement/send-all', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -167,6 +199,8 @@ export default function StatementsView({ customers, customersWithBalance }: Prop
     (s, c) => s + Number(c.balance ?? 0), 0
   )
 
+  const hasValidDates = !!customFrom && !!customTo && customFrom <= customTo
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
 
@@ -175,7 +209,7 @@ export default function StatementsView({ customers, customersWithBalance }: Prop
         <Link
           href="/admin"
           className="flex items-center gap-1 text-sm hover:opacity-80 w-fit"
-          style={{ color: '#C4A882' }}
+          style={{ color: '#8B0000' }}
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Admin
@@ -224,57 +258,80 @@ export default function StatementsView({ customers, customersWithBalance }: Prop
       {/* Controls */}
       <div className="bg-white rounded-lg border p-5 mb-6 space-y-5">
 
-        {/* Period selector */}
+        {/* ─── Period selector — always-visible date pickers ─── */}
         <div>
           <p className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
             <Calendar className="h-4 w-4" /> Statement Period
           </p>
-          <div className="flex flex-wrap gap-2">
-            {([
-              { value: 'last_month', label: 'Last Month'        },
-              { value: 'this_month', label: 'This Month (MTD)'  },
-              { value: 'last_3',     label: 'Last 3 Months'     },
-              { value: 'custom',     label: 'Custom Range'      },
-            ] as { value: Period; label: string }[]).map(opt => (
-              <button
-                key={opt.value}
-                onClick={() => setPeriod(opt.value)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                  period === opt.value
-                    ? 'bg-green-700 text-white border-green-700'
-                    : 'bg-white text-gray-700 border-gray-300 hover:border-green-600'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
+
+          {/* Date pickers — always visible & editable */}
+          <div className="flex flex-wrap gap-3 items-end mb-3">
+            <div>
+              <label className="text-xs text-gray-600 block mb-1 font-medium">From</label>
+              <input
+                type="date"
+                value={customFrom}
+                onChange={e => {
+                  setCustomFrom(e.target.value)
+                  setPeriod('custom')
+                }}
+                className="border-2 border-gray-300 rounded px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-600 block mb-1 font-medium">To</label>
+              <input
+                type="date"
+                value={customTo}
+                min={customFrom}
+                onChange={e => {
+                  setCustomTo(e.target.value)
+                  setPeriod('custom')
+                }}
+                className="border-2 border-gray-300 rounded px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              />
+            </div>
           </div>
 
-          {period === 'custom' && (
-            <div className="flex gap-3 mt-3">
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">From</label>
-                <input
-                  type="date"
-                  value={customFrom}
-                  onChange={e => setCustomFrom(e.target.value)}
-                  className="border rounded px-3 py-1.5 text-sm"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">To</label>
-                <input
-                  type="date"
-                  value={customTo}
-                  onChange={e => setCustomTo(e.target.value)}
-                  className="border rounded px-3 py-1.5 text-sm"
-                />
-              </div>
-            </div>
-          )}
-          <p className="text-xs text-gray-400 mt-2">
-            Selected: {startDate} to {endDate}
-          </p>
+          {/* Quick presets */}
+          <p className="text-xs text-gray-500 mb-2">Quick presets:</p>
+          <div className="flex flex-wrap gap-2">
+            {([
+              { value: 'last_month', label: 'Last Month'       },
+              { value: 'this_month', label: 'This Month (MTD)' },
+              { value: 'last_3',     label: 'Last 3 Months'    },
+            ] as { value: Period; label: string }[]).map(opt => {
+              const isActive = period === opt.value
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => applyPreset(opt.value)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                    isActive
+                      ? 'bg-green-700 text-white border-green-700'
+                      : 'bg-white text-gray-700 border-gray-300 hover:border-green-600 hover:bg-green-50'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Status banner */}
+          <div className={`mt-3 px-3 py-2 rounded-lg text-sm ${
+            !hasValidDates
+              ? 'bg-red-50 text-red-700 border border-red-200'
+              : 'bg-green-50 text-green-700 border border-green-200'
+          }`}>
+            {!customFrom || !customTo
+              ? '⚠️ Please select both From and To dates'
+              : customFrom > customTo
+                ? '⚠️ From date must be before To date'
+                : <>📅 Statement period: <strong>{customFrom}</strong> to <strong>{customTo}</strong></>
+            }
+          </div>
         </div>
 
         {/* Customer selector */}
@@ -310,8 +367,8 @@ export default function StatementsView({ customers, customersWithBalance }: Prop
         <div className="flex flex-wrap gap-3 pt-2 border-t">
           <Button
             onClick={handleSendAll}
-            disabled={isSending}
-            className="bg-green-700 hover:bg-green-800 text-white gap-2"
+            disabled={isSending || !hasValidDates}
+            className="bg-green-700 hover:bg-green-800 text-white gap-2 disabled:opacity-50"
           >
             {isSending ? (
               <><Loader2 className="h-4 w-4 animate-spin" /> Sending...</>
@@ -326,9 +383,9 @@ export default function StatementsView({ customers, customersWithBalance }: Prop
                 const c = customers.find(x => x.id === selectedCustomer)
                 handlePrint(selectedCustomer, c?.business_name || c?.contact_name || selectedCustomer)
               }}
-              disabled={isPrinting}
+              disabled={isPrinting || !hasValidDates}
               variant="outline"
-              className="gap-2"
+              className="gap-2 disabled:opacity-50"
             >
               {isPrinting ? (
                 <><Loader2 className="h-4 w-4 animate-spin" /> Generating...</>
@@ -394,7 +451,7 @@ export default function StatementsView({ customers, customersWithBalance }: Prop
                         {/* Download PDF */}
                         <button
                           onClick={() => handlePrint(customer.id, name)}
-                          disabled={isPrinting}
+                          disabled={isPrinting || !hasValidDates}
                           className="text-gray-600 hover:text-gray-900 flex items-center gap-1 text-xs border rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-50"
                         >
                           <FileText className="h-3 w-3" /> PDF
@@ -404,7 +461,7 @@ export default function StatementsView({ customers, customersWithBalance }: Prop
                         {customer.email && (
                           <button
                             onClick={() => handleEmailSingle(customer.id, name)}
-                            disabled={isSending}
+                            disabled={isSending || !hasValidDates}
                             className="text-green-700 hover:text-green-900 flex items-center gap-1 text-xs border border-green-600 rounded px-2 py-1 hover:bg-green-50 disabled:opacity-50"
                           >
                             <Mail className="h-3 w-3" /> Email
