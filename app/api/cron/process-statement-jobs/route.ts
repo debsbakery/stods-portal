@@ -11,7 +11,7 @@ const resendStods = new Resend(process.env.STODS_RESEND_API_KEY)
 const BATCH_SIZE = 50
 
 export async function GET(request: NextRequest) {
-  // ── Security ──────────────────────────────────────────────
+  // ── Security ─────────────────────────────────────────────────────
   const authHeader = request.headers.get('authorization')
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
 
   const supabase = createAdminClient()
 
-  // ── Grab next batch of pending jobs ───────────────────────
+  // ── Grab next batch of pending jobs ──────────────────────────────
   const { data: jobs, error: jobError } = await supabase
     .from('statement_jobs')
     .select('*')
@@ -37,13 +37,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: true, processed: 0, remaining: 0 })
   }
 
-  // ── Mark as processing (prevent double-processing) ─────────
+  // ── Mark as processing (prevent double-processing) ───────────────
   await supabase
     .from('statement_jobs')
     .update({ status: 'processing' })
     .in('id', jobs.map(j => j.id))
 
-  // ── Fetch customers for this batch ────────────────────────
+  // ── Fetch customers for this batch ───────────────────────────────
   const customerIds = jobs.map(j => j.customer_id)
   const { data: customers } = await supabase
     .from('customers')
@@ -55,8 +55,13 @@ export async function GET(request: NextRequest) {
   // ── Use period from first job (all jobs in batch share period) ──
   const { period_start: startDate, period_end: endDate, month_label: monthLabel } = jobs[0]
 
-  // ── Batch fetch AR transactions for these customers ────────
-  const [{ data: periodTxRaw }, { data: priorTxRaw }] = await Promise.all([
+  // ── Batch fetch AR transactions AND payments ─────────────────────
+  const [
+    { data: periodTxRaw },
+    { data: priorTxRaw },
+    { data: periodPmtsRaw },
+    { data: priorPmtsRaw },
+  ] = await Promise.all([
     supabase
       .from('ar_transactions')
       .select('id, type, amount, description, created_at, invoice_id, customer_id')
@@ -70,12 +75,30 @@ export async function GET(request: NextRequest) {
       .select('amount, type, customer_id')
       .in('customer_id', customerIds)
       .lt('created_at', startDate),
+
+    // 🆕 Period payments (cash receipts)
+    supabase
+      .from('payments')
+      .select('id, amount, payment_date, payment_method, reference_number, customer_id')
+      .in('customer_id', customerIds)
+      .gte('payment_date', startDate)
+      .lte('payment_date', endDate)
+      .order('payment_date', { ascending: true }),
+
+    // 🆕 Prior payments (for opening balance)
+    supabase
+      .from('payments')
+      .select('amount, customer_id')
+      .in('customer_id', customerIds)
+      .lt('payment_date', startDate),
   ])
 
-  const periodTx = periodTxRaw ?? []
-  const priorTx  = priorTxRaw  ?? []
+  const periodTx   = periodTxRaw   ?? []
+  const priorTx    = priorTxRaw    ?? []
+  const periodPmts = periodPmtsRaw ?? []
+  const priorPmts  = priorPmtsRaw  ?? []
 
-  // ── Invoice number map ────────────────────────────────────
+  // ── Invoice number map ───────────────────────────────────────────
   const allInvoiceIds = [...new Set(
     periodTx.filter(t => t.invoice_id).map(t => t.invoice_id as string)
   )]
@@ -91,10 +114,12 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const txByCustomer    = groupBy(periodTx, 'customer_id')
-  const priorByCustomer = groupBy(priorTx,  'customer_id')
+  const txByCustomer       = groupBy(periodTx,   'customer_id')
+  const priorByCustomer    = groupBy(priorTx,    'customer_id')
+  const pmtsByCustomer     = groupBy(periodPmts, 'customer_id')
+  const priorPmtByCustomer = groupBy(priorPmts,  'customer_id')
 
-  // ── Process each job in the batch ─────────────────────────
+  // ── Process each job in the batch ────────────────────────────────
   let processed = 0
 
   for (const job of jobs) {
@@ -109,49 +134,88 @@ export async function GET(request: NextRequest) {
     }
 
     try {
-      const transactions = txByCustomer[customer.id]    ?? []
-      const prior        = priorByCustomer[customer.id] ?? []
+      const transactions   = txByCustomer[customer.id]       ?? []
+      const prior          = priorByCustomer[customer.id]    ?? []
+      const periodPayments = pmtsByCustomer[customer.id]     ?? []
+      const priorPayments  = priorPmtByCustomer[customer.id] ?? []
 
-      // ── Opening balance ──────────────────────────────────
-      const openingBalance = prior.reduce((sum, tx) => {
-        const isCredit = tx.type === 'payment' || tx.type === 'credit'
-        return sum + (isCredit ? -Number(tx.amount) : Number(tx.amount))
+      // ── Opening balance: prior invoices/credits MINUS prior payments ──
+      const priorInvoiceTotal = prior.reduce((sum, tx) => {
+        return sum + (tx.type === 'credit' ? -Number(tx.amount) : Number(tx.amount))
       }, 0)
 
-      let runningBalance = openingBalance
+      const priorPaymentTotal = priorPayments.reduce(
+        (sum, p) => sum + Number(p.amount), 0
+      )
 
-      // ── Build statement lines ────────────────────────────
-      const lines = transactions.map(tx => {
-        const isPayment = tx.type === 'payment'
-        const isCredit  = tx.type === 'credit'
+      const openingBalance = priorInvoiceTotal - priorPaymentTotal
 
-        if (isPayment || isCredit) {
-          runningBalance = runningBalance - Number(tx.amount)
-        } else {
-          runningBalance = runningBalance + Number(tx.amount)
-        }
+      // ── Build unified timeline (transactions + payments) ──
+      type RawLine = {
+        date: string
+        type: 'invoice' | 'credit' | 'payment'
+        amount: number
+        description: string
+        reference: string
+      }
 
+      const rawLines: RawLine[] = []
+
+      for (const tx of transactions) {
+        const isCredit   = tx.type === 'credit'
         const invoiceNum = tx.invoice_id ? invoiceMap[tx.invoice_id] : null
         const reference  = invoiceNum
           ? `INV-${String(invoiceNum).padStart(4, '0')}`
           : String(tx.type ?? '').toUpperCase()
 
+        rawLines.push({
+          date:        tx.created_at,
+          type:        isCredit ? 'credit' : 'invoice',
+          amount:      Number(tx.amount),
+          description: isCredit
+            ? (tx.description || 'Credit note')
+            : (tx.description || reference),
+          reference:   isCredit ? 'CREDIT' : reference,
+        })
+      }
+
+      for (const pmt of periodPayments) {
+        const method = pmt.payment_method
+          ? pmt.payment_method.replace(/_/g, ' ')
+          : 'payment'
+        rawLines.push({
+          date:        pmt.payment_date + 'T12:00:00',
+          type:        'payment',
+          amount:      Number(pmt.amount),
+          description: `Payment received - thank you (${method})`,
+          reference:   pmt.reference_number || 'PAYMENT',
+        })
+      }
+
+      rawLines.sort((a, b) =>
+        new Date(a.date).getTime() - new Date(b.date).getTime()
+      )
+
+      let runningBalance = openingBalance
+
+      const lines = rawLines.map(rl => {
+        const isCredit = rl.type === 'payment' || rl.type === 'credit'
+        runningBalance = isCredit
+          ? runningBalance - rl.amount
+          : runningBalance + rl.amount
+
         return {
-          date:             tx.created_at,
-          description:      isPayment
-            ? 'Payment received — thank you'
-            : isCredit
-              ? (tx.description || 'Credit note')
-              : (tx.description || reference),
-          reference:        isCredit ? 'CREDIT' : reference,
-          debit:            isPayment ? null : isCredit ? -Number(tx.amount) : Number(tx.amount),
-          credit:           isPayment ? Number(tx.amount) : null,
+          date:             rl.date,
+          description:      rl.description,
+          reference:        rl.reference,
+          debit:            isCredit ? null : rl.amount,
+          credit:           isCredit ? rl.amount : null,
           balance:          Math.round(runningBalance * 100) / 100,
-          transaction_type: tx.type,
+          transaction_type: rl.type,
         }
       })
 
-      // ── Brand config ─────────────────────────────────────
+      // ── Brand config ─────────────────────────────────────────────
       const isStods    = customer.invoice_brand === 'stods'
       const bakeryName = isStods ? process.env.STODS_BAKERY_NAME       : process.env.BAKERY_NAME
       const fromName   = isStods ? process.env.STODS_RESEND_FROM_NAME  : process.env.RESEND_FROM_NAME
@@ -165,12 +229,14 @@ export async function GET(request: NextRequest) {
       const headerHex   = isStods ? '#955E30' : '#006A4E'
       const subHex      = isStods ? '#f5dcc8' : '#a7f3d0'
 
-      // ── Generate PDF ─────────────────────────────────────
+      const closingBalance = Math.round(runningBalance * 100) / 100
+
+      // ── Generate PDF ─────────────────────────────────────────────
       const pdfBuffer = await generateStatementPDF({
         customer,
         lines,
         openingBalance: Math.round(openingBalance * 100) / 100,
-        closingBalance: Math.round(runningBalance  * 100) / 100,
+        closingBalance,
         startDate,
         endDate,
         bakeryName:  displayName,
@@ -183,7 +249,7 @@ export async function GET(request: NextRequest) {
         customer.email         ||
         'Valued Customer'
 
-      // ── Send email ───────────────────────────────────────
+      // ── Send email ───────────────────────────────────────────────
       await (isStods ? resendStods : resend).emails.send({
         from:    displayFrom,
         to:      customer.email!,
@@ -221,7 +287,7 @@ export async function GET(request: NextRequest) {
         }],
       })
 
-      // ── Mark job as sent ─────────────────────────────────
+      // ── Mark job as sent ─────────────────────────────────────────
       await supabase
         .from('statement_jobs')
         .update({ status: 'sent', sent_at: new Date().toISOString() })
@@ -239,7 +305,7 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // ── Check how many still pending ──────────────────────────
+  // ── Check how many still pending ─────────────────────────────────
   const { count: remaining } = await supabase
     .from('statement_jobs')
     .select('*', { count: 'exact', head: true })

@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
       year:  'numeric',
     })
 
-    // ── Fetch customers — include statement_email ──────────────
+    // ── Fetch customers — include statement_email ───────────────────
     let query = supabase
       .from('customers')
       .select('id, email, email_2, statement_email, business_name, contact_name, balance, address, payment_terms, invoice_brand')
@@ -57,8 +57,13 @@ export async function POST(request: NextRequest) {
 
     const allCustomerIds = customers.map(c => c.id)
 
-    // ── Batch fetch AR transactions ───────────────────────────
-    const [{ data: periodTxRaw }, { data: priorTxRaw }] = await Promise.all([
+    // ── Batch fetch AR transactions AND payments ────────────────────
+    const [
+      { data: periodTxRaw },
+      { data: priorTxRaw },
+      { data: periodPmtsRaw },
+      { data: priorPmtsRaw },
+    ] = await Promise.all([
       supabase
         .from('ar_transactions')
         .select('id, type, amount, amount_paid, description, created_at, invoice_id, customer_id')
@@ -72,12 +77,30 @@ export async function POST(request: NextRequest) {
         .select('amount, type, customer_id')
         .in('customer_id', allCustomerIds)
         .lt('created_at', startDate),
+
+      // 🆕 Period payments (cash receipts)
+      supabase
+        .from('payments')
+        .select('id, amount, payment_date, payment_method, reference_number, customer_id')
+        .in('customer_id', allCustomerIds)
+        .gte('payment_date', startDate)
+        .lte('payment_date', endDate)
+        .order('payment_date', { ascending: true }),
+
+      // 🆕 Prior payments (for opening balance)
+      supabase
+        .from('payments')
+        .select('amount, customer_id')
+        .in('customer_id', allCustomerIds)
+        .lt('payment_date', startDate),
     ])
 
-    const periodTx = periodTxRaw ?? []
-    const priorTx  = priorTxRaw  ?? []
+    const periodTx   = periodTxRaw   ?? []
+    const priorTx    = priorTxRaw    ?? []
+    const periodPmts = periodPmtsRaw ?? []
+    const priorPmts  = priorPmtsRaw  ?? []
 
-    // ── Invoice number map ────────────────────────────────────
+    // ── Invoice number map ──────────────────────────────────────────
     const allInvoiceIds = [...new Set(
       periodTx.filter(t => t.invoice_id).map(t => t.invoice_id as string)
     )]
@@ -93,8 +116,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const txByCustomer    = groupBy(periodTx, 'customer_id')
-    const priorByCustomer = groupBy(priorTx,  'customer_id')
+    const txByCustomer       = groupBy(periodTx,   'customer_id')
+    const priorByCustomer    = groupBy(priorTx,    'customer_id')
+    const pmtsByCustomer     = groupBy(periodPmts, 'customer_id')
+    const priorPmtByCustomer = groupBy(priorPmts,  'customer_id')
 
     let sent   = 0
     let failed = 0
@@ -104,41 +129,88 @@ export async function POST(request: NextRequest) {
       customers.map(customer =>
         limit(async () => {
           try {
-            const transactions = txByCustomer[customer.id]    ?? []
-            const prior        = priorByCustomer[customer.id] ?? []
+            const transactions   = txByCustomer[customer.id]       ?? []
+            const prior          = priorByCustomer[customer.id]    ?? []
+            const periodPayments = pmtsByCustomer[customer.id]     ?? []
+            const priorPayments  = priorPmtByCustomer[customer.id] ?? []
 
-            const openingBalance = prior.reduce((sum, tx) => {
-              const isCredit = tx.type === 'payment' || tx.type === 'credit'
-              return sum + (isCredit ? -Number(tx.amount) : Number(tx.amount))
+            // ── Opening balance: prior invoices/credits MINUS prior payments ──
+            const priorInvoiceTotal = prior.reduce((sum, tx) => {
+              return sum + (tx.type === 'credit' ? -Number(tx.amount) : Number(tx.amount))
             }, 0)
 
-            let runningBalance = openingBalance
+            const priorPaymentTotal = priorPayments.reduce(
+              (sum, p) => sum + Number(p.amount), 0
+            )
 
-            const lines = transactions.map(tx => {
-              const isCredit = tx.type === 'payment' || tx.type === 'credit'
-              runningBalance = isCredit
-                ? runningBalance - Number(tx.amount)
-                : runningBalance + Number(tx.amount)
+            const openingBalance = priorInvoiceTotal - priorPaymentTotal
 
+            // ── Build unified timeline (transactions + payments) ──
+            type RawLine = {
+              date: string
+              type: 'invoice' | 'credit' | 'payment'
+              amount: number
+              description: string
+              reference: string
+            }
+
+            const rawLines: RawLine[] = []
+
+            for (const tx of transactions) {
+              const isCredit   = tx.type === 'credit'
               const invoiceNum = tx.invoice_id ? invoiceMap[tx.invoice_id] : null
               const reference  = invoiceNum
                 ? `INV-${String(invoiceNum).padStart(4, '0')}`
                 : String(tx.type ?? '').toUpperCase()
 
-              return {
-                date:             tx.created_at,
-                description:      isCredit
-                  ? (tx.type === 'credit' ? 'Credit note' : 'Payment received - thank you')
+              rawLines.push({
+                date:        tx.created_at,
+                type:        isCredit ? 'credit' : 'invoice',
+                amount:      Number(tx.amount),
+                description: isCredit
+                  ? (tx.description || 'Credit note')
                   : (tx.description || reference),
-                reference,
-                debit:            isCredit ? null : Number(tx.amount),
-                credit:           isCredit ? Number(tx.amount) : null,
+                reference:   isCredit ? 'CREDIT' : reference,
+              })
+            }
+
+            for (const pmt of periodPayments) {
+              const method = pmt.payment_method
+                ? pmt.payment_method.replace(/_/g, ' ')
+                : 'payment'
+              rawLines.push({
+                date:        pmt.payment_date + 'T12:00:00',
+                type:        'payment',
+                amount:      Number(pmt.amount),
+                description: `Payment received - thank you (${method})`,
+                reference:   pmt.reference_number || 'PAYMENT',
+              })
+            }
+
+            rawLines.sort((a, b) =>
+              new Date(a.date).getTime() - new Date(b.date).getTime()
+            )
+
+            let runningBalance = openingBalance
+
+            const lines = rawLines.map(rl => {
+              const isCredit = rl.type === 'payment' || rl.type === 'credit'
+              runningBalance = isCredit
+                ? runningBalance - rl.amount
+                : runningBalance + rl.amount
+
+              return {
+                date:             rl.date,
+                description:      rl.description,
+                reference:        rl.reference,
+                debit:            isCredit ? null : rl.amount,
+                credit:           isCredit ? rl.amount : null,
                 balance:          Math.round(runningBalance * 100) / 100,
-                transaction_type: tx.type,
+                transaction_type: rl.type,
               }
             })
 
-            // ── Brand config per customer ─────────────────────
+            // ── Brand config per customer ────────────────────────────
             const isStods       = customer.invoice_brand === 'stods'
             const bakeryName    = isStods ? process.env.STODS_BAKERY_NAME       : process.env.BAKERY_NAME
             const fromName      = isStods ? process.env.STODS_RESEND_FROM_NAME  : process.env.RESEND_FROM_NAME
@@ -152,12 +224,14 @@ export async function POST(request: NextRequest) {
             const headerHex    = isStods ? '#955E30' : '#006A4E'
             const subHex       = isStods ? '#f5dcc8' : '#a7f3d0'
 
-            // ── Generate PDF ──────────────────────────────────
+            const closingBalance = Math.round(runningBalance * 100) / 100
+
+            // ── Generate PDF ─────────────────────────────────────────
             const pdfBuffer = await generateStatementPDF({
               customer,
               lines,
               openingBalance: Math.round(openingBalance * 100) / 100,
-              closingBalance: Math.round(runningBalance  * 100) / 100,
+              closingBalance,
               startDate,
               endDate,
               bakeryName:  displayName,
@@ -170,8 +244,7 @@ export async function POST(request: NextRequest) {
               customer.email         ||
               'Valued Customer'
 
-            // ── Resolve statement email ───────────────────────
-            // Use statement_email if set, otherwise primary email
+            // ── Resolve statement email ──────────────────────────────
             const toEmail = customer.statement_email || customer.email!
             console.log(`[send-all] Statement to: ${toEmail}${customer.statement_email ? ' (statement_email)' : ' (primary)'}`)
 
@@ -216,7 +289,7 @@ export async function POST(request: NextRequest) {
               content:  pdfBuffer,
             }
 
-            // ── Send to statement email (or primary) ──────────
+            // ── Send to statement email (or primary) ─────────────────
             await (isStods ? resendStods : resend).emails.send({
               from:        displayFrom,
               to:          toEmail,
