@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
 
     const {
       customer_id,
-      amount,
+      amount,             // CASH amount only (can be 0 if using credits)
       payment_date,
       payment_method,
       reference_number,
@@ -18,10 +18,17 @@ export async function POST(request: NextRequest) {
       allocations = [],
     } = body
 
+    const cashAmount = parseFloat(amount) || 0
+    const tickedCredits = allocations.filter((a: any) => a.is_credit)
+
     // ── Validation ────────────────────────────────────────────────────────
-    if (!customer_id || !amount || parseFloat(amount) === 0) {
+    if (!customer_id) {
+      return NextResponse.json({ error: 'customer_id is required' }, { status: 400 })
+    }
+
+    if (cashAmount === 0 && tickedCredits.length === 0) {
       return NextResponse.json(
-        { error: 'customer_id and amount are required' },
+        { error: 'Provide a cash amount or apply at least one credit' },
         { status: 400 }
       )
     }
@@ -36,43 +43,96 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
     }
 
-    // ── Separate invoice allocations from credit allocations ──────────────
     const invoiceAllocs = allocations.filter((a: any) => !a.is_credit && a.amount > 0)
-    const creditAllocs  = allocations.filter((a: any) =>  a.is_credit)
+    const totalAllocatedToInvoices = invoiceAllocs.reduce(
+      (sum: number, a: any) => sum + (parseFloat(a.amount) || 0), 0
+    )
 
-    // ── Record the payment transaction ────────────────────────────────────
-    const { data: payment, error: paymentError } = await supabase
-      .from('payments')
-      .insert({
-        customer_id,
-        amount:           parseFloat(amount),
-        payment_date:     payment_date || new Date().toISOString().split('T')[0],
-        payment_method:   payment_method   || null,
-        reference_number: reference_number || null,
-        notes:            notes            || null,
-        allocated_amount: invoiceAllocs.reduce((sum: number, a: any) => sum + (a.amount || 0), 0),
-      })
-      .select()
-      .single()
+    // ── Fetch ticked credits' real available amounts from DB ──────────────
+    const creditIds = tickedCredits.map((c: any) => c.invoice_id)
+    let availableCredits: Array<{ id: string; amount: number; amount_paid: number; remaining: number; created_at: string }> = []
 
-    if (paymentError) throw paymentError
+    if (creditIds.length > 0) {
+      const { data: creditTxs } = await supabase
+        .from('ar_transactions')
+        .select('id, amount, amount_paid, created_at')
+        .in('id', creditIds)
+        .eq('customer_id', customer_id)
+        .eq('type', 'credit')
 
-    // ── Process invoice allocations ───────────────────────────────────────
-    let totalAllocatedToInvoices = 0
+      availableCredits = (creditTxs || [])
+        .map(c => {
+          const total    = Number(c.amount) || 0
+          const consumed = Number(c.amount_paid) || 0
+          return {
+            id: c.id,
+            amount: total,
+            amount_paid: consumed,
+            remaining: total - consumed,
+            created_at: c.created_at,
+          }
+        })
+        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+    }
+
+    const totalCreditPool = availableCredits.reduce((s, c) => s + c.remaining, 0)
+    const totalAvailable  = cashAmount + totalCreditPool
+
+    // ── Sanity: don't allow allocations to exceed available pool ──────────
+    if (totalAllocatedToInvoices > totalAvailable + 0.01) {
+      return NextResponse.json(
+        { error: `Allocated $${totalAllocatedToInvoices.toFixed(2)} exceeds available $${totalAvailable.toFixed(2)}` },
+        { status: 400 }
+      )
+    }
+
+    // ── Determine credit consumption ──────────────────────────────────────
+    // Cash applies first to invoices, credits cover the rest
+    const cashAppliedToInvoices   = Math.min(Math.max(0, cashAmount), totalAllocatedToInvoices)
+    const creditAppliedToInvoices = Math.max(0, totalAllocatedToInvoices - cashAppliedToInvoices)
+
+    // ── Create the payment record (cash only) ─────────────────────────────
+    let payment: any = null
+    if (cashAmount !== 0) {
+      const { data: paymentRow, error: paymentError } = await supabase
+        .from('payments')
+        .insert({
+          customer_id,
+          amount:           cashAmount,
+          payment_date:     payment_date || new Date().toISOString().split('T')[0],
+          payment_method:   payment_method   || null,
+          reference_number: reference_number || null,
+          notes:            notes            || null,
+          allocated_amount: cashAppliedToInvoices,
+        })
+        .select()
+        .single()
+
+      if (paymentError) throw paymentError
+      payment = paymentRow
+    }
+
+    // ── Apply allocations to invoices ─────────────────────────────────────
+    let cashRemaining = Math.max(0, cashAmount)
 
     for (const allocation of invoiceAllocs) {
       if (!allocation.invoice_id || !allocation.amount) continue
+      const allocAmount = Number(allocation.amount)
 
-      totalAllocatedToInvoices += Number(allocation.amount)
+      // Cash portion of this allocation
+      const cashPart = Math.min(cashRemaining, allocAmount)
+      cashRemaining -= cashPart
 
-      // Link payment → invoice
-      await supabase.from('invoice_payments').insert({
-        invoice_id: allocation.invoice_id,
-        payment_id: payment.id,
-        amount:     allocation.amount,
-      })
+      // Link cash payment → invoice (only if there was cash)
+      if (cashPart > 0 && payment) {
+        await supabase.from('invoice_payments').insert({
+          invoice_id: allocation.invoice_id,
+          payment_id: payment.id,
+          amount:     cashPart,
+        })
+      }
 
-      // Update ar_transactions.amount_paid
+      // Update ar_transactions.amount_paid by the FULL allocation
       const { data: arTx } = await supabase
         .from('ar_transactions')
         .select('id, amount, amount_paid')
@@ -80,19 +140,16 @@ export async function POST(request: NextRequest) {
         .single()
 
       if (arTx) {
-        const newAmountPaid = Number(arTx.amount_paid || 0) + Number(allocation.amount)
-        const isFullyPaid   = newAmountPaid >= Number(arTx.amount)
-        const updateData: any = { amount_paid: newAmountPaid }
+        const newAmountPaid = Number(arTx.amount_paid || 0) + allocAmount
+        const isFullyPaid   = newAmountPaid >= Number(arTx.amount) - 0.005
+        const updateData: any = { amount_paid: Math.round(newAmountPaid * 100) / 100 }
         if (isFullyPaid) {
           updateData.paid_date = payment_date || new Date().toISOString().split('T')[0]
         }
-        await supabase
-          .from('ar_transactions')
-          .update(updateData)
-          .eq('id', arTx.id)
+        await supabase.from('ar_transactions').update(updateData).eq('id', arTx.id)
       }
 
-      // Update orders.amount_paid
+      // Update orders.amount_paid by full allocation
       const { data: order } = await supabase
         .from('orders')
         .select('amount_paid')
@@ -103,50 +160,44 @@ export async function POST(request: NextRequest) {
         await supabase
           .from('orders')
           .update({
-            amount_paid: (Number(order.amount_paid) || 0) + Number(allocation.amount),
+            amount_paid: Math.round(((Number(order.amount_paid) || 0) + allocAmount) * 100) / 100,
           })
           .eq('id', allocation.invoice_id)
       }
     }
 
-    // ── Process credit allocations ────────────────────────────────────────
-    for (const creditAlloc of creditAllocs) {
-      if (!creditAlloc.invoice_id) continue
-
-      const { data: creditTx } = await supabase
-        .from('ar_transactions')
-        .select('id, amount, type')
-        .eq('id', creditAlloc.invoice_id)
-        .eq('type', 'credit')
-        .eq('customer_id', customer_id)
-        .single()
-
-      if (creditTx) {
+    // ── Consume credits proportionally (oldest first) ─────────────────────
+    let creditToConsume = creditAppliedToInvoices
+    for (const credit of availableCredits) {
+      if (creditToConsume <= 0.005) break
+      const consumeFromThis = Math.min(credit.remaining, creditToConsume)
+      if (consumeFromThis > 0) {
         await supabase
           .from('ar_transactions')
-          .update({ amount_paid: creditTx.amount })
-          .eq('id', creditTx.id)
+          .update({
+            amount_paid: Math.round((credit.amount_paid + consumeFromThis) * 100) / 100,
+          })
+          .eq('id', credit.id)
+        creditToConsume -= consumeFromThis
       }
     }
 
-    // ── Overpayment handler ───────────────────────────────────────────────
-    const paymentAmount   = Math.round(parseFloat(amount) * 100) / 100
-    const allocatedAmount = Math.round(totalAllocatedToInvoices * 100) / 100
-    const overpayment     = Math.round((paymentAmount - allocatedAmount) * 100) / 100
+    // ── Overpayment handler (only on cash overpayments) ───────────────────
+    const cashUnallocated = Math.max(0, cashAmount - cashAppliedToInvoices)
 
-    if (overpayment > 0.009 && paymentAmount > 0) {
+    if (cashUnallocated > 0.009) {
       await supabase
         .from('ar_transactions')
         .insert({
           customer_id,
           type:        'credit',
-          amount:      overpayment,
+          amount:      Math.round(cashUnallocated * 100) / 100,
           amount_paid: 0,
-          description: `Overpayment credit — payment of $${paymentAmount.toFixed(2)} exceeded invoices by $${overpayment.toFixed(2)}`,
+          description: `Overpayment credit — cash payment of $${cashAmount.toFixed(2)} exceeded allocations by $${cashUnallocated.toFixed(2)}`,
           created_at:  new Date().toISOString(),
         })
 
-      console.log(`[PAYMENTS] Overpayment $${overpayment} → credit created for customer ${customer_id}`)
+      console.log(`[PAYMENTS] Overpayment $${cashUnallocated} → credit created for customer ${customer_id}`)
     }
 
     // ── Recalculate customer balance from scratch ─────────────────────────
@@ -156,11 +207,9 @@ export async function POST(request: NextRequest) {
       .eq('customer_id', customer_id)
 
     const newBalance = (allTx ?? []).reduce((sum, tx) => {
-      if (tx.type === 'invoice') {
-        return sum + (Number(tx.amount) - Number(tx.amount_paid || 0))
-      } else if (tx.type === 'credit') {
-        return sum - (Number(tx.amount) - Number(tx.amount_paid || 0))
-      }
+      const owed = Number(tx.amount) - Number(tx.amount_paid || 0)
+      if (tx.type === 'invoice') return sum + owed
+      if (tx.type === 'credit')  return sum - owed
       return sum
     }, 0)
 
@@ -173,13 +222,13 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       payment: {
-        id:           payment.id,
+        id:           payment?.id || null,
         customer:     customerName,
-        amount:       paymentAmount,
+        amount:       cashAmount,
         new_balance:  Math.round(newBalance * 100) / 100,
         allocations:  invoiceAllocs.length,
-        credits_used: creditAllocs.length,
-        overpayment:  overpayment > 0.009 && paymentAmount > 0 ? overpayment : 0,
+        credit_used:  Math.round(creditAppliedToInvoices * 100) / 100,
+        overpayment:  cashUnallocated > 0.009 ? Math.round(cashUnallocated * 100) / 100 : 0,
       },
     })
 
