@@ -37,7 +37,7 @@ export async function GET(
   }
 }
 
-// PUT - Update product
+// PUT - Update product (PARTIAL update — only updates fields present in body)
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -47,46 +47,56 @@ export async function PUT(
     const supabase = await createServiceClient()
     const body = await request.json()
 
-    const {
-      name,
-      price,
-      description,
-      category,
-      image_url,
-      code,
-      weight_grams,
-      labour_pct,
-      gst_applicable,
-    } = body
+    // Validation: if these fields are present, they must be valid
+    if ('name' in body && !body.name) {
+      return NextResponse.json({ error: 'name cannot be empty' }, { status: 400 })
+    }
+    if ('price' in body && (body.price === undefined || body.price === null)) {
+      return NextResponse.json({ error: 'price cannot be null' }, { status: 400 })
+    }
 
-    if (!name || price === undefined || price === null) {
-      return NextResponse.json(
-        { error: 'name and price are required' },
-        { status: 400 }
-      )
+    // 🆕 Build update object — ONLY include fields that are explicitly in body
+    const updates: Record<string, any> = {
+      updated_at: new Date().toISOString(),
+    }
+
+    const allowedFields = [
+      'name', 'price', 'description', 'category', 'image_url', 'code',
+      'weight_grams', 'labour_pct', 'gst_applicable',
+      'production_type', 'pieces_per_tray', 'dough_weight_grams',
+    ]
+
+    for (const field of allowedFields) {
+      if (field in body) {
+        updates[field] = body[field]
+      }
+    }
+
+    // If only updated_at is present, no actual changes — fetch and return
+    if (Object.keys(updates).length === 1) {
+      const { data: product } = await supabase
+        .from('products')
+        .select('*')
+        .eq('id', id)
+        .single()
+      return NextResponse.json({ product })
     }
 
     const { data: product, error } = await supabase
       .from('products')
-      .update({
-        name,
-        price,
-        description:    description    || null,
-        category:       category       || null,
-        image_url:      image_url      || null,
-        code:           code           || null,
-        weight_grams:   weight_grams   ?? null,
-        labour_pct:     labour_pct     ?? null,
-        gst_applicable: gst_applicable ?? false,
-        updated_at:     new Date().toISOString(),
-      })
+      .update(updates)
       .eq('id', id)
       .select()
       .single()
 
     if (error) throw error
 
-    console.log('Product updated:', product.name, `weight:${product.weight_grams}g`)
+    console.log(
+      'Product updated:',
+      product.name,
+      'fields:',
+      Object.keys(updates).filter(k => k !== 'updated_at').join(',')
+    )
 
     return NextResponse.json({ product })
   } catch (error: any) {

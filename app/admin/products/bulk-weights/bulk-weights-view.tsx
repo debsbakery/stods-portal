@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { ArrowLeft, Save, CheckCircle, AlertCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -28,31 +28,35 @@ const DOUGH_TYPES = ['', 'White', 'Wholemeal', 'Grain']
 export default function BulkWeightsView({ products }: { products: Product[] }) {
   const supabase = createClient()
 
-  const [weights, setWeights]       = useState<Record<string, string>>({})
-  const [labours, setLabours]       = useState<Record<string, string>>({})
-  const [prodTypes, setProdTypes]   = useState<Record<string, string>>({})
-  const [perTrays, setPerTrays]     = useState<Record<string, string>>({})
+  const [weights, setWeights]           = useState<Record<string, string>>({})
+  const [labours, setLabours]           = useState<Record<string, string>>({})
+  const [prodTypes, setProdTypes]       = useState<Record<string, string>>({})
+  const [perTrays, setPerTrays]         = useState<Record<string, string>>({})
   const [doughWeights, setDoughWeights] = useState<Record<string, string>>({})
-  const [doughTypes, setDoughTypes] = useState<Record<string, string>>({})
-  const [saving, setSaving]         = useState<Record<string, boolean>>({})
-  const [saved, setSaved]           = useState<Record<string, boolean>>({})
-  const [errors, setErrors]         = useState<Record<string, string>>({})
-  const [filter, setFilter]         = useState<'production' | 'missing' | 'all'>('production')
+  const [doughTypes, setDoughTypes]     = useState<Record<string, string>>({})
+  const [hasRecipe, setHasRecipe]       = useState<Record<string, boolean>>({})
+  const [saving, setSaving]             = useState<Record<string, boolean>>({})
+  const [saved, setSaved]               = useState<Record<string, boolean>>({})
+  const [errors, setErrors]             = useState<Record<string, string>>({})
+  const [filter, setFilter]             = useState<'production' | 'missing' | 'all'>('production')
+
+  // 🆕 Track per-field dirty state — only edited fields will be saved
+  const [dirty, setDirty]               = useState<Record<string, Set<string>>>({})
 
   // Init state from products
   useEffect(() => {
-    const w: Record<string, string> = {}
-    const l: Record<string, string> = {}
-    const pt: Record<string, string> = {}
+    const w:   Record<string, string> = {}
+    const l:   Record<string, string> = {}
+    const pt:  Record<string, string> = {}
     const ptr: Record<string, string> = {}
-    const dw: Record<string, string> = {}
+    const dw:  Record<string, string> = {}
 
     products.forEach(p => {
-      w[p.id] = p.weight_grams?.toString() ?? ''
-      l[p.id] = p.labour_pct?.toString() ?? ''
-      pt[p.id] = p.production_type ?? ''
-      ptr[p.id] = p.pieces_per_tray?.toString() ?? ''
-      dw[p.id] = p.dough_weight_grams?.toString() ?? ''
+      w[p.id]   = p.weight_grams?.toString()       ?? ''
+      l[p.id]   = p.labour_pct?.toString()         ?? ''
+      pt[p.id]  = p.production_type                ?? ''
+      ptr[p.id] = p.pieces_per_tray?.toString()    ?? ''
+      dw[p.id]  = p.dough_weight_grams?.toString() ?? ''
     })
 
     setWeights(w)
@@ -60,9 +64,10 @@ export default function BulkWeightsView({ products }: { products: Product[] }) {
     setProdTypes(pt)
     setPerTrays(ptr)
     setDoughWeights(dw)
+    setDirty({})  // Reset dirty tracker when products reload
   }, [products])
 
-  // Load dough types from recipes
+  // Load dough types from recipes (and track which products have recipes)
   useEffect(() => {
     const productIds = products.map(p => p.id)
     if (productIds.length === 0) return
@@ -72,13 +77,29 @@ export default function BulkWeightsView({ products }: { products: Product[] }) {
       .select('product_id, dough_type')
       .in('product_id', productIds)
       .then(({ data }) => {
-        const dt: Record<string, string> = {}
+        const dt: Record<string, string>  = {}
+        const hr: Record<string, boolean> = {}
         if (data) {
-          data.forEach((r: any) => { dt[r.product_id] = r.dough_type || '' })
+          data.forEach((r: any) => {
+            dt[r.product_id] = r.dough_type || ''
+            hr[r.product_id] = true
+          })
         }
         setDoughTypes(dt)
+        setHasRecipe(hr)
       })
   }, [products])
+
+  // 🆕 Helper to mark a specific field of a product as dirty
+  function markDirty(productId: string, field: string) {
+    setDirty(prev => {
+      const next = { ...prev }
+      if (!next[productId]) next[productId] = new Set()
+      else next[productId] = new Set(next[productId])
+      next[productId].add(field)
+      return next
+    })
+  }
 
   const productionProducts = products.filter(p => {
     const code = parseInt(p.code || '0')
@@ -89,11 +110,16 @@ export default function BulkWeightsView({ products }: { products: Product[] }) {
 
   const displayedProducts =
     filter === 'production' ? productionProducts :
-    filter === 'missing' ? missingProducts :
+    filter === 'missing'    ? missingProducts    :
     products
 
-  const missingCount = missingProducts.length
+  const missingCount    = missingProducts.length
   const productionCount = productionProducts.length
+
+  // 🆕 Count of products that have ANY dirty fields
+  const dirtyCount = Object.keys(dirty).filter(
+    pid => dirty[pid] && dirty[pid].size > 0
+  ).length
 
   async function saveProduct(productId: string) {
     setSaving(prev => ({ ...prev, [productId]: true }))
@@ -103,45 +129,87 @@ export default function BulkWeightsView({ products }: { products: Product[] }) {
       const product = products.find(p => p.id === productId)
       if (!product) return
 
+      const dirtyFields = dirty[productId] || new Set<string>()
+
+      // Build body — ONLY send fields that have been edited
       const body: any = {
-        name: product.name,
+        // API still requires name + price for validation
+        name:  product.name,
         price: product.price,
-        category: product.category,
-        code: product.code,
       }
 
-      const wv = weights[productId]?.trim()
-      body.weight_grams = wv ? parseInt(wv) : null
+      if (dirtyFields.has('weight_grams')) {
+        const wv = weights[productId]?.trim()
+        body.weight_grams = wv ? parseInt(wv) : null
+      }
 
-      const lv = labours[productId]?.trim()
-      body.labour_pct = lv ? parseFloat(lv) : null
+      if (dirtyFields.has('labour_pct')) {
+        const lv = labours[productId]?.trim()
+        body.labour_pct = lv ? parseFloat(lv) : null
+      }
 
-      body.production_type = prodTypes[productId] || null
-      body.pieces_per_tray = perTrays[productId] ? parseInt(perTrays[productId]) : null
-      body.dough_weight_grams = doughWeights[productId] ? parseFloat(doughWeights[productId]) : null
+      if (dirtyFields.has('production_type')) {
+        body.production_type = prodTypes[productId] || null
+      }
 
-      const res = await fetch(`/api/products/${productId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
+      if (dirtyFields.has('pieces_per_tray')) {
+        body.pieces_per_tray = perTrays[productId]?.trim()
+          ? parseInt(perTrays[productId])
+          : null
+      }
 
-      const data = await res.json()
-      if (data.error) throw new Error(data.error)
+      if (dirtyFields.has('dough_weight_grams')) {
+        body.dough_weight_grams = doughWeights[productId]?.trim()
+          ? parseFloat(doughWeights[productId])
+          : null
+      }
 
-      // Save dough type to recipe if set
-      const dt = doughTypes[productId]
-      if (dt) {
-        const { data: recipe } = await supabase
-          .from('recipes')
-          .select('id')
-          .eq('product_id', productId)
-          .maybeSingle()
+      // Only call API if there's something to update
+      const hasProductChanges = Object.keys(body).some(
+        k => k !== 'name' && k !== 'price'
+      )
 
-        if (recipe) {
-          await supabase.from('recipes').update({ dough_type: dt }).eq('id', recipe.id)
+      if (hasProductChanges) {
+        const res = await fetch(`/api/products/${productId}`, {
+          method:  'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify(body),
+        })
+
+        const data = await res.json()
+        if (data.error) throw new Error(data.error)
+      }
+
+      // Save dough type to recipe if dirty (auto-create recipe if missing)
+      if (dirtyFields.has('dough_type')) {
+        const dt = doughTypes[productId]
+        if (dt) {
+          const { data: recipe } = await supabase
+            .from('recipes')
+            .select('id')
+            .eq('product_id', productId)
+            .maybeSingle()
+
+          if (recipe) {
+            await supabase.from('recipes').update({ dough_type: dt }).eq('id', recipe.id)
+          } else {
+            const { error: insertError } = await supabase
+              .from('recipes')
+              .insert({ product_id: productId, dough_type: dt })
+
+            if (!insertError) {
+              setHasRecipe(prev => ({ ...prev, [productId]: true }))
+            }
+          }
         }
       }
+
+      // 🆕 Clear dirty fields for this product after successful save
+      setDirty(prev => {
+        const next = { ...prev }
+        delete next[productId]
+        return next
+      })
 
       setSaved(prev => ({ ...prev, [productId]: true }))
       setTimeout(() => setSaved(prev => ({ ...prev, [productId]: false })), 2000)
@@ -152,9 +220,23 @@ export default function BulkWeightsView({ products }: { products: Product[] }) {
     }
   }
 
+  // 🆕 Save All — only saves rows with dirty fields
   async function saveAll() {
-    for (const p of displayedProducts) {
-      await saveProduct(p.id)
+    const dirtyIds = Object.keys(dirty).filter(
+      pid => dirty[pid] && dirty[pid].size > 0
+    )
+
+    if (dirtyIds.length === 0) {
+      alert('No changes to save.')
+      return
+    }
+
+    if (!confirm(`Save changes to ${dirtyIds.length} product${dirtyIds.length !== 1 ? 's' : ''}?`)) {
+      return
+    }
+
+    for (const id of dirtyIds) {
+      await saveProduct(id)
     }
   }
 
@@ -166,6 +248,11 @@ export default function BulkWeightsView({ products }: { products: Product[] }) {
     if (cat.includes('pie'))   return 'bg-yellow-100 text-yellow-800'
     return 'bg-gray-100 text-gray-700'
   }
+
+  // Count products that have production_type but no recipe (warning badge)
+  const noRecipeCount = displayedProducts.filter(
+    p => prodTypes[p.id] && !hasRecipe[p.id]
+  ).length
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl">
@@ -183,10 +270,12 @@ export default function BulkWeightsView({ products }: { products: Product[] }) {
         </div>
         <button
           onClick={saveAll}
-          className="flex items-center gap-2 px-4 py-2 rounded-md text-white font-semibold hover:opacity-90"
-          style={{ backgroundColor: '#006A4E' }}
+          disabled={dirtyCount === 0}
+          className="flex items-center gap-2 px-4 py-2 rounded-md text-white font-semibold hover:opacity-90 disabled:bg-gray-300 disabled:cursor-not-allowed"
+          style={{ backgroundColor: dirtyCount > 0 ? '#006A4E' : undefined }}
         >
-          <Save className="h-4 w-4" /> Save All
+          <Save className="h-4 w-4" />
+          {dirtyCount > 0 ? `Save ${dirtyCount} change${dirtyCount !== 1 ? 's' : ''}` : 'No changes'}
         </button>
       </div>
 
@@ -205,6 +294,36 @@ export default function BulkWeightsView({ products }: { products: Product[] }) {
           <p className="text-xs text-gray-500 mt-1">Missing Weight</p>
         </div>
       </div>
+
+      {/* No-recipe warning banner */}
+      {noRecipeCount > 0 && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-300 rounded-lg flex items-start gap-2">
+          <AlertCircle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
+          <div className="text-sm">
+            <p className="font-semibold text-red-800">
+              {noRecipeCount} product{noRecipeCount !== 1 ? 's' : ''} missing recipe
+            </p>
+            <p className="text-red-700 mt-0.5">
+              Set a Dough Type for these products to auto-create a recipe. Without a recipe, they won&apos;t appear in the Dough Calculator.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Unsaved changes banner */}
+      {dirtyCount > 0 && (
+        <div className="mb-4 p-3 bg-amber-50 border border-amber-300 rounded-lg flex items-start gap-2">
+          <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+          <div className="text-sm">
+            <p className="font-semibold text-amber-800">
+              {dirtyCount} product{dirtyCount !== 1 ? 's' : ''} with unsaved changes
+            </p>
+            <p className="text-amber-700 mt-0.5">
+              Click Save above or Tab out of any field to save individual rows.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Filter */}
       <div className="flex gap-2 mb-4">
@@ -252,142 +371,185 @@ export default function BulkWeightsView({ products }: { products: Product[] }) {
             </tr>
           </thead>
           <tbody>
-            {displayedProducts.map((product) => (
-              <tr
-                key={product.id}
-                className={`border-b last:border-0 transition-colors ${
-                  saved[product.id] ? 'bg-green-50' : 'hover:bg-gray-50'
-                }`}
-              >
-                {/* Product */}
-                <td className="px-3 py-2">
-                  <div className="text-sm font-medium text-gray-800">{product.name}</div>
-                  {product.code && <div className="text-xs font-mono text-gray-400">#{product.code}</div>}
-                </td>
+            {displayedProducts.map((product) => {
+              const needsRecipe = prodTypes[product.id] && !hasRecipe[product.id]
+              const rowDirty    = dirty[product.id] && dirty[product.id].size > 0
 
-                {/* Category */}
-                <td className="px-3 py-2">
-                  <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${getCategoryColor(product.category)}`}>
-                    {product.category || '-'}
-                  </span>
-                </td>
+              return (
+                <tr
+                  key={product.id}
+                  className={`border-b last:border-0 transition-colors ${
+                    saved[product.id] ? 'bg-green-50' :
+                    rowDirty           ? 'bg-amber-50/50' :
+                    'hover:bg-gray-50'
+                  }`}
+                >
+                  {/* Product */}
+                  <td className="px-3 py-2">
+                    <div className="text-sm font-medium text-gray-800 flex items-center gap-2 flex-wrap">
+                      {product.name}
+                      {needsRecipe && (
+                        <span
+                          className="px-1.5 py-0.5 text-[10px] font-semibold bg-red-100 text-red-700 rounded border border-red-300"
+                          title="No recipe linked — set a Dough Type to auto-create one"
+                        >
+                          ⚠️ No recipe
+                        </span>
+                      )}
+                      {rowDirty && (
+                        <span
+                          className="px-1.5 py-0.5 text-[10px] font-semibold bg-amber-100 text-amber-800 rounded border border-amber-300"
+                          title="Unsaved changes"
+                        >
+                          ● Unsaved
+                        </span>
+                      )}
+                    </div>
+                    {product.code && <div className="text-xs font-mono text-gray-400">#{product.code}</div>}
+                  </td>
 
-                {/* Price */}
-                <td className="px-3 py-2 text-right text-sm text-gray-600 font-mono">
-                  ${product.price.toFixed(2)}
-                </td>
+                  {/* Category */}
+                  <td className="px-3 py-2">
+                    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${getCategoryColor(product.category)}`}>
+                      {product.category || '-'}
+                    </span>
+                  </td>
 
-                {/* Weight */}
-                <td className="px-3 py-2">
-                  <input
-                    type="number" min="1" step="1"
-                    value={weights[product.id] ?? ''}
-                    onChange={e => setWeights(prev => ({ ...prev, [product.id]: e.target.value }))}
-                    onBlur={() => saveProduct(product.id)}
-                    placeholder="g"
-                    className="w-20 px-2 py-1 border rounded font-mono text-sm focus:ring-2 focus:ring-green-500"
-                  />
-                </td>
+                  {/* Price */}
+                  <td className="px-3 py-2 text-right text-sm text-gray-600 font-mono">
+                    ${product.price.toFixed(2)}
+                  </td>
 
-                {/* Labour */}
-                <td className="px-3 py-2">
-                  <input
-                    type="number" min="0" max="100" step="0.1"
-                    value={labours[product.id] ?? ''}
-                    onChange={e => setLabours(prev => ({ ...prev, [product.id]: e.target.value }))}
-                    onBlur={() => saveProduct(product.id)}
-                    placeholder="30"
-                    className="w-16 px-2 py-1 border rounded font-mono text-sm focus:ring-2 focus:ring-green-500"
-                  />
-                </td>
-
-                {/* Production Type */}
-                <td className="px-3 py-2">
-                  <select
-                    value={prodTypes[product.id] ?? ''}
-                    onChange={e => {
-                      setProdTypes(prev => ({ ...prev, [product.id]: e.target.value }))
-                      // Auto-save after a tick
-                      setTimeout(() => saveProduct(product.id), 100)
-                    }}
-                    className={[
-                      'w-20 px-1 py-1 border rounded text-xs font-medium focus:ring-2 focus:ring-green-500',
-                      prodTypes[product.id] === 'roll' ? 'bg-orange-50 border-orange-300 text-orange-800' :
-                      prodTypes[product.id] === 'bread' ? 'bg-amber-50 border-amber-300 text-amber-800' :
-                      'bg-white border-gray-300',
-                    ].join(' ')}
-                  >
-                    {PRODUCTION_TYPES.map(t => (
-                      <option key={t.value} value={t.value}>{t.label}</option>
-                    ))}
-                  </select>
-                </td>
-
-                {/* Per Tray */}
-                <td className="px-3 py-2">
-                  {prodTypes[product.id] === 'roll' ? (
+                  {/* Weight */}
+                  <td className="px-3 py-2">
                     <input
                       type="number" min="1" step="1"
-                      value={perTrays[product.id] ?? ''}
-                      onChange={e => setPerTrays(prev => ({ ...prev, [product.id]: e.target.value }))}
-                      onBlur={() => saveProduct(product.id)}
-                      placeholder="15"
-                      className="w-16 px-2 py-1 border border-orange-300 rounded font-mono text-sm focus:ring-2 focus:ring-orange-400 bg-orange-50"
-                    />
-                  ) : (
-                    <span className="text-gray-300 text-xs">-</span>
-                  )}
-                </td>
-
-                {/* Dough Weight */}
-                <td className="px-3 py-2">
-                  {prodTypes[product.id] ? (
-                    <input
-                      type="number" min="1" step="1"
-                      value={doughWeights[product.id] ?? ''}
-                      onChange={e => setDoughWeights(prev => ({ ...prev, [product.id]: e.target.value }))}
-                      onBlur={() => saveProduct(product.id)}
-                      placeholder={prodTypes[product.id] === 'roll' ? '45' : '520'}
-                      className="w-20 px-2 py-1 border border-green-300 rounded font-mono text-sm focus:ring-2 focus:ring-green-400 bg-green-50"
-                    />
-                  ) : (
-                    <span className="text-gray-300 text-xs">-</span>
-                  )}
-                </td>
-
-                {/* Dough Type */}
-                <td className="px-3 py-2">
-                  {prodTypes[product.id] ? (
-                    <select
-                      value={doughTypes[product.id] ?? ''}
+                      value={weights[product.id] ?? ''}
                       onChange={e => {
-                        setDoughTypes(prev => ({ ...prev, [product.id]: e.target.value }))
+                        setWeights(prev => ({ ...prev, [product.id]: e.target.value }))
+                        markDirty(product.id, 'weight_grams')
+                      }}
+                      onBlur={() => saveProduct(product.id)}
+                      placeholder="g"
+                      className="w-20 px-2 py-1 border rounded font-mono text-sm focus:ring-2 focus:ring-green-500"
+                    />
+                  </td>
+
+                  {/* Labour */}
+                  <td className="px-3 py-2">
+                    <input
+                      type="number" min="0" max="100" step="0.1"
+                      value={labours[product.id] ?? ''}
+                      onChange={e => {
+                        setLabours(prev => ({ ...prev, [product.id]: e.target.value }))
+                        markDirty(product.id, 'labour_pct')
+                      }}
+                      onBlur={() => saveProduct(product.id)}
+                      placeholder="30"
+                      className="w-16 px-2 py-1 border rounded font-mono text-sm focus:ring-2 focus:ring-green-500"
+                    />
+                  </td>
+
+                  {/* Production Type */}
+                  <td className="px-3 py-2">
+                    <select
+                      value={prodTypes[product.id] ?? ''}
+                      onChange={e => {
+                        setProdTypes(prev => ({ ...prev, [product.id]: e.target.value }))
+                        markDirty(product.id, 'production_type')
                         setTimeout(() => saveProduct(product.id), 100)
                       }}
-                      className="w-24 px-1 py-1 border border-blue-300 rounded text-xs font-medium focus:ring-2 focus:ring-blue-400 bg-blue-50"
+                      className={[
+                        'w-20 px-1 py-1 border rounded text-xs font-medium focus:ring-2 focus:ring-green-500',
+                        prodTypes[product.id] === 'roll'  ? 'bg-orange-50 border-orange-300 text-orange-800' :
+                        prodTypes[product.id] === 'bread' ? 'bg-amber-50 border-amber-300 text-amber-800'   :
+                        'bg-white border-gray-300',
+                      ].join(' ')}
                     >
-                      {DOUGH_TYPES.map(dt => (
-                        <option key={dt} value={dt}>{dt || '-'}</option>
+                      {PRODUCTION_TYPES.map(t => (
+                        <option key={t.value} value={t.value}>{t.label}</option>
                       ))}
                     </select>
-                  ) : (
-                    <span className="text-gray-300 text-xs">-</span>
-                  )}
-                </td>
+                  </td>
 
-                {/* Status */}
-                <td className="px-3 py-2">
-                  {saving[product.id] && <div className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />}
-                  {saved[product.id] && !saving[product.id] && <CheckCircle className="h-4 w-4 text-green-500" />}
-                  {errors[product.id] && (
-                    <div>
-                      <AlertCircle className="h-4 w-4 text-red-500" />
-                      <p className="text-xs text-red-600 mt-1">{errors[product.id]}</p>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
+                  {/* Per Tray */}
+                  <td className="px-3 py-2">
+                    {prodTypes[product.id] === 'roll' ? (
+                      <input
+                        type="number" min="1" step="1"
+                        value={perTrays[product.id] ?? ''}
+                        onChange={e => {
+                          setPerTrays(prev => ({ ...prev, [product.id]: e.target.value }))
+                          markDirty(product.id, 'pieces_per_tray')
+                        }}
+                        onBlur={() => saveProduct(product.id)}
+                        placeholder="15"
+                        className="w-16 px-2 py-1 border border-orange-300 rounded font-mono text-sm focus:ring-2 focus:ring-orange-400 bg-orange-50"
+                      />
+                    ) : (
+                      <span className="text-gray-300 text-xs">-</span>
+                    )}
+                  </td>
+
+                  {/* Dough Weight */}
+                  <td className="px-3 py-2">
+                    {prodTypes[product.id] ? (
+                      <input
+                        type="number" min="1" step="1"
+                        value={doughWeights[product.id] ?? ''}
+                        onChange={e => {
+                          setDoughWeights(prev => ({ ...prev, [product.id]: e.target.value }))
+                          markDirty(product.id, 'dough_weight_grams')
+                        }}
+                        onBlur={() => saveProduct(product.id)}
+                        placeholder={prodTypes[product.id] === 'roll' ? '45' : '520'}
+                        className="w-20 px-2 py-1 border border-green-300 rounded font-mono text-sm focus:ring-2 focus:ring-green-400 bg-green-50"
+                      />
+                    ) : (
+                      <span className="text-gray-300 text-xs">-</span>
+                    )}
+                  </td>
+
+                  {/* Dough Type */}
+                  <td className="px-3 py-2">
+                    {prodTypes[product.id] ? (
+                      <select
+                        value={doughTypes[product.id] ?? ''}
+                        onChange={e => {
+                          setDoughTypes(prev => ({ ...prev, [product.id]: e.target.value }))
+                          markDirty(product.id, 'dough_type')
+                          setTimeout(() => saveProduct(product.id), 100)
+                        }}
+                        className={[
+                          'w-24 px-1 py-1 border rounded text-xs font-medium focus:ring-2',
+                          needsRecipe
+                            ? 'border-red-400 bg-red-50 focus:ring-red-400'
+                            : 'border-blue-300 bg-blue-50 focus:ring-blue-400',
+                        ].join(' ')}
+                      >
+                        {DOUGH_TYPES.map(dt => (
+                          <option key={dt} value={dt}>{dt || '-'}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-gray-300 text-xs">-</span>
+                    )}
+                  </td>
+
+                  {/* Status */}
+                  <td className="px-3 py-2">
+                    {saving[product.id] && <div className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />}
+                    {saved[product.id] && !saving[product.id] && <CheckCircle className="h-4 w-4 text-green-500" />}
+                    {errors[product.id] && (
+                      <div>
+                        <AlertCircle className="h-4 w-4 text-red-500" />
+                        <p className="text-xs text-red-600 mt-1">{errors[product.id]}</p>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
 
@@ -403,10 +565,12 @@ export default function BulkWeightsView({ products }: { products: Product[] }) {
         <div className="mt-6 flex justify-end">
           <button
             onClick={saveAll}
-            className="flex items-center gap-2 px-6 py-3 rounded-md text-white font-semibold hover:opacity-90"
-            style={{ backgroundColor: '#006A4E' }}
+            disabled={dirtyCount === 0}
+            className="flex items-center gap-2 px-6 py-3 rounded-md text-white font-semibold hover:opacity-90 disabled:bg-gray-300 disabled:cursor-not-allowed"
+            style={{ backgroundColor: dirtyCount > 0 ? '#006A4E' : undefined }}
           >
-            <Save className="h-4 w-4" /> Save All
+            <Save className="h-4 w-4" />
+            {dirtyCount > 0 ? `Save ${dirtyCount} change${dirtyCount !== 1 ? 's' : ''}` : 'No changes'}
           </button>
         </div>
       )}

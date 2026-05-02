@@ -8,7 +8,11 @@ export default async function BulkWeightsPage() {
 
   const { data: products } = await supabase
     .from('products')
-    .select('id, name, code, category, price, weight_grams, labour_pct')
+    .select(`
+      id, name, code, category, price,
+      weight_grams, labour_pct,
+      production_type, pieces_per_tray, dough_weight_grams
+    `)
     .eq('is_available', true)
     .order('code', { ascending: true, nullsFirst: false })
 
