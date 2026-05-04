@@ -443,7 +443,7 @@ export async function POST(request: NextRequest) {
     let emailsSent = 0
     const emailErrors: string[] = []
 
-    if (sendEmails) {
+       if (sendEmails) {
       console.log(`Sending ${typedOrders.length} invoice emails...`)
 
       const invoiceUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://debsbakery-portal.vercel.app'
@@ -479,17 +479,42 @@ export async function POST(request: NextRequest) {
           const invoiceNumber = String(invoiceNum).padStart(6, '0')
           const html = buildInvoiceEmail({ order, invoiceNumber, bakery, siteUrl, invoiceUrl })
 
-          // ── Send to primary email ──────────────────────────────────────────
+          // 🆕 Fetch the PDF buffer for attachment
+          let pdfBuffer: Buffer | null = null
+          try {
+            const pdfRes = await fetch(`${siteUrl}/api/invoice/${order.id}?download=true`)
+            if (pdfRes.ok) {
+              pdfBuffer = Buffer.from(await pdfRes.arrayBuffer())
+              console.log(`📄 PDF fetched: ${pdfBuffer.length} bytes for invoice ${invoiceNumber}`)
+            } else {
+              console.warn(`PDF fetch returned ${pdfRes.status} for order ${order.id}`)
+            }
+          } catch (err) {
+            console.warn(`Failed to fetch PDF for order ${order.id}:`, err)
+          }
+
+          // 🆕 Build the attachment object once (reused for primary + email_2)
+          const safeBusinessName = (customer.business_name ?? 'order')
+            .replace(/[^a-z0-9]/gi, '-')
+            .substring(0, 40)
+          const attachments = pdfBuffer ? [{
+            filename:    `Invoice-${invoiceNumber}-${safeBusinessName}.pdf`,
+            content:     pdfBuffer,
+            contentType: 'application/pdf',
+          }] : undefined
+
+          // ── Send to primary email ────────────────────────────────
           await sendEmail({
             to:      customer.email,
             subject: `Invoice ${invoiceNumber} - ${bakery.name}`,
             html,
             from:    `${fromName} <${fromEmail}>`,
+            attachments,
           })
           emailsSent++
-          console.log(`[${i + 1}/${typedOrders.length}] Sent to ${customer.email}`)
+          console.log(`[${i + 1}/${typedOrders.length}] Sent to ${customer.email}${pdfBuffer ? ' (with PDF)' : ' (no PDF)'}`)
 
-          // ── Send to second email if set ────────────────────────────────────
+          // ── Send to second email if set ──────────────────────────
           if (customer.email_2) {
             await sleep(300)
             await sendEmail({
@@ -497,6 +522,7 @@ export async function POST(request: NextRequest) {
               subject: `Invoice ${invoiceNumber} - ${bakery.name}`,
               html,
               from:    `${fromName} <${fromEmail}>`,
+              attachments,
             })
             emailsSent++
             console.log(`  Also sent to email_2: ${customer.email_2}`)
@@ -513,7 +539,6 @@ export async function POST(request: NextRequest) {
 
       console.log(`Emails complete: ${emailsSent} sent`)
     }
-
     return NextResponse.json({
       success:         true,
       invoiced:        emailOnly ? 0 : typedOrders.length,
