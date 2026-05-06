@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import { checkAdmin } from '@/lib/auth'
 import { redirect } from 'next/navigation'
-import { ArrowLeft, TrendingDown, BarChart2, FileText } from 'lucide-react'
+import { ArrowLeft, TrendingDown, BarChart2, FileText, Mail } from 'lucide-react'
 
 export default async function ReportsPage() {
   const isAdmin = await checkAdmin()
@@ -14,6 +14,13 @@ export default async function ReportsPage() {
       description: 'Sales summary by week',
       href: '/admin/reports/weekly',
       icon: BarChart2,
+      color: '#3E1F00',
+    },
+    {
+      title: 'Resend Invoices',
+      description: 'Resend invoice emails to a customer by month',
+      href: '/admin/resend-invoices',
+      icon: Mail,
       color: '#3E1F00',
     },
     {

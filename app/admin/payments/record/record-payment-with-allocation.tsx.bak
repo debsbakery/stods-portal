@@ -12,12 +12,6 @@ const PAYMENT_METHODS = [
   { value: 'eft',           label: '🔄 EFT' },
 ];
 
-// ── Money helper: always round to cents (no float drift) ─────────────────────
-const money = (n: number | string | null | undefined): number => {
-  const v = typeof n === 'string' ? parseFloat(n) : (n ?? 0);
-  return Math.round((Number.isFinite(v as number) ? (v as number) : 0) * 100) / 100;
-};
-
 interface Customer {
   id: string;
   business_name: string | null;
@@ -102,35 +96,37 @@ export default function RecordPaymentWithAllocation({
     ? credits.filter((c) => c?.customer_id === formData.customer_id)
     : [];
 
-  // ── Calculations (all rounded via money()) ────────────────────────────────
-  const currentBalance = money(selectedCustomer?.balance);
+  // ── Calculations ──────────────────────────────────────────────────────────
+  const currentBalance = (selectedCustomer && typeof selectedCustomer.balance === 'number')
+    ? selectedCustomer.balance
+    : 0;
 
-  const cashAmount = money(formData.amount);
+  const cashAmount = parseFloat(formData.amount) || 0;
 
   // Credits ticked = available credit pool
   const tickedCredits = allocations.filter(a => a.is_credit);
-  const creditPoolAmount = money(
-    tickedCredits.reduce((sum, a) => sum + Math.abs(money(a?.amount)), 0)
-  );
+  const creditPoolAmount = tickedCredits.reduce((sum, a) => {
+    return sum + Math.abs(parseFloat(String(a?.amount)) || 0);
+  }, 0);
 
   // Total funds available to allocate = cash + ticked credits
-  const totalAvailable = money(cashAmount + creditPoolAmount);
+  const totalAvailable = cashAmount + creditPoolAmount;
 
   // Already allocated to invoices
-  const allocatedToInvoices = money(
-    allocations.filter(a => !a.is_credit).reduce((sum, a) => sum + money(a?.amount), 0)
-  );
+  const allocatedToInvoices = allocations
+    .filter(a => !a.is_credit)
+    .reduce((sum, a) => sum + (parseFloat(String(a?.amount)) || 0), 0);
 
   // Unallocated cash/credit pool
-  const unallocatedAmount = money(totalAvailable - allocatedToInvoices);
+  const unallocatedAmount = totalAvailable - allocatedToInvoices;
 
-  const totalOutstanding = money(customerInvoices.reduce((sum, inv) => {
-    if (inv?.status === 'cancelled')   return sum;
-    if (inv?.invoice_number == null)   return sum;
-    const total = money(inv?.total_amount);
-    const paid  = money(inv?.amount_paid);
-    return sum + Math.max(0, money(total - paid));
-  }, 0));
+  const totalOutstanding = customerInvoices.reduce((sum, inv) => {
+    if (inv?.status === 'cancelled') return sum;
+    if (inv?.invoice_number == null) return sum;
+    const total = parseFloat(String(inv?.total_amount)) || 0;
+    const paid  = parseFloat(String(inv?.amount_paid))  || 0;
+    return sum + Math.max(0, total - paid);
+  }, 0);
 
   // ── Auto allocate ─────────────────────────────────────────────────────────
   function handleAutoAllocate() {
@@ -139,29 +135,28 @@ export default function RecordPaymentWithAllocation({
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     );
     for (const credit of sortedCredits) {
-      const remaining = money(money(credit.amount) - money(credit.amount_paid));
+      const remaining = (Number(credit.amount) || 0) - (Number(credit.amount_paid) || 0);
       if (remaining > 0) {
         newAllocations.push({ invoice_id: credit.id, amount: -remaining, is_credit: true });
       }
     }
-    const creditPool = money(newAllocations.reduce((s, a) => s + Math.abs(a.amount), 0));
+    const creditPool = newAllocations.reduce((s, a) => s + Math.abs(a.amount), 0);
 
-    let remaining = money(cashAmount + creditPool);
+    let remaining = cashAmount + creditPool;
 
     const sortedInvoices = [...customerInvoices]
       .filter(inv => inv?.status !== 'cancelled' && inv?.invoice_number != null)
       .sort((a, b) => new Date(a.delivery_date).getTime() - new Date(b.delivery_date).getTime());
 
     for (const invoice of sortedInvoices) {
-      if (remaining < 0.01) break;
-      const total = money(invoice?.total_amount);
-      const paid  = money(invoice?.amount_paid);
-      const due   = money(total - paid);
-      if (due < 0.01) continue;
-      const allocate = money(Math.min(remaining, due));
+      if (remaining <= 0.005) break;
+      const total = parseFloat(String(invoice?.total_amount)) || 0;
+      const paid  = parseFloat(String(invoice?.amount_paid))  || 0;
+      const due   = total - paid;
+      const allocate = Math.min(remaining, due);
       if (allocate > 0 && invoice?.id) {
-        newAllocations.push({ invoice_id: invoice.id, amount: allocate });
-        remaining = money(remaining - allocate);
+        newAllocations.push({ invoice_id: invoice.id, amount: Math.round(allocate * 100) / 100 });
+        remaining -= allocate;
       }
     }
     setAllocations(newAllocations);
@@ -174,11 +169,11 @@ export default function RecordPaymentWithAllocation({
     const invoice = customerInvoices.find((i) => i?.id === invoiceId);
     if (!invoice) return;
 
-    const total = money(invoice.total_amount);
-    const paid  = money(invoice.amount_paid);
-    const due   = money(total - paid);
+    const total = parseFloat(String(invoice.total_amount)) || 0;
+    const paid  = parseFloat(String(invoice.amount_paid))  || 0;
+    const due   = total - paid;
 
-    const validAmount = money(Math.max(0, Math.min(amount, due)));
+    const validAmount = Math.max(0, Math.min(amount, due));
 
     setAllocations((prev) => {
       const existing = prev.find((a) => a?.invoice_id === invoiceId && !a.is_credit);
@@ -198,7 +193,7 @@ export default function RecordPaymentWithAllocation({
 
   // ── Toggle credit ─────────────────────────────────────────────────────────
   function handleToggleCredit(credit: Credit) {
-    const remaining = money(money(credit.amount) - money(credit.amount_paid));
+    const remaining = (Number(credit.amount) || 0) - (Number(credit.amount_paid) || 0);
     const isIncluded = allocations.some(a => a.invoice_id === credit.id && a.is_credit);
     if (isIncluded) {
       setAllocations(prev => prev.filter(a => !(a.invoice_id === credit.id && a.is_credit)));
@@ -209,19 +204,19 @@ export default function RecordPaymentWithAllocation({
 
   // ── Tick invoice toggle ───────────────────────────────────────────────────
   function handleTickInvoice(invoice: Invoice) {
-    const total     = money(invoice.total_amount);
-    const paid      = money(invoice.amount_paid);
-    const due       = money(total - paid);
-    const allocated = money(allocations.find(a => a.invoice_id === invoice.id && !a.is_credit)?.amount || 0);
+    const total     = parseFloat(String(invoice.total_amount)) || 0;
+    const paid      = parseFloat(String(invoice.amount_paid))  || 0;
+    const due       = total - paid;
+    const allocated = allocations.find(a => a.invoice_id === invoice.id && !a.is_credit)?.amount || 0;
 
     if (allocated > 0) {
       handleManualAllocate(invoice.id, 0);
     } else {
-      const currentlyAllocated = money(
-        allocations.filter(a => !a.is_credit).reduce((sum, a) => sum + money(a.amount), 0)
-      );
-      const remaining = money(totalAvailable - currentlyAllocated);
-      handleManualAllocate(invoice.id, money(Math.min(due, Math.max(0, remaining))));
+      const currentlyAllocated = allocations
+        .filter(a => !a.is_credit)
+        .reduce((sum, a) => sum + (parseFloat(String(a.amount)) || 0), 0);
+      const remaining = totalAvailable - currentlyAllocated;
+      handleManualAllocate(invoice.id, Math.min(due, Math.max(0, remaining)));
     }
   }
 
@@ -248,19 +243,13 @@ export default function RecordPaymentWithAllocation({
     setSaving(true);
 
     try {
-      // Round all allocation amounts before sending to server
-      const cleanAllocations = (Array.isArray(allocations) ? allocations : []).map(a => ({
-        ...a,
-        amount: a.is_credit ? -money(Math.abs(a.amount)) : money(a.amount),
-      }));
-
       const response = await fetch('/api/admin/payments', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...formData,
           amount:      cashAmount,
-          allocations: cleanAllocations,
+          allocations: Array.isArray(allocations) ? allocations : [],
         }),
       });
 
@@ -268,9 +257,9 @@ export default function RecordPaymentWithAllocation({
 
       if (response.ok) {
         const customerName  = data?.payment?.customer                        || 'Customer';
-        const cash          = money(data?.payment?.amount);
-        const newBalance    = money(data?.payment?.new_balance);
-        const creditUsed    = money(data?.payment?.credit_used);
+        const cash          = parseFloat(String(data?.payment?.amount))      || 0;
+        const newBalance    = parseFloat(String(data?.payment?.new_balance)) || 0;
+        const creditUsed    = parseFloat(String(data?.payment?.credit_used)) || 0;
         const allocatedMsg  = (data?.payment?.allocations || 0) > 0
           ? ` | Allocated to ${data.payment.allocations} invoice(s)`
           : '';
@@ -278,7 +267,7 @@ export default function RecordPaymentWithAllocation({
           ? ` | $${creditUsed.toFixed(2)} credit applied`
           : '';
         const overpaymentMsg = data?.payment?.overpayment > 0
-          ? ` | ⚠️ $${money(data.payment.overpayment).toFixed(2)} overpayment credit created`
+          ? ` | ⚠️ $${parseFloat(data.payment.overpayment).toFixed(2)} overpayment credit created`
           : '';
 
         setSuccess(
@@ -310,8 +299,8 @@ export default function RecordPaymentWithAllocation({
   const hasAllocation = customerInvoices.length > 0 || customerCredits.length > 0;
 
   // Projected new balance: balance reduces by what's actually applied to invoices + unallocated cash
-  const balanceImpact = money(allocatedToInvoices + Math.max(0, money(cashAmount - allocatedToInvoices)));
-  const projectedBalance = money(currentBalance - balanceImpact);
+  const balanceImpact = allocatedToInvoices + Math.max(0, cashAmount - allocatedToInvoices);
+  const projectedBalance = currentBalance - balanceImpact;
   const isReversal = cashAmount < 0;
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -377,7 +366,7 @@ export default function RecordPaymentWithAllocation({
             >
               <option value="">Select a customer</option>
               {filteredCustomers.map((customer) => {
-                const balance = money(customer.balance);
+                const balance = typeof customer.balance === 'number' ? customer.balance : 0;
                 const name    = customer?.business_name || customer?.contact_name || 'Unknown';
                 return (
                   <option key={customer.id} value={customer.id}>
@@ -441,20 +430,20 @@ export default function RecordPaymentWithAllocation({
                 min="-999999"
                 value={formData.amount}
                 onChange={(e) => {
-                  const newCash = money(e.target.value);
+                  const newCash = parseFloat(e.target.value) || 0;
                   setFormData({ ...formData, amount: e.target.value });
                   // Trim invoice allocations that exceed new pool
-                  const newPool = money(newCash + creditPoolAmount);
+                  const newPool = newCash + creditPoolAmount;
                   setAllocations(prev => {
                     let pool = newPool;
                     const credits = prev.filter(a => a.is_credit);
                     const invoices = prev.filter(a => !a.is_credit);
                     const adjustedInvoices: Allocation[] = [];
                     for (const inv of invoices) {
-                      const fit = money(Math.min(inv.amount, Math.max(0, pool)));
+                      const fit = Math.min(inv.amount, Math.max(0, pool));
                       if (fit > 0) {
                         adjustedInvoices.push({ ...inv, amount: fit });
-                        pool = money(pool - fit);
+                        pool -= fit;
                       }
                     }
                     return [...credits, ...adjustedInvoices];
@@ -507,9 +496,9 @@ export default function RecordPaymentWithAllocation({
                       <MinusCircle className="h-3 w-3" /> Available Credits — tick to add to allocatable pool
                     </p>
                     {customerCredits.map((credit) => {
-                      const total      = money(credit.amount);
-                      const consumed   = money(credit.amount_paid);
-                      const remaining  = money(total - consumed);
+                      const total      = Number(credit.amount) || 0;
+                      const consumed   = Number(credit.amount_paid) || 0;
+                      const remaining  = total - consumed;
                       if (remaining <= 0) return null;
                       const isIncluded = allocations.some(a => a.invoice_id === credit.id && a.is_credit);
                       return (
@@ -558,17 +547,17 @@ export default function RecordPaymentWithAllocation({
                       </p>
                     )}
                     {customerInvoices.map((invoice) => {
-                      const total     = money(invoice?.total_amount);
-                      const paid      = money(invoice?.amount_paid);
-                      const due       = money(total - paid);
-                      const allocated = money(
-                        allocations.find((a) => a?.invoice_id === invoice.id && !a.is_credit)?.amount || 0
-                      );
+                      const total     = parseFloat(String(invoice?.total_amount)) || 0;
+                      const paid      = parseFloat(String(invoice?.amount_paid))  || 0;
+                      const due       = total - paid;
+                      const allocated = allocations.find(
+                        (a) => a?.invoice_id === invoice.id && !a.is_credit
+                      )?.amount || 0;
                       const isTicked  = allocated > 0;
 
-                      if (due < 0.01)                      return null;
-                      if (invoice.status === 'cancelled')  return null;
-                      if (invoice.invoice_number == null)  return null;
+                      if (due <= 0)                       return null;
+                      if (invoice.status === 'cancelled') return null;
+                      if (invoice.invoice_number == null) return null;
 
                       return (
                         <div
@@ -609,7 +598,7 @@ export default function RecordPaymentWithAllocation({
                                 max={due}
                                 value={allocated || ''}
                                 onChange={(e) =>
-                                  handleManualAllocate(invoice.id, money(e.target.value))
+                                  handleManualAllocate(invoice.id, parseFloat(e.target.value) || 0)
                                 }
                                 placeholder="0.00"
                                 className="w-full pl-5 pr-2 py-1 text-sm border rounded focus:outline-none focus:border-green-500"
@@ -658,7 +647,7 @@ export default function RecordPaymentWithAllocation({
                   <div>
                     <p className="font-semibold">Funds exceed outstanding invoices</p>
                     <p className="mt-0.5">
-                      A credit of <strong>${money(totalAvailable - totalOutstanding).toFixed(2)}</strong> will
+                      A credit of <strong>${(totalAvailable - totalOutstanding).toFixed(2)}</strong> will
                       be created for the remaining unallocated amount.
                     </p>
                   </div>
