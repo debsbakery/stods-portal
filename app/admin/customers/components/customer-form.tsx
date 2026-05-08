@@ -9,7 +9,7 @@ interface Customer {
   contact_name: string
   email: string
   email_2?: string
-  statement_email?: string    // ✅ NEW
+  statement_email?: string
   phone?: string
   address?: string
   abn?: string
@@ -17,6 +17,7 @@ interface Customer {
   status: string
   payment_terms: number
   balance?: number
+  invoice_frequency?: 'daily' | 'weekly'   // ✅ NEW
 }
 
 interface Props {
@@ -32,17 +33,18 @@ export default function CustomerForm({ customer, isEditing = false }: Props) {
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null)
 
   const [form, setForm] = useState({
-    business_name:   customer?.business_name   ?? '',
-    contact_name:    customer?.contact_name    ?? '',
-    email:           customer?.email           ?? '',
-    email_2:         customer?.email_2         ?? '',
-    statement_email: customer?.statement_email ?? '',   // ✅ NEW
-    phone:           customer?.phone           ?? '',
-    address:         customer?.address         ?? '',
-    abn:             customer?.abn             ?? '',
-    delivery_notes:  customer?.delivery_notes  ?? '',
-    status:          customer?.status          ?? 'active',
-    payment_terms:   customer?.payment_terms   ?? 30,
+    business_name:     customer?.business_name     ?? '',
+    contact_name:      customer?.contact_name      ?? '',
+    email:             customer?.email             ?? '',
+    email_2:           customer?.email_2           ?? '',
+    statement_email:   customer?.statement_email   ?? '',
+    phone:             customer?.phone             ?? '',
+    address:           customer?.address           ?? '',
+    abn:               customer?.abn               ?? '',
+    delivery_notes:    customer?.delivery_notes    ?? '',
+    status:            customer?.status            ?? 'active',
+    payment_terms:     customer?.payment_terms     ?? 30,
+    invoice_frequency: customer?.invoice_frequency ?? 'daily',   // ✅ NEW
   })
 
   const set = (field: string, value: any) =>
@@ -63,7 +65,7 @@ export default function CustomerForm({ customer, isEditing = false }: Props) {
         body: JSON.stringify({
           ...form,
           email_2:               form.email_2         || null,
-          statement_email:       form.statement_email || null,   // ✅ NEW
+          statement_email:       form.statement_email || null,
           allow_duplicate_email: allowDuplicate,
         }),
       })
@@ -233,6 +235,44 @@ export default function CustomerForm({ customer, isEditing = false }: Props) {
               💡 Set a separate statement email if the person who receives invoices
               is different from who manages the account (e.g. owner vs bookkeeper).
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── ✅ NEW: Invoice Frequency ─────────────────────────────────────── */}
+      <div>
+        <p className="text-sm font-semibold text-gray-700 mb-2">
+          🗓 Invoice Frequency
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className={labelClass}>
+              Billing Cycle
+            </label>
+            <select
+              value={form.invoice_frequency}
+              onChange={e => set('invoice_frequency', e.target.value)}
+              className={inputClass}
+            >
+              <option value="daily">📄 Daily — one invoice per delivery</option>
+              <option value="weekly">📅 Weekly — Sunday issue, prev Sun–Sat</option>
+            </select>
+            <p className="text-xs text-gray-400 mt-1">
+              Packing slips are always issued daily regardless of frequency.
+            </p>
+          </div>
+          <div className="flex items-center">
+            {form.invoice_frequency === 'weekly' ? (
+              <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg text-xs text-purple-700">
+                📅 <strong>Weekly billing:</strong> A combined invoice covering Sun–Sat
+                will be issued every Sunday. Daily packing slips still print as normal.
+              </div>
+            ) : (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700">
+                📄 <strong>Daily billing (default):</strong> Each delivery generates its
+                own invoice on dispatch.
+              </div>
+            )}
           </div>
         </div>
       </div>
