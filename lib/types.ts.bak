@@ -14,9 +14,6 @@ export interface Product {
   category: string | null;
   is_available: boolean;
   gst_applicable: boolean;
- weight_grams: number | null;        // ← ADD THIS
-  labour_pct: number | null;    
- 
   created_at: string;
   updated_at: string;
 }
@@ -42,7 +39,6 @@ export interface Customer {
   last_statement_date: string | null;
   created_at: string;
   updated_at: string;
-invoice_frequency?: 'daily' | 'weekly';
 }
 
 export interface Order {

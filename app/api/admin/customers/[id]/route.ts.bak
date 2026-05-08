@@ -12,20 +12,20 @@ export async function PUT(
 ) {
   try {
     const body = await request.json()
-       const {
+    const {
       business_name,
       contact_name,
       phone,
       address,
       email,
-      email_2,            // ✅ NEW
-      statement_email,    // ✅ NEW
+      email_2,           // ✅ NEW
+      statement_email,   // ✅ NEW
       abn,
       delivery_notes,
       status,
       payment_terms,
-      invoice_frequency,  // ✅ NEW (Phase 1 — weekly billing)
     } = body
+
     if (!business_name?.trim())
       return NextResponse.json({ error: 'Business name required' }, { status: 400 })
     if (!contact_name?.trim())
@@ -33,20 +33,19 @@ export async function PUT(
 
     const { error } = await supabaseAdmin
       .from('customers')
-           .update({
+      .update({
         business_name:   business_name.trim(),
         contact_name:    contact_name.trim(),
         email:           email?.trim().toLowerCase() || undefined,
-        email_2:         email_2?.trim().toLowerCase()         || null,
-        statement_email: statement_email?.trim().toLowerCase() || null,
+        email_2:         email_2?.trim().toLowerCase()         || null,  // ✅ NEW
+        statement_email: statement_email?.trim().toLowerCase() || null,  // ✅ NEW
         phone:           phone?.trim()          || null,
         address:         address?.trim()        || null,
         abn:             abn?.trim()            || null,
         delivery_notes:  delivery_notes?.trim() || null,
         status,
-        payment_terms:        Number(payment_terms),
-        invoice_frequency:    invoice_frequency === 'weekly' ? 'weekly' : 'daily',  // ✅ NEW
-        updated_at:           new Date().toISOString(),
+        payment_terms:   Number(payment_terms),
+        updated_at:      new Date().toISOString(),
       })
       .eq('id', params.id)
 
