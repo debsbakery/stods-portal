@@ -12,13 +12,12 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { customer_id, week_start, week_end } = body ?? {}
+    const { customer_id, week_start, week_end, send_email = false } = body ?? {}
 
     if (!customer_id) {
       return NextResponse.json({ error: 'customer_id required' }, { status: 400 })
     }
 
-    // Default to previous Sun–Sat if not provided
     let start = week_start
     let end   = week_end
     if (!start || !end) {
@@ -27,7 +26,10 @@ export async function POST(request: NextRequest) {
       end   = range.end
     }
 
-    const result = await generateWeeklyInvoice(customer_id, start, end)
+    const result = await generateWeeklyInvoice(
+      customer_id, start, end,
+      { sendEmail: send_email }  // ✅ NEW
+    )
     return NextResponse.json(result)
 
   } catch (err: any) {
