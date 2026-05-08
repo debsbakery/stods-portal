@@ -1,16 +1,8 @@
 {
   "crons": [
-    {
-      "path": "/api/cron/ar-aging",
-      "schedule": "0 15 * * *"
-    },
-    {
-      "path": "/api/cron/monthly-statements",
-      "schedule": "0 7 1 * *"
-    },
-    {
-      "path": "/api/cron/process-statement-jobs",
-      "schedule": "10 7 1 * *"
-    }
+    { "path": "/api/cron/ar-aging",                     "schedule": "0 15 * * *"  },
+    { "path": "/api/cron/monthly-statements",            "schedule": "0 7 1 * *"   },
+    { "path": "/api/cron/process-statement-jobs",        "schedule": "10 7 1 * *"  },
+    { "path": "/api/cron/generate-weekly-invoices",      "schedule": "0 20 * * *"  }
   ]
 }
