@@ -36,7 +36,7 @@ export function orderConfirmationTemplate(data: OrderConfirmationData): string {
       <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Order Confirmation - Stods Bakery</title>
+        <title>Order Confirmation - Debs Bakery</title>
       </head>
       <body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f3f4f6;">
         <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f3f4f6; padding: 40px 0;">
@@ -47,7 +47,7 @@ export function orderConfirmationTemplate(data: OrderConfirmationData): string {
                 <!-- Header -->
                 <tr>
                   <td style="background: linear-gradient(135deg, #3E1F00 0%, #004d38 100%); padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
-                    <h1 style="color: white; margin: 0; font-size: 28px;">🥖 Stods Bakery</h1>
+                    <h1 style="color: white; margin: 0; font-size: 28px;">🥖 Debs Bakery</h1>
                   </td>
                 </tr>
 
@@ -117,7 +117,7 @@ export function orderConfirmationTemplate(data: OrderConfirmationData): string {
                       Questions? Reply to this email or contact us at debs_bakery@outlook.com
                     </p>
                     <p style="color: #9ca3af; margin: 10px 0 0 0; font-size: 12px;">
-                      © 2026 Stods Bakery. All rights reserved.
+                      © 2026 Debs Bakery. All rights reserved.
                     </p>
                   </td>
                 </tr>
@@ -148,7 +148,7 @@ export function newOrderNotificationTemplate(data: NewOrderNotificationData): st
     <html>
       <head>
         <meta charset="utf-8">
-        <title>New Order Received - Stods Bakery</title>
+        <title>New Order Received - Debs Bakery</title>
       </head>
       <body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f3f4f6;">
         <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f3f4f6; padding: 40px 0;">

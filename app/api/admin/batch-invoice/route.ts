@@ -62,7 +62,7 @@ interface BakeryConfig {
 
 function getDebsConfig(): BakeryConfig {
   return {
-    name:        process.env.BAKERY_NAME         ?? process.env.STODS_BAKERY_NAME ?? "Stods Bakery",
+    name:        process.env.BAKERY_NAME         ?? "Deb's Bakery",
     email:       process.env.BAKERY_EMAIL        ?? 'debs_bakery@outlook.com',
     phone:       process.env.BAKERY_PHONE        ?? '(07) 4632 9475',
     address:     process.env.BAKERY_ADDRESS      ?? '20 Mann St, Toowoomba QLD 4350',
@@ -458,7 +458,7 @@ const { data: orders, error: ordersError } = await ordersQuery
        if (sendEmails) {
       console.log(`Sending ${typedOrders.length} invoice emails...`)
 
-      const invoiceUrl = process.env.NEXT_PUBLIC_SITE_URL ?? process.env.STODS_SITE_URL ?? 'https://orders.stodsbakery.com'
+      const invoiceUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://debsbakery-portal.vercel.app'
 
       for (let i = 0; i < typedOrders.length; i++) {
         const order = typedOrders[i]
@@ -480,13 +480,13 @@ const { data: orders, error: ordersError } = await ordersQuery
           const bakery    = isStods ? getStodsConfig() : getDebsConfig()
           const siteUrl   = isStods
             ? (process.env.STODS_SITE_URL          ?? 'https://orders.stodsbakery.com')
-            : (process.env.NEXT_PUBLIC_SITE_URL    ?? process.env.STODS_SITE_URL ?? 'https://orders.stodsbakery.com')
+            : (process.env.NEXT_PUBLIC_SITE_URL    ?? 'https://debsbakery-portal.vercel.app')
           const fromName  = isStods
             ? (process.env.STODS_RESEND_FROM_NAME  ?? 'Stods Bakery')
-            : (process.env.RESEND_FROM_NAME        ?? process.env.STODS_BAKERY_NAME ?? "Stods Bakery")
+            : (process.env.RESEND_FROM_NAME        ?? "Deb's Bakery")
           const fromEmail = isStods
             ? (process.env.STODS_RESEND_FROM_EMAIL ?? 'orders@stodsbakery.com')
-            : (process.env.RESEND_FROM_EMAIL       ?? process.env.STODS_RESEND_FROM_EMAIL ?? 'orders@stodsbakery.com')
+            : (process.env.RESEND_FROM_EMAIL       ?? 'orders@debsbakery.store')
 
           const invoiceNumber = String(invoiceNum).padStart(6, '0')
           const html = buildInvoiceEmail({ order, invoiceNumber, bakery, siteUrl, invoiceUrl })

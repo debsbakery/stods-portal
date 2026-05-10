@@ -45,7 +45,7 @@ const SUPPLIERS = [
   'TWD',
   'TCW',
   'Angliss',
-  "Stods Bakery",
+  "Deb's Bakery",
   'Coke',
   'Bou Samra',
   'Other',

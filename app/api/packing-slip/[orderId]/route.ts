@@ -68,7 +68,7 @@ export async function GET(
     const isStods = customer?.invoice_brand === 'stods'
 
     const bakeryInfo = {
-      name:    (isStods ? process.env.STODS_BAKERY_NAME    : process.env.BAKERY_NAME)    ?? "Stods Bakery",
+      name:    (isStods ? process.env.STODS_BAKERY_NAME    : process.env.BAKERY_NAME)    ?? "Deb's Bakery",
       phone:   (isStods ? process.env.STODS_BAKERY_PHONE   : process.env.BAKERY_PHONE)   ?? '(07) 4632 9475',
       address: (isStods ? process.env.STODS_BAKERY_ADDRESS : process.env.BAKERY_ADDRESS) ?? '20 Mann St, Toowoomba QLD 4350',
     }

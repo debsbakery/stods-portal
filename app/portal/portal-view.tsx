@@ -306,7 +306,7 @@ function OverviewTab({ data, totalOverdue }: { data: PortalData; totalOverdue: n
           <div>
             <p className="font-semibold text-red-800">Overdue Balance: {fmt(totalOverdue)}</p>
             <p className="text-sm text-red-600 mt-1">
-              Please contact Stods Bakery to arrange payment. Ph: 0414 748 716
+              Please contact Deb's Bakery to arrange payment. Ph: (03) 9000 0000
             </p>
           </div>
         </div>
@@ -473,7 +473,7 @@ function StandingOrdersTab({ orders }: { orders: any[] }) {
       )}
 
       <p className="mt-6 text-sm text-gray-500">
-        To add, change or pause standing orders please contact Stods Bakery directly.
+        To add, change or pause standing orders please contact Deb's Bakery directly.
       </p>
     </div>
   );
@@ -787,7 +787,7 @@ function AccountTab({
           )}
         </dl>
         <p className="mt-6 text-sm text-gray-500">
-          To update your account details please contact Stods Bakery directly.
+          To update your account details please contact Deb's Bakery directly.
         </p>
       </div>
 

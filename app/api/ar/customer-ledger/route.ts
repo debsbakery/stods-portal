@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic'
+﻿export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
@@ -117,7 +117,7 @@ export async function GET(request: NextRequest) {
         })
       }
 
-      drawText((process.env.STODS_BAKERY_NAME ?? "Stods Bakery"), 50, y, { size: 20, bold: true, color: [0, 0.416, 0.306] })
+      drawText("Deb's Bakery", 50, y, { size: 20, bold: true, color: [0, 0.416, 0.306] })
       y -= 22
       drawText('Customer Ledger', 50, y, { size: 12 })
       y -= 20

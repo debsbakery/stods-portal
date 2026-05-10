@@ -58,7 +58,7 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<jsPDF> {
   doc.rect(0, 0, 210, 50, 'F')
 
   // Logo
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? process.env.STODS_SITE_URL ?? 'https://orders.stodsbakery.com'
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://debsbakery-portal.vercel.app'
   const logoBase64 = await imageUrlToBase64(siteUrl + '/logo.png')
 
   if (logoBase64) {

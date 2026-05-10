@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? process.env.STODS_SITE_URL ?? 'https://orders.stodsbakery.com'
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://debsbakery-portal.vercel.app'
     const response = await fetch(`${siteUrl}/api/ar/aging/update`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
