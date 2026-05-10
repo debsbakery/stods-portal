@@ -24,7 +24,7 @@ export async function sendEmail({
 }) {
   try {
     const fromAddress = from
-      ?? `${process.env.RESEND_FROM_NAME ?? "Deb's Bakery"} <${process.env.RESEND_FROM_EMAIL ?? 'orders@debsbakery.store'}>`
+      ?? `${process.env.RESEND_FROM_NAME ?? process.env.STODS_RESEND_FROM_NAME ?? "Stods Bakery"} <${process.env.RESEND_FROM_EMAIL ?? process.env.STODS_RESEND_FROM_EMAIL ?? 'orders@stodsbakery.com'}>`
 
     const isStods = fromAddress.toLowerCase().includes('stods')
     const client  = isStods ? resendStods : resend

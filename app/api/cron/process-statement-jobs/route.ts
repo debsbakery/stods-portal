@@ -224,8 +224,8 @@ export async function GET(request: NextRequest) {
         ? [0.584, 0.306, 0.129]
         : [0, 0.416, 0.306]
 
-      const displayName = bakeryName || (isStods ? 'Stods Bakery' : "Deb's Bakery")
-      const displayFrom = `${fromName || displayName} <${fromEmail || 'noreply@debsbakery.store'}>`
+      const displayName = bakeryName || 'Stods Bakery'
+      const displayFrom = `${fromName || displayName} <${fromEmail || 'orders@stodsbakery.com'}>`
       const headerHex   = isStods ? '#955E30' : '#006A4E'
       const subHex      = isStods ? '#f5dcc8' : '#a7f3d0'
 

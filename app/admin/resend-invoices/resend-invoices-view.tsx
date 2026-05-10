@@ -399,7 +399,7 @@ export default function ResendInvoicesView({
           {/* Tip for customer */}
           <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
             <p className="font-semibold mb-1">💡 Tip for customers whose emails disappear</p>
-            <p>Ask them to check their <strong>Junk/Spam</strong> or <strong>Other</strong> inbox tab, and add <strong>orders@debsbakery.store</strong> to their contacts. Use the <strong>PDF</strong> button above to manually send via Outlook if needed.</p>
+            <p>Ask them to check their <strong>Junk/Spam</strong> or <strong>Other</strong> inbox tab, and add <strong>orders@stodsbakery.com</strong> to their contacts. Use the <strong>PDF</strong> button above to manually send via Outlook if needed.</p>
           </div>
         </>
       )}

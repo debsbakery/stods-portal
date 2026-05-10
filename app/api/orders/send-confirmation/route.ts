@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
 
     console.log('📧 Sending order confirmation emails for order:', orderId);
 
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://debsbakery-portal.vercel.app';
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.STODS_SITE_URL ?? 'https://orders.stodsbakery.com';
 
     // ✅ Get full order details for admin email
     const supabase = await createClient();
@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     try {
       await sendEmail({
         to: customerEmail,
-        subject: 'Order Confirmation - Debs Bakery',
+        subject: 'Order Confirmation - Stods Bakery',
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h1 style="color: #3E1F00;">Thank you for your order!</h1>

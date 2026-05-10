@@ -38,11 +38,11 @@ export async function POST(request: NextRequest) {
     // ── Pick from address based on brand ─────────────────────────
     const fromName  = isStodsBrand
       ? (process.env.STODS_RESEND_FROM_NAME  || 'Stods Bakery')
-      : (process.env.RESEND_FROM_NAME        || "Deb's Bakery")
+      : (process.env.RESEND_FROM_NAME        || process.env.STODS_RESEND_FROM_NAME ?? "Stods Bakery")
 
     const fromEmail = isStodsBrand
       ? (process.env.STODS_RESEND_FROM_EMAIL || 'orders@stodsbakery.com')
-      : (process.env.RESEND_FROM_EMAIL       || 'orders@debsbakery.store')
+      : (process.env.RESEND_FROM_EMAIL       || process.env.STODS_RESEND_FROM_EMAIL ?? 'orders@stodsbakery.com')
 
     const from = `${fromName} <${fromEmail}>`
 
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
       try {
         const siteUrl = isStodsBrand
           ? (process.env.STODS_SITE_URL       ?? 'https://orders.stodsbakery.com')
-          : (process.env.NEXT_PUBLIC_SITE_URL ?? 'https://debsbakery-portal.vercel.app')
+          : (process.env.NEXT_PUBLIC_SITE_URL ?? process.env.STODS_SITE_URL ?? 'https://orders.stodsbakery.com')
 
         const pdfRes = await fetch(`${siteUrl}/api/invoice/${orderId}?download=true`)
         if (pdfRes.ok) {

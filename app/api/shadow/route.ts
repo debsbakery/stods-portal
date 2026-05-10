@@ -118,7 +118,7 @@ export async function POST(request: Request) {
 
     // ✅ Send confirmation emails
     try {
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://debsbakery-portal.vercel.app';
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.STODS_SITE_URL ?? 'https://orders.stodsbakery.com';
       
       console.log('📧 Preparing to send emails...');
 
@@ -126,7 +126,7 @@ export async function POST(request: Request) {
       try {
         await sendEmail({
           to: customer.email,
-          subject: 'Order Confirmation - Debs Bakery',
+          subject: 'Order Confirmation - Stods Bakery',
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
               <h1 style="color: #3E1F00;">Thank you for your order!</h1>
