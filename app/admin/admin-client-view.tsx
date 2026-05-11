@@ -231,6 +231,11 @@ async function generateStandingOrders() {
   style={{ backgroundColor: '#0f766e' }}>
   <Store className="h-4 w-4" />Shop Reports
 </a>
+              <a href="/admin/search"
+                className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
+                style={{ backgroundColor: '#1d4ed8' }}>
+                <Search className="h-4 w-4" />Invoice Search
+              </a>
               <a href="/admin/portal-qr"
                 className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
                 style={{ backgroundColor: '#db2777' }}>
