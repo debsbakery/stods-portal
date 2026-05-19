@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient }         from '@/lib/supabase/admin'
-import { generateWeeklyInvoice, getPreviousWeekRange } from '@/lib/services/weekly-invoice-service'
+import { generateWeeklyInvoice, getPreviousWeekRange, sendWeeklyInvoiceEmail } from '@/lib/services/weekly-invoice-service'
 
 export async function GET(request: NextRequest) {
 
@@ -13,17 +13,21 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // ── Brisbane-aware: is today actually Sunday? ─────────────────────────────
+  // ── Perth-aware: is today actually Sunday? ────────────────────────────────
   const now       = new Date()
-  const brisbane  = new Date(now.toLocaleString('en-US', { timeZone: 'Australia/Brisbane' }))
-  const dayOfWeek = brisbane.getDay() // 0 = Sunday
+  const perth     = new Date(now.toLocaleString('en-US', { timeZone: 'Australia/Perth' }))
+  const dayOfWeek = perth.getDay() // 0 = Sunday
 
-  if (dayOfWeek !== 0) {
-    console.log(`[CRON weekly-invoices] Not Sunday in Brisbane (day=${dayOfWeek}) — skipping`)
+  // Allow bypass via ?force=true for manual testing
+  const url = new URL(request.url)
+  const force = url.searchParams.get('force') === 'true'
+
+  if (dayOfWeek !== 0 && !force) {
+    console.log(`[CRON weekly-invoices] Not Sunday in Perth (day=${dayOfWeek}) — skipping`)
     return NextResponse.json({
       success: true,
       skipped: true,
-      reason:  `Not Sunday in Brisbane (day=${dayOfWeek})`,
+      reason:  `Not Sunday in Perth (day=${dayOfWeek})`,
     })
   }
 
@@ -67,16 +71,29 @@ export async function GET(request: NextRequest) {
         customer.id,
         weekStart,
         weekEnd,
-        { sendEmail: true }   // ✅ Always email on cron run
       )
+
+      // Send email if invoice was created/revised
+      let emailSent = false
+      let emailError = ''
+      if (result.success && result.weekly_invoice_id) {
+        try {
+          await sendWeeklyInvoiceEmail(result.weekly_invoice_id)
+          emailSent = true
+          console.log(`[CRON] Email sent for ${customer.business_name}`)
+        } catch (e: any) {
+          emailError = e.message
+          console.error(`[CRON] Email failed for ${customer.business_name}:`, e.message)
+        }
+      }
 
       results.push({
         customer_id:   customer.id,
         business_name: customer.business_name ?? customer.email,
         status:        result.success ? 'ok' : 'skipped',
         message:       result.message,
-        email_sent:    result.email_sent,
-        email_error:   result.email_error,
+        email_sent:    emailSent,
+        email_error:   emailError || undefined,
       })
 
       console.log(`[CRON] ${customer.business_name}: ${result.message}`)

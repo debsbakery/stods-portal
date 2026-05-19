@@ -16,7 +16,6 @@ export default async function ResendInvoicesPage({
   const supabase = createAdminClient()
   const sp       = await searchParams
 
-  // ── Default to last 30 days if no dates provided ─────────────
   const today     = new Date()
   const defaultEnd   = today.toISOString().split('T')[0]
   const defaultStartDate = new Date(today)
@@ -27,16 +26,15 @@ export default async function ResendInvoicesPage({
   const endDate    = sp.end_date   || defaultEnd
   const customerId = sp.customer_id ?? null
 
-  // ── Fetch all customers ───────────────────────────────────
   const { data: customers } = await supabase
     .from('customers')
     .select('id, business_name, email')
     .order('business_name')
 
-  // ── Fetch invoiced orders for selected customer + date range ───
   let orders: any[] = []
   if (customerId) {
-    const { data } = await supabase
+    // Daily invoices (not part of weekly)
+    const { data: dailyOrders } = await supabase
       .from('orders')
       .select(`
         id,
@@ -48,11 +46,48 @@ export default async function ResendInvoicesPage({
       `)
       .eq('customer_id', customerId)
       .eq('status', 'invoiced')
+      .is('weekly_invoice_id', null)
       .gte('delivery_date', startDate)
       .lte('delivery_date', endDate)
       .order('delivery_date')
 
-    orders = data ?? []
+    // Weekly invoices for this customer in date range
+    const { data: weeklyInvoices } = await supabase
+      .from('weekly_invoices')
+      .select(`
+        id,
+        invoice_number,
+        week_start,
+        week_end,
+        total_amount,
+        status,
+        emailed_at,
+        customer:customers ( business_name, email )
+      `)
+      .eq('customer_id', customerId)
+      .gte('week_end', startDate)
+      .lte('week_start', endDate)
+      .order('week_start')
+
+    // Map weekly invoices to a compatible shape
+    const weeklyAsOrders = (weeklyInvoices ?? []).map((wi: any) => ({
+      id:              wi.id,
+      delivery_date:   wi.week_end,
+      invoice_number:  wi.invoice_number,
+      total_amount:    wi.total_amount,
+      status:          'invoiced',
+      customers:       wi.customer,
+      is_weekly:       true,
+      week_start:      wi.week_start,
+      week_end:        wi.week_end,
+    }))
+
+    // Combine and sort by date
+    const combined = [...(dailyOrders ?? []), ...weeklyAsOrders]
+    combined.sort((a: any, b: any) => {
+      return (a.delivery_date as string).localeCompare(b.delivery_date as string)
+    })
+    orders = combined
   }
 
   return (

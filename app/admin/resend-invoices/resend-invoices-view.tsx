@@ -17,6 +17,9 @@ interface Order {
   total_amount: number
   status: string
   customers: { business_name: string | null; email: string | null } | null
+  is_weekly?: boolean
+  week_start?: string
+  week_end?: string
 }
 
 interface Props {
@@ -64,45 +67,42 @@ export default function ResendInvoicesView({
     setAllDone(false)
     setResults({})
 
-    // Group by delivery date
-    const dateGroups = new Map<string, Order[]>()
-    for (const order of orders) {
-      if (!dateGroups.has(order.delivery_date)) {
-        dateGroups.set(order.delivery_date, [])
-      }
-      dateGroups.get(order.delivery_date)!.push(order)
-    }
-
-    // Mark all sending
     const initial: Record<string, 'sent' | 'error' | 'sending'> = {}
     for (const order of orders) initial[order.id] = 'sending'
     setResults(initial)
 
-    for (const [deliveryDate, dateOrders] of dateGroups.entries()) {
+    for (const order of orders) {
       try {
-        const res  = await fetch('/api/admin/batch-invoice', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            delivery_date: deliveryDate,
-            sendEmails:    true,
-            emailOnly:     true,
-            customer_id:   selectedCustomerId,
-          }),
-        })
-        const data = await res.json()
-        const status = res.ok && data.success ? 'sent' : 'error'
-        setResults(prev => {
-          const next = { ...prev }
-          for (const o of dateOrders) next[o.id] = status
-          return next
-        })
+        if (order.is_weekly) {
+          // Resend weekly invoice
+          const res = await fetch(`/api/admin/weekly-invoices/${order.id}/send`, {
+            method: 'POST',
+          })
+          const data = await res.json()
+          setResults(prev => ({
+            ...prev,
+            [order.id]: res.ok && data.success ? 'sent' : 'error',
+          }))
+        } else {
+          // Resend daily invoice via batch-invoice
+          const res = await fetch('/api/admin/batch-invoice', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              delivery_date: order.delivery_date,
+              sendEmails:    true,
+              emailOnly:     true,
+              customer_id:   selectedCustomerId,
+            }),
+          })
+          const data = await res.json()
+          setResults(prev => ({
+            ...prev,
+            [order.id]: res.ok && data.success ? 'sent' : 'error',
+          }))
+        }
       } catch {
-        setResults(prev => {
-          const next = { ...prev }
-          for (const o of dateOrders) next[o.id] = 'error'
-          return next
-        })
+        setResults(prev => ({ ...prev, [order.id]: 'error' }))
       }
       await new Promise(r => setTimeout(r, 600))
     }
@@ -114,21 +114,32 @@ export default function ResendInvoicesView({
   async function resendOne(order: Order) {
     setResults(prev => ({ ...prev, [order.id]: 'sending' }))
     try {
-      const res  = await fetch('/api/admin/batch-invoice', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          delivery_date: order.delivery_date,
-          sendEmails:    true,
-          emailOnly:     true,
-          customer_id:   selectedCustomerId,
-        }),
-      })
-      const data = await res.json()
-      setResults(prev => ({
-        ...prev,
-        [order.id]: res.ok && data.success ? 'sent' : 'error',
-      }))
+      if (order.is_weekly) {
+        const res = await fetch(`/api/admin/weekly-invoices/${order.id}/send`, {
+          method: 'POST',
+        })
+        const data = await res.json()
+        setResults(prev => ({
+          ...prev,
+          [order.id]: res.ok && data.success ? 'sent' : 'error',
+        }))
+      } else {
+        const res = await fetch('/api/admin/batch-invoice', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            delivery_date: order.delivery_date,
+            sendEmails:    true,
+            emailOnly:     true,
+            customer_id:   selectedCustomerId,
+          }),
+        })
+        const data = await res.json()
+        setResults(prev => ({
+          ...prev,
+          [order.id]: res.ok && data.success ? 'sent' : 'error',
+        }))
+      }
     } catch {
       setResults(prev => ({ ...prev, [order.id]: 'error' }))
     }
@@ -156,8 +167,6 @@ export default function ResendInvoicesView({
       {/* Filters */}
       <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-
-          {/* Customer */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Customer</label>
             <select
@@ -167,14 +176,10 @@ export default function ResendInvoicesView({
             >
               <option value="">— Select customer —</option>
               {customers.map(c => (
-                <option key={c.id} value={c.id}>
-                  {c.business_name}
-                </option>
+                <option key={c.id} value={c.id}>{c.business_name}</option>
               ))}
             </select>
           </div>
-
-          {/* Start Date */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">From Date</label>
             <input
@@ -184,8 +189,6 @@ export default function ResendInvoicesView({
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             />
           </div>
-
-          {/* End Date */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">To Date</label>
             <input
@@ -197,7 +200,6 @@ export default function ResendInvoicesView({
           </div>
         </div>
 
-        {/* Quick range buttons */}
         <div className="flex gap-2 mt-3 flex-wrap">
           {[
             { label: 'This Week',     days: 7  },
@@ -243,14 +245,13 @@ export default function ResendInvoicesView({
       {selectedCustomerId && orders.length === 0 && (
         <div className="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400">
           <Mail className="h-10 w-10 mx-auto mb-3 opacity-30" />
-          <p className="font-medium">No invoiced orders found for this date range</p>
+          <p className="font-medium">No invoices found for this date range</p>
         </div>
       )}
 
       {/* Orders found */}
       {selectedCustomerId && orders.length > 0 && (
         <>
-          {/* Summary bar */}
           <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
@@ -272,24 +273,19 @@ export default function ResendInvoicesView({
                   </p>
                 )}
               </div>
-
-              <div className="flex gap-2 flex-wrap">
-                {/* Resend All */}
-                <button
-                  onClick={resendAll}
-                  disabled={sending}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white rounded-lg font-medium text-sm transition"
-                >
-                  {sending
-                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Sending...</>
-                    : <><Send className="h-4 w-4" /> Resend All</>
-                  }
-                </button>
-              </div>
+              <button
+                onClick={resendAll}
+                disabled={sending}
+                className="flex items-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white rounded-lg font-medium text-sm transition"
+              >
+                {sending
+                  ? <><Loader2 className="h-4 w-4 animate-spin" /> Sending...</>
+                  : <><Send className="h-4 w-4" /> Resend All</>
+                }
+              </button>
             </div>
           </div>
 
-          {/* Table */}
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100">
@@ -304,11 +300,31 @@ export default function ResendInvoicesView({
               <tbody className="divide-y divide-gray-50">
                 {orders.map(order => {
                   const result = results[order.id]
+                  const isWeekly = !!(order as any).is_weekly
+
+                  // PDF and View URLs differ for weekly vs daily
+                  const pdfUrl = isWeekly
+                    ? `/api/admin/weekly-invoices/${order.id}/pdf`
+                    : `/api/invoice/${order.id}?download=true`
+                  const viewUrl = isWeekly
+                    ? `/api/admin/weekly-invoices/${order.id}/pdf`
+                    : `/api/invoice/${order.id}`
+
                   return (
                     <tr key={order.id} className="hover:bg-gray-50">
-
                       <td className="px-4 py-3 text-gray-700">
-                        {fmtDate(order.delivery_date)}
+                        {isWeekly ? (
+                          <div>
+                            <span className="inline-block px-1.5 py-0.5 text-xs font-medium bg-purple-100 text-purple-700 rounded mr-2">
+                              Weekly
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              {fmtDate((order as any).week_start)} – {fmtDate((order as any).week_end)}
+                            </span>
+                          </div>
+                        ) : (
+                          fmtDate(order.delivery_date)
+                        )}
                       </td>
 
                       <td className="px-4 py-3 font-mono text-gray-600">
@@ -321,67 +337,45 @@ export default function ResendInvoicesView({
                         {fmt(Number(order.total_amount ?? 0))}
                       </td>
 
-                      {/* Email status */}
                       <td className="px-4 py-3 text-center">
-                        {result === 'sending' && (
-                          <Loader2 className="h-4 w-4 animate-spin text-blue-500 mx-auto" />
-                        )}
-                        {result === 'sent' && (
-                          <CheckCircle className="h-4 w-4 text-green-500 mx-auto" />
-                        )}
-                        {result === 'error' && (
-                          <XCircle className="h-4 w-4 text-red-500 mx-auto" />
-                        )}
-                        {!result && (
-                          <span className="text-xs text-gray-300">—</span>
-                        )}
+                        {result === 'sending' && <Loader2 className="h-4 w-4 animate-spin text-blue-500 mx-auto" />}
+                        {result === 'sent' && <CheckCircle className="h-4 w-4 text-green-500 mx-auto" />}
+                        {result === 'error' && <XCircle className="h-4 w-4 text-red-500 mx-auto" />}
+                        {!result && <span className="text-xs text-gray-300">—</span>}
                       </td>
 
-                      {/* Actions */}
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-center gap-1.5">
-
-                          {/* View in browser — can print from here */}
                           <a
-                            href={`/api/invoice/${order.id}`}
+                            href={viewUrl}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-xs px-2.5 py-1 border border-gray-200 rounded-lg hover:bg-gray-50 transition text-gray-600 whitespace-nowrap"
-                            title="Open in browser — use browser Print to save as PDF"
                           >
                             View
                           </a>
-
-                          {/* Direct PDF download */}
                           <a
-                            href={`/api/invoice/${order.id}?download=true`}
+                            href={pdfUrl}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center gap-1 text-xs px-2.5 py-1 border border-blue-200 rounded-lg hover:bg-blue-50 transition text-blue-600 whitespace-nowrap"
-                            title="Download PDF to your computer"
                           >
                             <Download className="h-3 w-3" />
                             PDF
                           </a>
-
-                          {/* Resend email */}
                           <button
                             onClick={() => resendOne(order)}
                             disabled={sending || result === 'sending'}
                             className="text-xs px-2.5 py-1 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 transition text-gray-600 whitespace-nowrap"
-                            title="Resend invoice email"
                           >
                             Resend
                           </button>
-
                         </div>
                       </td>
                     </tr>
                   )
                 })}
               </tbody>
-
-              {/* Footer total */}
               <tfoot className="bg-gray-50 border-t-2 border-gray-200">
                 <tr>
                   <td className="px-4 py-3 font-semibold text-gray-700" colSpan={2}>
@@ -396,15 +390,13 @@ export default function ResendInvoicesView({
             </table>
           </div>
 
-          {/* Tip for customer */}
           <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
             <p className="font-semibold mb-1">💡 Tip for customers whose emails disappear</p>
-            <p>Ask them to check their <strong>Junk/Spam</strong> or <strong>Other</strong> inbox tab, and add <strong>orders@debsbakery.store</strong> to their contacts. Use the <strong>PDF</strong> button above to manually send via Outlook if needed.</p>
+            <p>Ask them to check their <strong>Junk/Spam</strong> or <strong>Other</strong> inbox tab, and add <strong>orders@norbakebroome.com</strong> to their contacts. Use the <strong>PDF</strong> button above to manually send via Outlook if needed.</p>
           </div>
         </>
       )}
 
-      {/* No customer selected */}
       {!selectedCustomerId && (
         <div className="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400">
           <Mail className="h-10 w-10 mx-auto mb-3 opacity-30" />
