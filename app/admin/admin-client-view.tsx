@@ -255,7 +255,11 @@ async function generateStandingOrders() {
                 style={{ backgroundColor: '#3E1F00' }}>
                 <CalendarDays className="h-4 w-4" />Roster
               </a>
-             
+                           <a href="/admin/staff"
+                className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
+                style={{ backgroundColor: '#3E1F00' }}>
+                <Users className="h-4 w-4" />Staff
+              </a>
                 <a href="/admin/hours"
                   className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
                   style={{ backgroundColor: '#b45309' }}>
