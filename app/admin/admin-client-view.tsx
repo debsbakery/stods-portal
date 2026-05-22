@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import {
-  Clock, Users, BarChart3, Package, RefreshCw, Truck,
+  Clock, Users, BarChart3, CalendarDays, QrCode, Package, RefreshCw, Truck,
   DollarSign, FileText, Thermometer, ShoppingCart, ChefHat, Receipt,
   Copy, Play, ClipboardList, Search, Printer, Store
 } from 'lucide-react'
@@ -249,6 +249,30 @@ async function generateStandingOrders() {
                 className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
                 style={{ backgroundColor: '#db2777' }}>
                 <FileText className="h-4 w-4" />Portal QR
+              </a>
+                            <a href="/admin/roster"
+                className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
+                style={{ backgroundColor: '#3E1F00' }}>
+                <CalendarDays className="h-4 w-4" />Roster
+              </a>
+             
+                <a href="/admin/hours"
+                  className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
+                  style={{ backgroundColor: '#b45309' }}>
+                  <Clock className="h-4 w-4" />Approve Hours
+                </a>
+              )}
+              
+                <a href="/admin/payroll"
+                  className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
+                  style={{ backgroundColor: '#16a34a' }}>
+                  <DollarSign className="h-4 w-4" />Payroll
+                </a>
+              )}
+              <a href="/admin/staff/clock-qr"
+                className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
+                style={{ backgroundColor: '#6366f1' }}>
+                <QrCode className="h-4 w-4" />Clock QR
               </a>
 
             <button
