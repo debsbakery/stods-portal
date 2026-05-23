@@ -34,7 +34,7 @@ type Shift = {
   approved_by: string | null
   approved_at: string | null
   manager_note: string | null
-  staff: { name: string; employment_type: string; base_hourly_rate: number | null }
+  staff: { full_name: string; employment_type: string; base_hourly_rate: number | null }
   clock_in: ClockEvent | null
   clock_out: ClockEvent | null
 }
@@ -81,13 +81,13 @@ export default function DayDetailPage() {
   const [shifts, setShifts]                   = useState<Shift[]>([])
   const [selected, setSelected]               = useState<Shift | null>(null)
   const [loading, setLoading]                 = useState(true)
-  const [overrideMin, setOverrideMin]         = useState('')
+  const [overrideHrs, setOverrideHrs]         = useState('')
+  const [overrideQtr, setOverrideQtr]         = useState('0')
   const [overrideReason, setOverrideReason]   = useState('')
   const [managerNote, setManagerNote]         = useState('')
   const [saving, setSaving]                   = useState(false)
   const [msg, setMsg]                         = useState<string | null>(null)
 
-  // Get current manager's auth user ID for approved_by UUID
   const [myUserId, setMyUserId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -111,7 +111,8 @@ export default function DayDetailPage() {
   const selectShift = (shift: Shift) => {
     setSelected(shift)
     setMsg(null)
-    setOverrideMin('')
+    setOverrideHrs('')
+    setOverrideQtr('0')
     setOverrideReason('')
     setManagerNote(shift.manager_note ?? '')
   }
@@ -138,14 +139,15 @@ export default function DayDetailPage() {
   }
 
   const override = async () => {
-    if (!selected || !overrideMin || !overrideReason || !myUserId) return
+    const totalMins = (parseInt(overrideHrs || '0') * 60) + parseInt(overrideQtr)
+    if (!selected || !totalMins || !overrideReason || !myUserId) return
     setSaving(true)
     setMsg(null)
     const res = await fetch(`/api/admin/shifts/${selected.id}/override`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        override_paid_minutes: parseInt(overrideMin),
+        override_paid_minutes: totalMins,
         reason: overrideReason,
         approved_by_id: myUserId,
       }),
@@ -156,7 +158,8 @@ export default function DayDetailPage() {
       const updated = { ...selected, ...j.shift }
       setSelected(updated)
       setShifts(prev => prev.map(s => s.id === updated.id ? updated : s))
-      setOverrideMin('')
+      setOverrideHrs('')
+      setOverrideQtr('0')
       setOverrideReason('')
     } else {
       setMsg(`❌ ${j.error}`)
@@ -190,7 +193,7 @@ export default function DayDetailPage() {
                     ? 'border-indigo-500 bg-indigo-50'
                     : 'border-gray-200 hover:border-indigo-300 bg-white'
                 }`}>
-                <div className="font-semibold text-gray-900">{shift.staff.name}</div>
+                <div className="font-semibold text-gray-900">{shift.staff.full_name}</div>
                 <div className="text-xs text-gray-500 mt-0.5">
                   {toPerth(shift.effective_start)} → {toPerth(shift.effective_end)}
                 </div>
@@ -219,7 +222,7 @@ export default function DayDetailPage() {
           {selected && (
             <div className="md:col-span-3 bg-white rounded-xl border border-gray-200 p-5 space-y-5">
               <div>
-                <h2 className="font-bold text-gray-900 text-lg">{selected.staff.name}</h2>
+                <h2 className="font-bold text-gray-900 text-lg">{selected.staff.full_name}</h2>
                 <div className="text-xs text-gray-500 capitalize">{selected.staff.employment_type}</div>
               </div>
 
@@ -231,15 +234,15 @@ export default function DayDetailPage() {
 
               {/* Pay summary */}
               <div className="grid grid-cols-4 gap-2 bg-gray-50 rounded-lg p-3 text-center text-sm">
-                {[
-                  ['Paid Hrs',  shift => shift.paid_hours != null ? shift.paid_hours.toFixed(2) : '—'],
-                  ['Gross',     shift => shift.gross_pay != null ? `$${Number(shift.gross_pay).toFixed(2)}` : '—'],
-                  ['True Cost', shift => shift.true_shift_cost != null ? `$${Number(shift.true_shift_cost).toFixed(2)}` : '—'],
-                  ['Rate',      shift => shift.applicable_rate != null ? `$${Number(shift.applicable_rate).toFixed(2)}` : '—'],
-                ].map(([label, fn]) => (
-                  <div key={label as string}>
-                    <div className="text-xs text-gray-500">{label}</div>
-                    <div className="font-bold text-gray-900">{(fn as Function)(selected)}</div>
+                              {[
+                  { label: 'Paid Hrs',  value: selected.paid_hours != null ? selected.paid_hours.toFixed(2) : '—' },
+                  { label: 'Gross',     value: selected.gross_pay != null ? `$${Number(selected.gross_pay).toFixed(2)}` : '—' },
+                  { label: 'True Cost', value: selected.true_shift_cost != null ? `$${Number(selected.true_shift_cost).toFixed(2)}` : '—' },
+                  { label: 'Rate',      value: selected.applicable_rate != null ? `$${Number(selected.applicable_rate).toFixed(2)}` : '—' },
+                ].map(item => (
+                  <div key={item.label}>
+                    <div className="text-xs text-gray-500">{item.label}</div>
+                    <div className="font-bold text-gray-900">{item.value}</div>
                   </div>
                 ))}
               </div>
@@ -264,7 +267,7 @@ export default function DayDetailPage() {
                 </div>
               </div>
 
-              {/* GPS detail for clock-in and clock-out */}
+              {/* GPS detail */}
               <div className="grid grid-cols-2 gap-3">
                 <GpsDetail event={selected.clock_in}  label="🟢 Clock In" />
                 <GpsDetail event={selected.clock_out} label="🔴 Clock Out" />
@@ -289,24 +292,34 @@ export default function DayDetailPage() {
                     <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
                       Override Paid Time
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-3 gap-2">
                       <div>
-                        <label className="text-xs text-gray-500">Paid Minutes</label>
-                        <input type="number" min="0" placeholder="e.g. 450"
-                          value={overrideMin}
-                          onChange={e => setOverrideMin(e.target.value)}
+                        <label className="text-xs text-gray-500">Hours</label>
+                        <input type="number" min="0" max="24" placeholder="e.g. 7"
+                          value={overrideHrs}
+                          onChange={e => setOverrideHrs(e.target.value)}
                           className="w-full border rounded px-3 py-1.5 text-sm mt-0.5" />
                       </div>
                       <div>
+                        <label className="text-xs text-gray-500">Minutes</label>
+                        <select value={overrideQtr} onChange={e => setOverrideQtr(e.target.value)}
+                          className="w-full border rounded px-3 py-1.5 text-sm mt-0.5">
+                          <option value="0">:00</option>
+                          <option value="15">:15</option>
+                          <option value="30">:30</option>
+                          <option value="45">:45</option>
+                        </select>
+                      </div>
+                      <div>
                         <label className="text-xs text-gray-500">Reason</label>
-                        <input type="text" placeholder="e.g. Left early — agreed"
+                        <input type="text" placeholder="e.g. Left early"
                           value={overrideReason}
                           onChange={e => setOverrideReason(e.target.value)}
                           className="w-full border rounded px-3 py-1.5 text-sm mt-0.5" />
                       </div>
                     </div>
                     <button onClick={override}
-                      disabled={saving || !overrideMin || !overrideReason || !myUserId}
+                      disabled={saving || (!overrideHrs && overrideQtr === '0') || !overrideReason || !myUserId}
                       className="w-full bg-indigo-600 text-white py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50">
                       Save Override
                     </button>
