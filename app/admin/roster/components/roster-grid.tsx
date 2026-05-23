@@ -630,8 +630,8 @@ const router = useRouter()
             </div>
           ))}
         </div>
-      </div>
-        {/* Actual totals */}
+      
+              {/* Actual totals */}
         <div className="flex-shrink-0 bg-white border-l overflow-hidden" style={{ width: ACTUAL_COL_WIDTH }}>
           <div className="h-8 border-b bg-green-50 flex items-center justify-center">
             <span className="text-[10px] font-semibold text-green-600 uppercase tracking-wider">Actual</span>
@@ -657,7 +657,9 @@ const router = useRouter()
               </div>
             )
           })}
-        </div>
+                  </div>
+      </div>
+
       {/* ── Footer Legend ── */}
       <div className="flex items-center px-3 py-1.5 bg-white border-t flex-shrink-0 shadow-[0_-1px_3px_rgba(0,0,0,0.05)]">
         <div className="flex items-center gap-4">
