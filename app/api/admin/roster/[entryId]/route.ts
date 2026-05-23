@@ -45,7 +45,7 @@ export async function DELETE(_: NextRequest, { params }: Params) {
   const supabase = createAdminClient()
   const { error } = await supabase
     .from('roster_entries')
-    .update({ status: 'rostered_off', day_type: 'rostered_off' })
+    .delete()
     .eq('id', params.entryId)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
