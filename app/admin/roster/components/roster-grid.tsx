@@ -80,18 +80,18 @@ const DEPT_COLOURS: Record<string, { bg: string; barBg: string }> = {
 
 function timeToSlot(time: string): number {
   const [h, m] = time.split(':').map(Number)
-  return Math.max(0, Math.min(TOTAL_SLOTS, ((h * 60 + m) - HOUR_START * 60) / 30))
-}
+    return Math.max(0, Math.min(TOTAL_SLOTS, ((h * 60 + m) - HOUR_START * 60) / 15))
+  }
 
 function slotToTime(slot: number): string {
-  const totalMinutes = (HOUR_START * 60) + (slot * 30)
+  const totalMinutes = (HOUR_START * 60) + (slot * 15)
   const h = Math.floor(totalMinutes / 60)
   const m = totalMinutes % 60
   return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`
 }
 
 function slotToLabel(slot: number): string {
-  const totalMinutes = (HOUR_START * 60) + (slot * 30)
+  const totalMinutes = (HOUR_START * 60) + (slot * 15)
   const h = Math.floor(totalMinutes / 60)
   const ampm = h >= 12 ? 'PM' : 'AM'
   const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
@@ -126,6 +126,7 @@ const router = useRouter()
   const [copyResult, setCopyResult] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [showActuals, setShowActuals] = useState(false)
+   const [showPrint, setShowPrint] = useState(false)
   const [dragState, setDragState] = useState<{
     type: 'create' | 'move' | 'resize-left' | 'resize-right'
     staffId: string; startSlot: number; currentSlot: number
@@ -382,6 +383,10 @@ const router = useRouter()
         <a href="/admin/staff" className="flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors">
           <Users className="h-3 w-3" />Staff
         </a>
+               <button onClick={() => setShowPrint(true)}
+          className="px-3 py-1.5 border rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+          🖨️ Print
+        </button>
         <button onClick={() => setShowActuals(prev => !prev)}
           className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
             showActuals ? 'bg-green-600 text-white' : 'border text-gray-600 hover:bg-gray-50'
@@ -630,7 +635,123 @@ const router = useRouter()
           💡 Drag to create · Grab bar to move · Drag edges to resize · Double-click to edit details
         </div>
       </div>
+      {/* ── Print View ── */}
+      {showPrint && (
+        <div className="fixed inset-0 z-50 bg-white overflow-auto print:static">
+          <div className="p-6 max-w-4xl mx-auto">
+            <div className="flex items-center justify-between mb-4 no-print">
+              <h2 className="text-lg font-bold">Print Roster</h2>
+              <div className="flex gap-2">
+                <button onClick={() => window.print()} className="px-4 py-2 bg-amber-700 text-white rounded-lg text-sm font-medium hover:bg-amber-800">
+                  🖨️ Print
+                </button>
+                <button onClick={() => setShowPrint(false)} className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">
+                  Close
+                </button>
+              </div>
+            </div>
 
+            <div className="text-center mb-4">
+              <h1 className="text-xl font-bold">Staff Roster</h1>
+              <p className="text-sm text-gray-500">{weekLabel}</p>
+            </div>
+
+            {/* Day-by-day roster */}
+            {weekDates.map((date, dayIdx) => {
+              const dayDate = new Date(date + 'T00:00:00')
+              const dayName = DAY_LABELS[dayIdx]
+              const dateLabel = dayDate.toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'short' })
+              const dayEntries = staff.flatMap(s => {
+                const ents = getEntries(s.id, date)
+                const off = isRosteredOff(s.id, date)
+                if (off) return [{ name: s.name, dept: s.primary_department, shift: 'Rostered Off', hours: '', note: '' }]
+                if (ents.length === 0) return []
+                return ents.map(e => ({
+                  name: s.name,
+                  dept: e.department ?? s.primary_department,
+                  shift: e.scheduled_start && e.scheduled_end ? `${fmtTimeShort(e.scheduled_start)} – ${fmtTimeShort(e.scheduled_end)}` : '—',
+                  hours: estimatedHours(e) > 0 ? estimatedHours(e).toFixed(1) + 'h' : '',
+                  note: e.manager_note ?? '',
+                }))
+              })
+
+              if (dayEntries.length === 0) return null
+
+              return (
+                <div key={date} className="mb-4 break-inside-avoid">
+                  <h3 className="text-sm font-bold bg-gray-100 px-3 py-1.5 rounded">{dateLabel}</h3>
+                  <table className="w-full text-sm mt-1">
+                    <thead>
+                      <tr className="border-b text-xs text-gray-500">
+                        <th className="text-left py-1 px-2 w-40">Name</th>
+                        <th className="text-left py-1 px-2 w-24">Dept</th>
+                        <th className="text-left py-1 px-2 w-36">Shift</th>
+                        <th className="text-right py-1 px-2 w-16">Hours</th>
+                        <th className="text-left py-1 px-2">Note</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dayEntries.map((row, i) => (
+                        <tr key={i} className={`border-b ${i % 2 === 0 ? '' : 'bg-gray-50/50'}`}>
+                          <td className="py-1 px-2 font-medium">{row.name}</td>
+                          <td className="py-1 px-2 text-gray-500 capitalize">{row.dept}</td>
+                          <td className="py-1 px-2">{row.shift}</td>
+                          <td className="py-1 px-2 text-right">{row.hours}</td>
+                          <td className="py-1 px-2 text-gray-400 text-xs">{row.note}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            })}
+
+            {/* Weekly summary */}
+            <div className="mt-6 break-inside-avoid">
+              <h3 className="text-sm font-bold bg-gray-800 text-white px-3 py-1.5 rounded">Weekly Summary</h3>
+              <table className="w-full text-sm mt-1">
+                <thead>
+                  <tr className="border-b text-xs text-gray-500">
+                    <th className="text-left py-1 px-2">Staff</th>
+                    {DAY_LABELS.map(d => <th key={d} className="text-center py-1 px-2 w-12">{d}</th>)}
+                    <th className="text-right py-1 px-2 w-16">Total</th>
+                    <th className="text-right py-1 px-2 w-16">Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {staff.map((s, i) => (
+                    <tr key={s.id} className={`border-b ${i % 2 === 0 ? '' : 'bg-gray-50/50'}`}>
+                      <td className="py-1 px-2 font-medium text-xs">{s.name}</td>
+                      {weekDates.map(date => {
+                        const hrs = staffDayHours(s.id, date)
+                        return <td key={date} className="py-1 px-2 text-center text-xs">{hrs > 0 ? hrs.toFixed(1) : '—'}</td>
+                      })}
+                      <td className="py-1 px-2 text-right font-bold text-xs">{staffWeekHours(s.id).toFixed(1)}h</td>
+                      <td className="py-1 px-2 text-right text-amber-700 text-xs">${staffWeekCost(s).toFixed(0)}</td>
+                    </tr>
+                  ))}
+                  <tr className="border-t-2 font-bold">
+                    <td className="py-1.5 px-2">Total</td>
+                    {weekDates.map(date => {
+                      const hrs = staff.reduce((sum, s) => sum + staffDayHours(s.id, date), 0)
+                      return <td key={date} className="py-1.5 px-2 text-center text-xs">{hrs > 0 ? hrs.toFixed(1) : '—'}</td>
+                    })}
+                    <td className="py-1.5 px-2 text-right">{totalWeeklyHours.toFixed(1)}h</td>
+                    <td className="py-1.5 px-2 text-right text-amber-700">${totalWeeklyCost.toFixed(0)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <style jsx>{`
+            @media print {
+              .no-print { display: none !important; }
+              body { font-size: 11px; }
+            }
+          `}</style>
+        </div>
+      )}
       {/* ── Edit Modal ── */}
       {editEntry && editForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setEditEntry(null)}>
