@@ -266,6 +266,17 @@ const router = useRouter()
       if (!dragState) return
       const { type, staffId, startSlot, currentSlot, entryId, originalStart, originalEnd } = dragState
       setDragState(null)
+
+      // If it was a "move" but didn't actually move — treat as click → open edit
+      if (type === 'move' && startSlot === currentSlot && entryId) {
+        const staffMember = staff.find(s => s.id === staffId)
+        const entry = localEntries.find(e => e.id === entryId)
+        if (staffMember && entry) {
+          openEditModal(staffMember, entry)
+          return
+        }
+      }
+
       let fs: number, fe: number
       if (type === 'create') { fs = Math.min(startSlot, currentSlot); fe = Math.max(startSlot, currentSlot); if (fe - fs < 1) fe = fs + 2 }
       else if (type === 'move') { const d = currentSlot - startSlot; fs = (originalStart ?? 0) + d; fe = (originalEnd ?? 0) + d; if (fs < 0) { fe -= fs; fs = 0 }; if (fe > TOTAL_SLOTS) { fs -= (fe - TOTAL_SLOTS); fe = TOTAL_SLOTS } }
