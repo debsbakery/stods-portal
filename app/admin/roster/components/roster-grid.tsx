@@ -67,6 +67,7 @@ const SLOT_WIDTH = 14
 const TIMELINE_WIDTH = TOTAL_SLOTS * SLOT_WIDTH
 const STAFF_COL_WIDTH = 140
 const WEEK_COL_WIDTH = 80
+const ACTUAL_COL_WIDTH = 80
 const ROW_HEIGHT = 52
 const MAX_SECTIONS = 2
 
@@ -182,7 +183,26 @@ const router = useRouter()
   }
   const totalWeeklyCost = staff.reduce((sum, s) => sum + staffWeekCost(s), 0)
   const totalWeeklyHours = staff.reduce((sum, s) => sum + staffWeekHours(s.id), 0)
+  function staffActualWeekHours(staffId: string): number {
+    return weekDates.reduce((sum, d) => {
+      const dayShifts = shifts.filter(s => s.staff_id === staffId && s.work_date === d && s.paid_hours)
+      return sum + dayShifts.reduce((h, s) => h + Number(s.paid_hours ?? 0), 0)
+    }, 0)
+  }
 
+  function staffActualWeekCost(s: StaffMember): number {
+    if (s.employment_type === 'salary') {
+      const hasActual = weekDates.some(d => shifts.some(sh => sh.staff_id === s.id && sh.work_date === d && sh.effective_start))
+      return hasActual ? Number(s.salary_weekly ?? 0) : 0
+    }
+    return weekDates.reduce((sum, d) => {
+      const dayShifts = shifts.filter(sh => sh.staff_id === s.id && sh.work_date === d && sh.gross_pay)
+      return sum + dayShifts.reduce((c, sh) => c + Number(sh.gross_pay ?? 0), 0)
+    }, 0)
+  }
+
+  const totalActualHours = staff.reduce((sum, s) => sum + staffActualWeekHours(s.id), 0)
+  const totalActualCost = staff.reduce((sum, s) => sum + staffActualWeekCost(s), 0)
   async function handleCopyLastWeek() {
     if (!confirm(`Copy last week's roster to ${weekLabel}?\nExisting entries will be overwritten.`)) return
     setCopying(true); setCopyResult(null)
@@ -602,16 +622,42 @@ const router = useRouter()
           <div className="h-8 border-b bg-gray-50 flex items-center justify-center">
             <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Week</span>
           </div>
-          {staff.map((s, idx) => (
+                {staff.map((s, idx) => (
             <div key={s.id} className={`border-b flex flex-col items-center justify-center ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}
               style={{ height: ROW_HEIGHT }}>
-          <span className="text-sm text-gray-400 hidden sm:inline"></span>
+              <span className="text-xs font-bold text-gray-900">{staffWeekHours(s.id).toFixed(1)}h</span>
               <span className="text-[10px] text-amber-600 font-medium">${staffWeekCost(s).toFixed(0)}</span>
             </div>
           ))}
         </div>
       </div>
-
+        {/* Actual totals */}
+        <div className="flex-shrink-0 bg-white border-l overflow-hidden" style={{ width: ACTUAL_COL_WIDTH }}>
+          <div className="h-8 border-b bg-green-50 flex items-center justify-center">
+            <span className="text-[10px] font-semibold text-green-600 uppercase tracking-wider">Actual</span>
+          </div>
+          {staff.map((s, idx) => {
+            const hrs = staffActualWeekHours(s.id)
+            const cost = staffActualWeekCost(s)
+            const schedHrs = staffWeekHours(s.id)
+            const diff = hrs - schedHrs
+            return (
+              <div key={s.id} className={`border-b flex flex-col items-center justify-center ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}
+                style={{ height: ROW_HEIGHT }}>
+                {hrs > 0 ? (
+                  <>
+                    <span className="text-xs font-bold text-gray-900">{hrs.toFixed(1)}h</span>
+                    <span className={`text-[10px] font-medium ${diff > 0.25 ? 'text-red-500' : diff < -0.25 ? 'text-blue-500' : 'text-green-600'}`}>
+                      {diff > 0 ? '+' : ''}{diff.toFixed(1)}h
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-[10px] text-gray-300">—</span>
+                )}
+              </div>
+            )
+          })}
+        </div>
       {/* ── Footer Legend ── */}
       <div className="flex items-center px-3 py-1.5 bg-white border-t flex-shrink-0 shadow-[0_-1px_3px_rgba(0,0,0,0.05)]">
         <div className="flex items-center gap-4">
