@@ -62,15 +62,17 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const { data: rosterEntry } = await supabase
+   // Find the next unstarted roster entry (supports split shifts)
+  const { data: rosterEntries } = await supabase
     .from('roster_entries')
     .select('*')
     .eq('staff_id', staff.id)
     .eq('work_date', today)
     .neq('status', 'rostered_off')
+    .neq('status', 'completed')
     .order('section', { ascending: true })
-    .maybeSingle()
 
+  const rosterEntry = rosterEntries?.[0] ?? null
   const scheduledStart = rosterEntry?.scheduled_start
     ? new Date(`${today}T${rosterEntry.scheduled_start}:00+08:00`)
     : null

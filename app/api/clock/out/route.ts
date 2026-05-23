@@ -86,15 +86,16 @@ export async function POST(request: NextRequest) {
   }
 
   if (!rosterEntry) {
-    const { data } = await supabase
+    const { data: entries } = await supabase
       .from('roster_entries')
       .select('*')
       .eq('staff_id', staff.id)
       .eq('work_date', today)
-      .neq('status', 'rostered_off')
+      .in('status', ['present', 'scheduled'])
       .order('section', { ascending: true })
-      .maybeSingle()
-    rosterEntry = data
+
+    // Pick the one that's 'present' (currently being worked) or first available
+    rosterEntry = entries?.find(e => e.status === 'present') ?? entries?.[0] ?? null
   }
 
   const scheduledEnd = rosterEntry?.scheduled_end
