@@ -61,9 +61,9 @@ const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const HOUR_START = 4
 const HOUR_END = 22
 const TOTAL_HOURS = HOUR_END - HOUR_START
-const SLOTS_PER_HOUR = 2
+const SLOTS_PER_HOUR = 4
 const TOTAL_SLOTS = TOTAL_HOURS * SLOTS_PER_HOUR
-const SLOT_WIDTH = 28
+const SLOT_WIDTH = 14
 const TIMELINE_WIDTH = TOTAL_SLOTS * SLOT_WIDTH
 const STAFF_COL_WIDTH = 140
 const WEEK_COL_WIDTH = 80
@@ -193,7 +193,29 @@ const router = useRouter()
     } catch (e: any) { setCopyResult(`Error: ${e.message}`) }
     finally { setCopying(false) }
   }
-
+  async function handleApplyTemplate() {
+    if (!confirm(`Apply staff templates to ${weekLabel}?\n\nThis will overwrite existing entries with template times.`)) return
+    setCopying(true)
+    setCopyResult(null)
+    try {
+      const res = await fetch('/api/admin/roster/apply-template', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ week_start: weekStart }),
+      })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        setCopyResult(`Applied ${data.created} template entries`)
+        router.refresh()
+      } else {
+        setCopyResult(`Error: ${data.error ?? data.message ?? 'Failed'}`)
+      }
+    } catch (e: any) {
+      setCopyResult(`Error: ${e.message}`)
+    } finally {
+      setCopying(false)
+    }
+  }
   const saveEntry = useCallback(async (staffId: string, date: string, startTime: string, endTime: string, existingId?: string) => {
     setSaving(true)
     try {
@@ -342,7 +364,10 @@ const router = useRouter()
           <Copy className="h-3 w-3" />
           {copying ? 'Copying…' : 'Copy Last Week'}
         </button>
-
+        <button onClick={handleApplyTemplate} disabled={copying}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm">
+          {copying ? '…' : 'From Template'}
+        </button>
         <a href="/admin/staff" className="flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors">
           <Users className="h-3 w-3" />Staff
         </a>
