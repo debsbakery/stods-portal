@@ -1,4 +1,4 @@
-// app/admin/shop-reports/[weekStart]/page.tsx  — STODS ONLY (has auto_gst)
+// app/admin/shop-reports/[weekStart]/page.tsx  — kc
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
@@ -10,7 +10,7 @@ import {
 } from '@/lib/week-utils'
 import PriceMarginCalculator from '../price-margin-calculator'
 
-interface Shop { id: string; name: string; sort_order: number; auto_gst: boolean }
+interface Shop { id: string; name: string; sort_order: number }
 
 interface DailyRow {
   shop_id: string
@@ -40,14 +40,10 @@ interface Settings {
 }
 
 const SUPPLIERS = [
-  'Bega',
-  'Bidfood',
-  'TWD',
-  'TCW',
-  'Angliss',
-  "Deb's Bakery",
   'Coke',
-  'Bou Samra',
+  'Kimberley Marketing',
+  'Coles',
+  'Bakery',
   'Other',
 ]
 
@@ -96,7 +92,7 @@ export default function WeeklyShopReport() {
   const [shops,          setShops]          = useState<Shop[]>([])
   const [daily,          setDaily]          = useState<Record<string, DailyRow>>({})
   const [wages,          setWages]          = useState<Record<string, number>>({})
-  const [purchases,      setPurchases]      = useState<Record<string, number>>({})
+  const [purchases, setPurchases] = useState<Record<string, { mon: number; tue: number; wed: number; thu: number; fri: number; sat: number; sun: number; amount: number }>>({})
   const [settings,       setSettings]       = useState<Settings | null>(null)
   const [saving,         setSaving]         = useState(false)
   const [isDirty,        setIsDirty]        = useState(false)
@@ -146,10 +142,21 @@ export default function WeeklyShopReport() {
     })
     setWages(wagesMap)
 
-    const purchasesMap: Record<string, number> = {}
-    SUPPLIERS.forEach(sup => { purchasesMap[sup] = 0 })
-    p?.forEach((row: { supplier: string; amount: number }) => {
-      purchasesMap[row.supplier] = row.amount
+        const purchasesMap: Record<string, { mon: number; tue: number; wed: number; thu: number; fri: number; sat: number; sun: number; amount: number }> = {}
+    SUPPLIERS.forEach(sup => { purchasesMap[sup] = { mon: 0, tue: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0, amount: 0 } })
+    p?.forEach((row: any) => {
+      if (purchasesMap[row.supplier]) {
+        purchasesMap[row.supplier] = {
+          mon: Number(row.mon) || 0,
+          tue: Number(row.tue) || 0,
+          wed: Number(row.wed) || 0,
+          thu: Number(row.thu) || 0,
+          fri: Number(row.fri) || 0,
+          sat: Number(row.sat) || 0,
+          sun: Number(row.sun) || 0,
+          amount: Number(row.amount) || 0,
+        }
+      }
     })
     setPurchases(purchasesMap)
 
@@ -169,7 +176,7 @@ export default function WeeklyShopReport() {
     const shop  = shops.find(s => s.id === shopId)
     setDaily(prev => {
       const updated: DailyRow = { ...prev[key], [field]: value }
-      if (field === 'sales' && shop?.auto_gst) {
+      if (false) {
         updated.gst = parseFloat((value / 11).toFixed(2))
       }
       return { ...prev, [key]: updated }
@@ -183,9 +190,16 @@ export default function WeeklyShopReport() {
     setIsDirty(true)
     triggerAutoSave()
   }
+  const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
+  type PurchaseDay = typeof DAYS[number]
 
-  function updatePurchase(supplier: string, val: string) {
-    setPurchases(prev => ({ ...prev, [supplier]: parseFloat(val) || 0 }))
+  function updatePurchase(supplier: string, day: PurchaseDay, val: string) {
+    setPurchases(prev => {
+      const current = prev[supplier] ?? { mon: 0, tue: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0, amount: 0 }
+      const updated = { ...current, [day]: parseFloat(val) || 0 }
+      updated.amount = DAYS.reduce((sum, d) => sum + updated[d], 0)
+      return { ...prev, [supplier]: updated }
+    })
     setIsDirty(true)
     triggerAutoSave()
   }
@@ -196,11 +210,15 @@ export default function WeeklyShopReport() {
     const wageRows  = shops.map(s => ({
       shop_id: s.id, week_start: param, wages: wages[s.id] ?? 0
     }))
-    const purchaseRows = SUPPLIERS.map(sup => ({
-      week_start: param,
-      supplier:   sup,
-      amount:     purchases[sup] ?? 0,
-    }))
+       const purchaseRows = SUPPLIERS.map(sup => {
+      const p = purchases[sup] ?? { mon: 0, tue: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0, amount: 0 }
+      return {
+        week_start: param,
+        supplier: sup,
+        mon: p.mon, tue: p.tue, wed: p.wed, thu: p.thu, fri: p.fri, sat: p.sat, sun: p.sun,
+        amount: p.amount,
+      }
+    })
     const res = await fetch(`/api/admin/shop-reports/${param}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -225,8 +243,7 @@ export default function WeeklyShopReport() {
     else showToast('❌ Failed to save settings', false)
   }
 
-  const totalPurchases = SUPPLIERS.reduce((a, s) => a + (purchases[s] ?? 0), 0)
-
+  const totalPurchases = SUPPLIERS.reduce((a, s) => a + (purchases[s]?.amount ?? 0), 0)
   function getCombined() {
     let totalSales = 0, totalGst = 0, totalEftpos = 0, totalCash = 0,
         totalPaidOut = 0, totalActualBanking = 0,
@@ -381,7 +398,7 @@ export default function WeeklyShopReport() {
                 <div key={shop.id} className="bg-white rounded-xl shadow border overflow-x-auto">
                   <div className="bg-blue-700 text-white px-4 py-2.5 font-semibold rounded-t-xl flex items-center gap-2">
                     {shop.name}
-                    {shop.auto_gst && (
+                    {false && (
                       <span className="text-xs bg-blue-500 text-white px-2 py-0.5 rounded-full font-normal">
                         GST auto ÷11
                       </span>
@@ -399,7 +416,7 @@ export default function WeeklyShopReport() {
                     </thead>
                     <tbody>
                       {FIELDS.map(({ key, label, isMoney }) => {
-                        const isAutoGst = key === 'gst' && shop.auto_gst
+                        const isAutoGst = false
                         return (
                           <tr key={key} className="border-b hover:bg-gray-50">
                             <td className="px-3 py-1 font-medium text-gray-500 text-xs">
@@ -510,7 +527,7 @@ export default function WeeklyShopReport() {
               )
             })}
 
-            {/* ── Purchases by Supplier ── */}
+                    {/* ── Purchases by Supplier (Daily) ── */}
             <div className="bg-white rounded-xl shadow border overflow-hidden">
               <div className="bg-teal-700 text-white px-4 py-2.5 font-semibold rounded-t-xl flex items-center justify-between">
                 <span>📦 Weekly Purchases — All Shops</span>
@@ -518,60 +535,72 @@ export default function WeeklyShopReport() {
                   Total: {fmtMoney(totalPurchases)}
                 </span>
               </div>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50 border-b text-gray-600 text-xs">
-                    <th className="text-left px-4 py-2">Supplier</th>
-                    <th className="text-right px-4 py-2 w-48">Amount</th>
-                    <th className="text-right px-4 py-2 w-24">% of Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {SUPPLIERS.map((supplier, idx) => {
-                    const amount = purchases[supplier] ?? 0
-                    const supPct = totalPurchases > 0
-                      ? (amount / totalPurchases * 100).toFixed(1)
-                      : '0.0'
-                    return (
-                      <tr key={supplier}
-                        className={`border-b hover:bg-gray-50 ${idx % 2 === 0 ? '' : 'bg-gray-50/50'}`}>
-                        <td className="px-4 py-2 font-medium text-gray-700">{supplier}</td>
-                        <td className="px-4 py-2">
-                          <div className="flex items-center justify-end gap-2">
-                            <span className="text-gray-400 text-sm no-print">$</span>
-                            <input
-                              type="number" min="0" step="0.01"
-                              value={amount === 0 ? '' : amount}
-                              onChange={e => updatePurchase(supplier, e.target.value)}
-                              placeholder="0.00"
-                              className="no-print w-36 border rounded px-2 py-1 text-right text-sm
-                                focus:outline-none focus:ring-1 focus:ring-teal-400"
-                            />
-                            <span className="hidden print:block font-medium">
-                              {fmtMoney(amount)}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-2 text-right text-gray-500 text-sm">
-                          {supPct}%
-                        </td>
-                      </tr>
-                    )
-                  })}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b text-gray-600 text-xs">
+                      <th className="text-left px-3 py-2 whitespace-nowrap">Supplier</th>
+                      {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                        <th key={d} className="text-center px-2 py-2 w-24">{d}</th>
+))}
+                      <th className="text-right px-3 py-2 w-24">Total</th>
+                      <th className="text-right px-3 py-2 w-16 no-print">%</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {SUPPLIERS.map((supplier, idx) => {
+                      const p = purchases[supplier] ?? { mon: 0, tue: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0, amount: 0 }
+                      const supPct = totalPurchases > 0 ? (p.amount / totalPurchases * 100).toFixed(1) : '0.0'
+                      return (
+                        <tr key={supplier} className={`border-b hover:bg-gray-50 ${idx % 2 === 0 ? '' : 'bg-gray-50/50'}`}>
+                          <td className="px-3 py-1.5 font-medium text-gray-700 whitespace-nowrap">{supplier}</td>
+                          {DAYS.map(day => (
+                            <td key={day} className="px-1 py-1">
+                                                        <input
+                                type="number" min="0" step="0.01"
+                                value={p[day] === 0 ? '' : p[day]}
+                                onChange={e => updatePurchase(supplier, day, e.target.value)}
+                                placeholder="0.00"
+                                className="no-print w-full border rounded px-2 py-1.5 text-right text-sm
+                                  focus:outline-none focus:ring-1 focus:ring-teal-400"
+                              />
+                              <span className="hidden print:block text-right text-xs">
+                                {p[day] > 0 ? fmtMoney(p[day]) : '—'}
+                              </span>
+                            </td>
+                          ))}
+                          <td className="px-3 py-1.5 text-right font-bold text-gray-800">
+                            {p.amount > 0 ? fmtMoney(p.amount) : '—'}
+                          </td>
+                          <td className="px-3 py-1.5 text-right text-gray-500 text-xs no-print">
+                            {supPct}%
+                          </td>
+                        </tr>
+                      )
+                    })}
 
-                  <tr className="border-t-2 bg-teal-50">
-                    <td className="px-4 py-2.5 font-bold text-teal-800">Total Purchases</td>
-                    <td className="px-4 py-2.5 text-right font-bold text-teal-900 text-base">
-                      {fmtMoney(totalPurchases)}
-                    </td>
-                    <td className="px-4 py-2.5 text-right font-bold text-teal-700">
-                      100%
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+                    {/* Day totals row */}
+                    <tr className="border-t-2 bg-teal-50">
+                      <td className="px-3 py-2 font-bold text-teal-800">Daily Total</td>
+                      {DAYS.map(day => {
+                        const dayTotal = SUPPLIERS.reduce((sum, sup) => sum + (purchases[sup]?.[day] ?? 0), 0)
+                        return (
+                          <td key={day} className="px-1 py-2 text-center font-bold text-teal-700 text-xs">
+                            {dayTotal > 0 ? fmtMoney(dayTotal) : '—'}
+                          </td>
+                        )
+                      })}
+                      <td className="px-3 py-2 text-right font-bold text-teal-900 text-base">
+                        {fmtMoney(totalPurchases)}
+                      </td>
+                      <td className="px-3 py-2 text-right font-bold text-teal-700 no-print">
+                        100%
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
-
             {/* Combined Totals */}
             <div className="bg-white rounded-xl shadow border overflow-x-auto">
               <div className="bg-gray-800 text-white px-4 py-2.5 font-semibold rounded-t-xl">
