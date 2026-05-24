@@ -21,14 +21,19 @@ export default function InvoiceStatusPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<'invoiced' | 'paid' | 'all'>('invoiced')
+  const [dateFrom, setDateFrom] = useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 30)
+    return d.toISOString().split('T')[0]
+  })
+  const [dateTo, setDateTo] = useState(() => new Date().toISOString().split('T')[0])
 
-   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    fetchOrders()
-  }, [filter])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchOrders() }, [filter, dateFrom, dateTo])
+
   async function fetchOrders() {
     setLoading(true)
-    const res = await fetch(`/api/admin/invoices/list?status=${filter}`)
+    const res = await fetch(`/api/admin/invoices/list?status=${filter}&from=${dateFrom}&to=${dateTo}`)
     const data = await res.json()
     setOrders(data.orders ?? [])
     setLoading(false)
@@ -89,7 +94,7 @@ export default function InvoiceStatusPage() {
   const selectedTotal = filtered.filter(o => selected.has(o.id)).reduce((s, o) => s + Number(o.total_amount), 0)
 
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-4">
+    <div className="max-w-6xl mx-auto p-6 space-y-4">
       <div className="flex items-center gap-3">
         <Link href="/admin" className="p-2 rounded hover:bg-gray-100">
           <ChevronLeft className="h-4 w-4" />
@@ -97,7 +102,7 @@ export default function InvoiceStatusPage() {
         <h1 className="text-2xl font-bold text-gray-900">📋 Invoice Status Manager</h1>
       </div>
 
-      {/* Controls */}
+      {/* Controls Row 1: Filters */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
           {(['invoiced', 'paid', 'all'] as const).map(f => (
@@ -110,33 +115,47 @@ export default function InvoiceStatusPage() {
           ))}
         </div>
 
+        <div className="flex items-center gap-1.5 text-sm">
+          <span className="text-gray-500">From</span>
+          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+            className="border rounded-lg px-2 py-1.5 text-sm" />
+          <span className="text-gray-500">To</span>
+          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+            className="border rounded-lg px-2 py-1.5 text-sm" />
+        </div>
+
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input type="text" placeholder="Search customer or invoice #..."
             value={search} onChange={e => setSearch(e.target.value)}
             className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm" />
         </div>
-
-        {selected.size > 0 && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-500">
-              {selected.size} selected (${selectedTotal.toFixed(2)})
-            </span>
-            {filter !== 'paid' && (
-              <button onClick={() => markAs('mark_paid')} disabled={saving}
-                className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50">
-                <Check className="h-4 w-4" /> Mark Paid
-              </button>
-            )}
-            {filter !== 'invoiced' && (
-              <button onClick={() => markAs('mark_unpaid')} disabled={saving}
-                className="flex items-center gap-1.5 px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700 disabled:opacity-50">
-                <X className="h-4 w-4" /> Mark Unpaid
-              </button>
-            )}
-          </div>
-        )}
       </div>
+
+      {/* Controls Row 2: Actions */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 bg-blue-50 px-4 py-2.5 rounded-lg">
+          <span className="text-sm font-medium text-blue-700">
+            {selected.size} selected — ${selectedTotal.toFixed(2)}
+          </span>
+          {filter !== 'paid' && (
+            <button onClick={() => markAs('mark_paid')} disabled={saving}
+              className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50">
+              <Check className="h-4 w-4" /> Mark Paid
+            </button>
+          )}
+          {filter !== 'invoiced' && (
+            <button onClick={() => markAs('mark_unpaid')} disabled={saving}
+              className="flex items-center gap-1.5 px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700 disabled:opacity-50">
+              <X className="h-4 w-4" /> Mark Unpaid
+            </button>
+          )}
+          <button onClick={() => setSelected(new Set())}
+            className="text-sm text-gray-500 hover:text-gray-700 ml-auto">
+            Clear selection
+          </button>
+        </div>
+      )}
 
       {msg && (
         <div className={`px-4 py-3 rounded-lg text-sm ${
@@ -169,14 +188,14 @@ export default function InvoiceStatusPage() {
               {filtered.map(o => (
                 <tr key={o.id} className={`hover:bg-gray-50 ${selected.has(o.id) ? 'bg-blue-50' : ''}`}
                   onClick={() => toggleSelect(o.id)} style={{ cursor: 'pointer' }}>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                     <input type="checkbox" checked={selected.has(o.id)}
                       onChange={() => toggleSelect(o.id)} className="rounded" />
                   </td>
                   <td className="px-4 py-3 font-mono font-medium">{o.invoice_number ?? '—'}</td>
                   <td className="px-4 py-3 font-medium text-gray-900">{o.customer.business_name}</td>
                   <td className="px-4 py-3 text-gray-600">
-                    {new Date(o.delivery_date + 'T00:00:00').toLocaleDateString('en-AU', { day: '2-digit', month: 'short' })}
+                    {new Date(o.delivery_date + 'T00:00:00').toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' })}
                   </td>
                   <td className="px-4 py-3 text-right font-mono">${Number(o.total_amount).toFixed(2)}</td>
                   <td className="px-4 py-3 text-center">

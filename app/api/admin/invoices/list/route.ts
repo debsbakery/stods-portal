@@ -11,6 +11,8 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url)
   const status = searchParams.get('status') ?? 'invoiced'
+  const from = searchParams.get('from')
+  const to = searchParams.get('to')
 
   const supabase = createAdminClient()
 
@@ -19,13 +21,16 @@ export async function GET(request: NextRequest) {
     .select('id, invoice_number, delivery_date, total_amount, status, customer:customers!inner(business_name)')
     .not('status', 'in', '("cancelled","pending","confirmed","in_production","completed")')
     .order('delivery_date', { ascending: false })
-    .limit(500)
+    .limit(1000)
 
   if (status === 'invoiced') {
     query = query.eq('status', 'invoiced')
   } else if (status === 'paid') {
     query = query.eq('status', 'paid')
   }
+
+  if (from) query = query.gte('delivery_date', from)
+  if (to) query = query.lte('delivery_date', to)
 
   const { data, error } = await query
 
