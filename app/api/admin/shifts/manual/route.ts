@@ -1,4 +1,3 @@
-// app/api/admin/shifts/manual/route.ts
 export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -13,8 +12,9 @@ export async function POST(request: NextRequest) {
 
   const { staff_id, work_date, clock_in_time, clock_out_time, department, reason } = await request.json()
 
-  if (!staff_id || !work_date || !clock_in_time || !clock_out_time) {
-    return NextResponse.json({ error: 'staff_id, work_date, clock_in_time, clock_out_time required' }, { status: 400 })
+  // clock_out_time is now OPTIONAL
+  if (!staff_id || !work_date || !clock_in_time) {
+    return NextResponse.json({ error: 'staff_id, work_date, clock_in_time required' }, { status: 400 })
   }
 
   const supabase = createAdminClient()
@@ -30,9 +30,11 @@ export async function POST(request: NextRequest) {
 
   // Build timestamps in Perth timezone
   const effectiveStart = new Date(`${work_date}T${clock_in_time}:00+08:00`)
-  const effectiveEnd = new Date(`${work_date}T${clock_out_time}:00+08:00`)
+  const effectiveEnd = clock_out_time
+    ? new Date(`${work_date}T${clock_out_time}:00+08:00`)
+    : null
 
-  if (effectiveEnd <= effectiveStart) {
+  if (effectiveEnd && effectiveEnd <= effectiveStart) {
     return NextResponse.json({ error: 'Clock out must be after clock in' }, { status: 400 })
   }
 
@@ -51,7 +53,49 @@ export async function POST(request: NextRequest) {
   const dayOfWeek = new Date(work_date + 'T00:00:00').getDay()
   const dayType = rosterEntry?.day_type ?? (dayOfWeek === 0 ? 'sunday' : dayOfWeek === 6 ? 'saturday' : 'normal')
 
-  // Calculate shift pay
+  // If clock-in only — create open shift
+  if (!effectiveEnd) {
+    // Find next available section
+    const { data: existingShifts } = await supabase
+      .from('shifts')
+      .select('section')
+      .eq('staff_id', staff_id)
+      .eq('work_date', work_date)
+
+    const usedSections = (existingShifts ?? []).map(s => s.section)
+    let section = 1
+    while (usedSections.includes(section)) section++
+
+    const { data: shift, error: insertErr } = await supabase
+      .from('shifts')
+      .insert({
+        staff_id,
+        roster_entry_id: rosterEntry?.id ?? null,
+        work_date,
+        section,
+        department: dept,
+        employment_type: staff.employment_type,
+        day_type: dayType,
+        effective_start: effectiveStart.toISOString(),
+        effective_end: null,
+        gross_minutes: 0,
+        break_minutes: 0,
+        paid_minutes: 0,
+        paid_hours: 0,
+        status: 'clocked_in',
+        manager_note: `Manual clock-in: ${reason ?? 'QR scan failed'}`,
+      })
+      .select()
+      .single()
+
+    if (insertErr) {
+      return NextResponse.json({ error: insertErr.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ success: true, shift, clock_in_only: true })
+  }
+
+  // Full shift — clock in + clock out (existing logic)
   const grossMins = Math.round((effectiveEnd.getTime() - effectiveStart.getTime()) / 60000)
   const breakMins = grossMins >= 270 ? Number(staff.break_minutes ?? 30) : 0
 
