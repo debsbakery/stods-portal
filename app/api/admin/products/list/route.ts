@@ -12,12 +12,18 @@ export async function GET() {
 
   const { data: products, error } = await supabase
     .from('products')
-    .select('id, name, price, category, product_code, active')
+    .select('id, name, price, category, product_code, is_available')
     .order('name')
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ products })
+  // Map is_available → active so the frontend works consistently
+  const mapped = (products || []).map(p => ({
+    ...p,
+    active: p.is_available !== false,
+  }))
+
+  return NextResponse.json({ products: mapped })
 }
