@@ -129,7 +129,7 @@ export default function DayDetailPage() {
     const j = await res.json()
     if (res.ok) {
       setMsg('✅ Shift approved')
-      const updated = { ...selected, ...j.shift }
+      const updated = { ...selected, ...j.shift, staff: selected.staff }
       setSelected(updated)
       setShifts(prev => prev.map(s => s.id === updated.id ? updated : s))
     } else {
@@ -155,7 +155,7 @@ export default function DayDetailPage() {
     const j = await res.json()
     if (res.ok) {
       setMsg('✅ Override saved')
-      const updated = { ...selected, ...j.shift }
+      const updated = { ...selected, ...j.shift, staff: selected.staff }
       setSelected(updated)
       setShifts(prev => prev.map(s => s.id === updated.id ? updated : s))
       setOverrideHrs('')
