@@ -1,14 +1,15 @@
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
-import { cookies } from 'next/headers'
+export const dynamic = 'force-dynamic'
+
 import { NextResponse } from 'next/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { checkAdmin } from '@/lib/auth'
 
 export async function GET() {
-  const supabase = createRouteHandlerClient({ cookies })
-
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) {
+  if (!(await checkAdmin())) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  const supabase = createAdminClient()
 
   const { data: products, error } = await supabase
     .from('products')
@@ -19,7 +20,6 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  // Map is_available → active so the frontend works consistently
   const mapped = (products || []).map(p => ({
     ...p,
     active: p.is_available !== false,
