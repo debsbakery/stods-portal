@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
 
   const { data: staff } = await supabase
     .from('staff')
-    .select('id, name, employment_type, active')
+    .select('id, name, employment_type, active, break_minutes, primary_department')
     .eq('pin', String(pin))
     .eq('active', true)
     .maybeSingle()
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-   // Find the next unstarted roster entry (supports split shifts)
+  // Find the next unstarted roster entry (supports split shifts)
   const { data: rosterEntries } = await supabase
     .from('roster_entries')
     .select('*')
@@ -98,6 +98,7 @@ export async function POST(request: NextRequest) {
     ipMatchesSite: true,
   })
 
+  // Insert clock event
   const { data: insertedEvent, error: evtErr } = await supabase
     .from('clock_events')
     .insert({
@@ -114,6 +115,8 @@ export async function POST(request: NextRequest) {
       trust_score:     trustScore,
       flags:           flags.length > 0 ? flags : null,
     })
+    .select()
+    .single()
 
   if (evtErr) {
     console.error('[clock-in] INSERT ERROR:', evtErr.message, evtErr.code, evtErr.details)
@@ -122,6 +125,37 @@ export async function POST(request: NextRequest) {
 
   if (rosterEntry) {
     await supabase.from('roster_entries').update({ status: 'present' }).eq('id', rosterEntry.id)
+  }
+
+  // ── Create shift row immediately (open shift — no end time) ──
+  const dayOfWeek = new Date(today + 'T00:00:00').getDay()
+  const dayType = rosterEntry?.day_type
+    ?? (dayOfWeek === 0 ? 'sunday' : dayOfWeek === 6 ? 'saturday' : 'normal')
+  const section = rosterEntry?.section ?? 1
+  const dept = rosterEntry?.department ?? staff.primary_department ?? 'production'
+
+  const { error: shiftErr } = await supabase
+    .from('shifts')
+    .upsert({
+      staff_id:        staff.id,
+      roster_entry_id: rosterEntry?.id ?? null,
+      work_date:       today,
+      section:         section,
+      department:      dept,
+      employment_type: staff.employment_type,
+      day_type:        dayType,
+      clock_in_id:     insertedEvent.id,
+      effective_start: paidTime.toISOString(),
+      gross_minutes:   0,
+      break_minutes:   0,
+      paid_minutes:    0,
+      paid_hours:      0,
+      status:          'pending',
+    }, { onConflict: 'staff_id,work_date,section', ignoreDuplicates: false })
+
+  if (shiftErr) {
+    console.error('[clock-in] shift create error:', shiftErr.message)
+    // Don't fail the whole clock-in — the event is already recorded
   }
 
   const rawTimeStr  = nowLocal.toTimeString().slice(0, 5)
