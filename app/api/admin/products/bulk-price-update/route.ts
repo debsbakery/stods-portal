@@ -1,14 +1,15 @@
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
-import { cookies } from 'next/headers'
+export const dynamic = 'force-dynamic'
+
 import { NextResponse } from 'next/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { checkAdmin } from '@/lib/auth'
 
 export async function POST(request: Request) {
-  const supabase = createRouteHandlerClient({ cookies })
-
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) {
+  if (!(await checkAdmin())) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  const supabase = createAdminClient()
 
   const body = await request.json()
   const { updates } = body as {
@@ -26,7 +27,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'No updates provided' }, { status: 400 })
   }
 
-  // Validate all new prices are positive
   for (const u of updates) {
     if (u.new_price <= 0) {
       return NextResponse.json(
@@ -40,7 +40,6 @@ export async function POST(request: Request) {
   let successCount = 0
 
   for (const u of updates) {
-    // Update product price
     const { error: updateError } = await supabase
       .from('products')
       .update({ price: u.new_price })
@@ -51,14 +50,13 @@ export async function POST(request: Request) {
       continue
     }
 
-    // Write audit log
     await supabase.from('price_change_log').insert({
       product_id: u.product_id,
       old_price: u.old_price,
       new_price: u.new_price,
       change_type: u.change_type,
       change_value: u.change_value,
-      changed_by: user.id,
+      changed_by: null,
     })
 
     successCount++
@@ -70,4 +68,3 @@ export async function POST(request: Request) {
     errors,
   })
 }
-
