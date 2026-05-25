@@ -164,7 +164,7 @@ const router = useRouter()
     const parts = formatter.formatToParts(d)
     const h = parseInt(parts.find(p => p.type === 'hour')?.value ?? '0', 10)
     const m = parseInt(parts.find(p => p.type === 'minute')?.value ?? '0', 10)
-    return Math.max(0, Math.min(TOTAL_SLOTS, ((h * 60 + m) - HOUR_START * 60) / 30))
+    return Math.max(0, Math.min(TOTAL_SLOTS, ((h * 60 + m) - HOUR_START * 60) / 15))
   }
   function isRosteredOff(staffId: string, date: string): boolean {
     return localEntries.some(e => e.staff_id === staffId && e.work_date === date && e.status === 'rostered_off')
