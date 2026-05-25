@@ -69,7 +69,7 @@ const STAFF_COL_WIDTH = 140
 const WEEK_COL_WIDTH = 80
 const ACTUAL_COL_WIDTH = 80
 const ROW_HEIGHT = 52
-const MAX_SECTIONS = 2
+const MAX_SECTIONS = 3
 
 const DEPT_COLOURS: Record<string, { bg: string; barBg: string }> = {
   production: { bg: 'bg-amber-500', barBg: '#f59e0b' },
