@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
 
     const {
       customer_id,
-      amount,             // CASH amount only (can be 0 if using credits)
+      amount,
       payment_date,
       payment_method,
       reference_number,
@@ -87,7 +87,6 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Determine credit consumption ──────────────────────────────────────
-    // Cash applies first to invoices, credits cover the rest
     const cashAppliedToInvoices   = Math.min(Math.max(0, cashAmount), totalAllocatedToInvoices)
     const creditAppliedToInvoices = Math.max(0, totalAllocatedToInvoices - cashAppliedToInvoices)
 
@@ -118,6 +117,8 @@ export async function POST(request: NextRequest) {
     for (const allocation of invoiceAllocs) {
       if (!allocation.invoice_id || !allocation.amount) continue
       const allocAmount = Number(allocation.amount)
+      const isAcceptedFull = allocation.accept_as_full === true
+      const shortAmount = Number(allocation.short_amount || 0)
 
       // Cash portion of this allocation
       const cashPart = Math.min(cashRemaining, allocAmount)
@@ -140,8 +141,15 @@ export async function POST(request: NextRequest) {
         .single()
 
       if (arTx) {
-        const newAmountPaid = Number(arTx.amount_paid || 0) + allocAmount
-        const isFullyPaid   = newAmountPaid >= Number(arTx.amount) - 0.005
+        let newAmountPaid = Number(arTx.amount_paid || 0) + allocAmount
+        const arTotal = Number(arTx.amount)
+
+        // If accepted as full payment, mark the AR transaction as fully paid
+        if (isAcceptedFull) {
+          newAmountPaid = arTotal
+        }
+
+        const isFullyPaid = newAmountPaid >= arTotal - 0.005
         const updateData: any = { amount_paid: Math.round(newAmountPaid * 100) / 100 }
         if (isFullyPaid) {
           updateData.paid_date = payment_date || new Date().toISOString().split('T')[0]
@@ -149,21 +157,44 @@ export async function POST(request: NextRequest) {
         await supabase.from('ar_transactions').update(updateData).eq('id', arTx.id)
       }
 
-      // Update orders.amount_paid by full allocation
+      // Update orders.amount_paid + status
       const { data: order } = await supabase
         .from('orders')
-        .select('amount_paid')
+        .select('amount_paid, total_amount')
         .eq('id', allocation.invoice_id)
         .single()
 
       if (order) {
+        let newAmountPaid = Math.round(((Number(order.amount_paid) || 0) + allocAmount) * 100) / 100
+        const orderTotal = Number(order.total_amount) || 0
+
+        // If accepted as full, set amount_paid = total
+        if (isAcceptedFull) {
+          newAmountPaid = orderTotal
+        }
+
+        const isOrderFullyPaid = newAmountPaid >= orderTotal - 0.01
+
+        const orderUpdate: any = { amount_paid: newAmountPaid }
+        if (isOrderFullyPaid) {
+          orderUpdate.status = 'paid'
+        }
+
         await supabase
           .from('orders')
-          .update({
-            amount_paid: Math.round(((Number(order.amount_paid) || 0) + allocAmount) * 100) / 100,
-          })
+          .update(orderUpdate)
           .eq('id', allocation.invoice_id)
       }
+
+      // ── Write to payment_allocations for audit trail + unapply ────────
+      await supabase.from('payment_allocations').insert({
+        payment_id: payment?.id || null,
+        order_id: allocation.invoice_id,
+        amount: allocAmount,
+        is_full_payment: isAcceptedFull,
+        short_amount: isAcceptedFull ? shortAmount : 0,
+        allocated_by: null,
+      })
     }
 
     // ── Consume credits proportionally (oldest first) ─────────────────────
@@ -182,7 +213,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ── Overpayment handler (only on cash overpayments) ───────────────────
+    // ── Overpayment handler ───────────────────────────────────────────────
     const cashUnallocated = Math.max(0, cashAmount - cashAppliedToInvoices)
 
     if (cashUnallocated > 0.009) {
@@ -196,8 +227,6 @@ export async function POST(request: NextRequest) {
           description: `Overpayment credit — cash payment of $${cashAmount.toFixed(2)} exceeded allocations by $${cashUnallocated.toFixed(2)}`,
           created_at:  new Date().toISOString(),
         })
-
-      console.log(`[PAYMENTS] Overpayment $${cashUnallocated} → credit created for customer ${customer_id}`)
     }
 
     // ── Recalculate customer balance from scratch ─────────────────────────

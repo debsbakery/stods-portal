@@ -27,18 +27,37 @@ export default async function RecordPaymentPage() {
     .order('delivery_date', { ascending: false })
 
   // ── Fetch unapplied credits from ar_transactions ──
-  const { data: credits } = await supabase
-    .from('ar_transactions')
-    .select('id, customer_id, amount, amount_paid, description, created_at')
-    .eq('type', 'credit')
-    .eq('amount_paid', 0)
-    .order('created_at', { ascending: true })
+ const { data: credits } = await supabase
+  .from('ar_transactions')
+  .select('id, customer_id, amount, amount_paid, description, created_at, invoice_id')
+  .eq('type', 'credit')
+  .eq('amount_paid', 0)
+  .order('created_at', { ascending: true })
+  // Get invoice numbers for credits that have invoice_id
+const creditInvoiceIds = (credits || []).map((c: any) => c.invoice_id).filter(Boolean)
+let creditInvoiceMap: Record<string, number> = {}
 
-  return (
-    <RecordPaymentWithAllocation
-      customers={customers || []}
-      invoices={invoices   || []}
-      credits={credits     || []}
-    />
-  )
+if (creditInvoiceIds.length > 0) {
+  const { data: creditOrders } = await supabase
+    .from('orders')
+    .select('id, invoice_number')
+    .in('id', creditInvoiceIds)
+
+  for (const o of (creditOrders || [])) {
+    if (o.invoice_number) creditInvoiceMap[o.id] = o.invoice_number
+  }
+}
+
+// Attach invoice numbers to credits
+const creditsWithNumbers = (credits || []).map((c: any) => ({
+  ...c,
+  invoice_number: c.invoice_id ? creditInvoiceMap[c.invoice_id] || null : null,
+}))
+ return (
+  <RecordPaymentWithAllocation
+    customers={customers || []}
+    invoices={invoices   || []}
+    credits={creditsWithNumbers}
+  />
+)
 }
