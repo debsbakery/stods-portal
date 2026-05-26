@@ -155,7 +155,11 @@ async function generateStandingOrders() {
                 style={{ backgroundColor: '#059669' }}>
                 <DollarSign className="h-4 w-4" />Invoice Status
               </a>
-
+              <a href="/admin/quotes"
+                className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
+                style={{ backgroundColor: '#2563eb' }}>
+                <FileText className="h-4 w-4" />Quotes
+              </a>
               <a href="/admin/reports/weekly"
                 className="flex items-center gap-2 px-4 py-2 text-white rounded-md hover:opacity-90 shadow-md text-sm font-medium"
                 style={{ backgroundColor: '#7c3aed' }}>
