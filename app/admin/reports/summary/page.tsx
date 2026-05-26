@@ -60,8 +60,7 @@ export default async function SummaryPage() {
   const items = (rawItems ?? [])
     .filter(item => {
       const o = item.orders as any
-      return o?.status === 'invoiced' || o?.status === 'pending'
-    })
+      return o?.status !== 'cancelled'    })
     .map(item => ({
       ...item,
       orders: (item.orders as unknown) as {
