@@ -45,15 +45,75 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       notes,
       terms,
       valid_until,
+      status,
       items,
     } = body
 
     const updateData: any = {
-      title,
-      notes,
-      terms,
-      valid_until,
       updated_at: new Date().toISOString(),
+    }
+
+    if (title !== undefined) updateData.title = title
+    if (notes !== undefined) updateData.notes = notes
+    if (terms !== undefined) updateData.terms = terms
+    if (valid_until !== undefined) updateData.valid_until = valid_until
+
+    // Handle status changes
+    if (status) {
+      updateData.status = status
+
+      if (status === 'sent' && !body.sent_at) {
+        updateData.sent_at = new Date().toISOString()
+      }
+      if (body.sent_at) updateData.sent_at = body.sent_at
+
+      if (status === 'accepted') {
+        updateData.accepted_at = new Date().toISOString()
+
+        // ── Write contract prices ──────────────────────────────────
+        const { data: existingQuote } = await supabase
+          .from('quotes')
+          .select('customer_id')
+          .eq('id', id)
+          .single()
+
+        if (existingQuote?.customer_id) {
+          const { data: quoteItems } = await supabase
+            .from('quote_items')
+            .select('product_id, name, unit_price')
+            .eq('quote_id', id)
+
+          if (quoteItems) {
+            for (const item of quoteItems) {
+              if (!item.product_id) continue
+
+              // Deactivate existing price for this customer+product
+              await supabase
+                .from('customer_pricing')
+                .update({ active: false, updated_at: new Date().toISOString() })
+                .eq('customer_id', existingQuote.customer_id)
+                .eq('product_id', item.product_id)
+                .eq('active', true)
+
+              // Insert new contract price
+              await supabase.from('customer_pricing').insert({
+                customer_id: existingQuote.customer_id,
+                product_id: item.product_id,
+                contract_price: item.unit_price,
+                source: 'quote',
+                source_quote_id: id,
+                effective_from: new Date().toISOString().split('T')[0],
+                effective_to: null,
+                active: true,
+              })
+            }
+          }
+        }
+      }
+
+      if (status === 'declined') {
+        updateData.declined_at = new Date().toISOString()
+      }
     }
 
     if (customer_id) {
@@ -134,6 +194,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       return NextResponse.json({ error: 'Can only delete draft quotes' }, { status: 400 })
     }
 
+    await supabase.from('quote_items').delete().eq('quote_id', id)
     await supabase.from('quotes').delete().eq('id', id)
 
     return NextResponse.json({ success: true })

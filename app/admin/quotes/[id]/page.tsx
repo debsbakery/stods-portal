@@ -113,7 +113,25 @@ export default function QuoteDetailPage() {
       setSending(false)
     }
   }
-
+  async function acceptQuote() {
+    if (!confirm('Mark this quote as accepted? This will set contract prices for the customer.')) return
+    setSending(true)
+    try {
+      const res = await fetch(`/api/quotes/${quoteId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'accepted' }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to accept quote')
+      alert('Quote accepted — contract prices have been set')
+      await fetchQuote()
+    } catch (err: any) {
+      alert(err.message)
+    } finally {
+      setSending(false)
+    }
+  }
   async function deleteQuote() {
     setDeleting(true)
     try {
@@ -213,7 +231,17 @@ export default function QuoteDetailPage() {
                 Copy Link
               </button>
             )}
-
+            {/* Accept — for sent quotes */}
+            {isSent && (
+              <button
+                onClick={acceptQuote}
+                disabled={sending}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium disabled:opacity-50"
+              >
+                <CheckCircle className="w-4 h-4" />
+                Accept
+              </button>
+            )}
             {/* Send — draft or resend */}
             {(isDraft || isSent) && (
               <button

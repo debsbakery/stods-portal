@@ -132,14 +132,18 @@ export async function POST(
     }
 
     // Update quote status
-    await supabase
+        const { error: updateError } = await supabase
       .from('quotes')
       .update({
         status: 'sent',
         sent_at: new Date().toISOString(),
-        token,
+        access_token: token,
       })
       .eq('id', id)
+
+    if (updateError) {
+      console.error('Failed to update quote status:', updateError)
+    }
 
     console.log(`✅ Quote ${quote.quote_number} sent to ${customer.email}`)
 
