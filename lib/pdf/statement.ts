@@ -261,6 +261,13 @@ if (line.debit != null && line.debit !== 0) {
     COL.debit, y,
     { size: 8, color: isNegDebit ? GREEN : DARK }
   )
+  // Show owing amount for part-paid invoices
+  if (line.paid_status === 'partial' && line.amount_paid != null) {
+    const owing = line.debit - (line.amount_paid ?? 0)
+    if (owing > 0.01) {
+      drawText(`(${formatCurrency(owing)} owing)`, COL.debit, y - 9, { size: 6, color: AMBER })
+    }
+  }
 }
     if (line.credit != null && line.credit > 0) {
       drawText(formatCurrency(line.credit), COL.credit, y, { size: 8, color: GREEN })
@@ -269,7 +276,9 @@ if (line.debit != null && line.debit !== 0) {
     const balColor = line.balance > 0 ? RED : (line.balance < 0 ? GREEN : DARK)
     drawText(formatCurrency(line.balance), COL.balance, y, { size: 8, bold: true, color: balColor })
 
-    y -= 16
+       // Extra height for part-paid rows showing owing amount
+    const rowHeight = (line.paid_status === 'partial') ? 24 : 16
+    y -= rowHeight
     rowIndex++
   }
 
