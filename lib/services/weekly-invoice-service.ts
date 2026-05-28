@@ -257,16 +257,17 @@ export async function generateWeeklyInvoice(
     .eq('customer_id', customerId)
     .eq('description', weeklyInvDesc)
 
-  await supabase
-    .from('ar_transactions')
-    .insert({
-      customer_id:  customerId,
-      type:         'invoice',
-      amount:       totalAmount,
-      due_date:     dueDateStr,
-      description:  weeklyInvDesc,
-      created_at:   new Date().toISOString(),
-    })
+     await supabase
+      .from('ar_transactions')
+      .insert({
+        customer_id:  customerId,
+        type:         'invoice',
+        amount:       totalAmount,
+        due_date:     dueDateStr,
+        description:  weeklyInvDesc,
+        invoice_id:   weeklyId,
+        created_at:   new Date().toISOString(),
+      })
   // ── 10. Recalculate customer balance ────────────────────────────────────
   const { data: allTx } = await supabase
     .from('ar_transactions')
