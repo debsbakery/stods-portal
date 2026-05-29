@@ -21,9 +21,9 @@ function createServiceClient() {
 export async function POST(request: Request) {
   try {
     const supabase = createServiceClient();
-    const body = await request.json().catch(() => ({}))
-    const skipDays: string[] = (body.skip_days ?? []).map((d: string) => d.toLowerCase())
-
+  const body = await request.json().catch(() => ({}))
+const skipDays: string[] = (body.skip_days ?? []).map((d: string) => d.toLowerCase())
+const weekOffset: number = body.week_offset ?? 1
     // 🆕 Use Australia time so server (UTC) doesn't get the wrong day
     const ausNow = new Date(
       new Date().toLocaleString('en-US', { timeZone: 'Australia/Brisbane' })
@@ -84,7 +84,7 @@ export async function POST(request: Request) {
         }
 
         // 🆕 Always target NEXT week (Sun-Sat), regardless of today
-        const deliveryDate    = getNextWeekDeliveryDate(deliveryDay);
+const deliveryDate    = getWeekDeliveryDate(deliveryDay, weekOffset);
         const deliveryDateStr = deliveryDate.toISOString().split('T')[0];
 
         console.log(
@@ -279,7 +279,7 @@ export async function POST(request: Request) {
  *  - Tue May 5  → May 16
  *  - Sat May 9  → May 16
  */
-function getNextWeekDeliveryDate(deliveryDay: string): Date {
+function getWeekDeliveryDate(deliveryDay: string, weekOffset: number = 1): Date {
   const DAYS = [
     'sunday', 'monday', 'tuesday', 'wednesday',
     'thursday', 'friday', 'saturday'
@@ -293,21 +293,19 @@ function getNextWeekDeliveryDate(deliveryDay: string): Date {
     return tomorrow;
   }
 
-  // Brisbane time so we don't get UTC-shifted into wrong day
   const ausNow = new Date(
-    new Date().toLocaleString('en-US', { timeZone: 'Australia/Brisbane' })
+    new Date().toLocaleString('en-US', { timeZone: 'Australia/Perth' })
   );
   const currentIndex = ausNow.getDay();
 
-  // Find NEXT week's Sunday (start of next week)
-  // If today is Sunday → next Sunday = 7 days away
-  // Otherwise → days remaining until next Sunday
   const daysUntilNextSunday = currentIndex === 0 ? 7 : 7 - currentIndex;
 
   const result = new Date(ausNow);
-  result.setDate(ausNow.getDate() + daysUntilNextSunday + targetIndex);
+  result.setDate(ausNow.getDate() + daysUntilNextSunday + ((weekOffset - 1) * 7) + targetIndex);
   return result;
 }
+
+ 
 
 // ── Info endpoint ─────────────────────────────────────────────────
 export async function GET() {
