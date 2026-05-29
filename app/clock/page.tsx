@@ -3,7 +3,26 @@
 
 import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
+async function generateFingerprint(): Promise<string> {
+  const components = [
+    navigator.userAgent,
+    navigator.language,
+    screen.width + 'x' + screen.height,
+    screen.colorDepth,
+    new Date().getTimezoneOffset(),
+    navigator.hardwareConcurrency ?? '',
+    (navigator as any).deviceMemory ?? '',
+  ].join('|')
 
+  // Simple hash
+  let hash = 0
+  for (let i = 0; i < components.length; i++) {
+    const char = components.charCodeAt(i)
+    hash = ((hash << 5) - hash) + char
+    hash = hash & hash
+  }
+  return Math.abs(hash).toString(36)
+}
 function ClockPageContent() {
   const searchParams = useSearchParams()
   const token        = searchParams.get('token') ?? ''
@@ -13,6 +32,7 @@ function ClockPageContent() {
   const [mode,      setMode]      = useState<'in'|'out'>('in')
   const [location,  setLocation]  = useState<any>(null)
   const [gpsCoords, setGpsCoords] = useState<{lat:number;lng:number}|null>(null)
+ const [deviceFingerprint, setDeviceFingerprint] = useState<string>('')
   const [gpsError,  setGpsError]  = useState<string|null>(null)
   const [loading,   setLoading]   = useState(false)
   const [result,    setResult]    = useState<any>(null)
@@ -31,16 +51,20 @@ function ClockPageContent() {
   useEffect(() => {
     if (!token) {
       setStep('error')
+      // Generate device fingerprint
       setErrorMsg('Invalid QR code — please scan again.')
       return
     }
     fetch(`/api/clock/qr?token=${encodeURIComponent(token)}`)
       .then(r => r.json())
-      .then(data => {
-        if (data.valid) {
-          setLocation(data.location)
-          setStep('pin')
-          navigator.geolocation?.getCurrentPosition(
+      .then(async data => {
+  if (data.valid) {
+    setLocation(data.location)
+    setStep('pin')
+    // Generate device fingerprint
+    const fp = await generateFingerprint()
+    setDeviceFingerprint(fp)
+    navigator.geolocation?.getCurrentPosition(
             pos => setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
             ()  => setGpsError('GPS unavailable — clock-in will be flagged'),
             { timeout: 8000, enableHighAccuracy: true }
@@ -67,12 +91,13 @@ function ClockPageContent() {
       const res  = await fetch(endpoint, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          pin:   currentPin,
-          token,
-          lat:   gpsCoords?.lat ?? null,
-          lng:   gpsCoords?.lng ?? null,
-        }),
+       body: JSON.stringify({
+  pin:   currentPin,
+  token,
+  lat:   gpsCoords?.lat ?? null,
+  lng:   gpsCoords?.lng ?? null,
+  device_fingerprint: deviceFingerprint || null,
+}),
       })
       const data = await res.json()
 

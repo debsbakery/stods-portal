@@ -7,8 +7,7 @@ import { computeClockIn, computeTrustScore, haversineDistanceM } from '@/lib/ser
 
 export async function POST(request: NextRequest) {
   const body = await request.json()
-  const { pin, token, lat, lng } = body
-
+const { pin, token, lat, lng, device_fingerprint } = body
   if (!pin || !token) {
     return NextResponse.json({ error: 'PIN and QR token required' }, { status: 400 })
   }
@@ -30,8 +29,7 @@ export async function POST(request: NextRequest) {
 
   const { data: staff } = await supabase
     .from('staff')
-    .select('id, name, employment_type, active, break_minutes, primary_department')
-    .eq('pin', String(pin))
+.select('id, name, employment_type, active, break_minutes, primary_department, known_device')    .eq('pin', String(pin))
     .eq('active', true)
     .maybeSingle()
 
@@ -90,13 +88,32 @@ export async function POST(request: NextRequest) {
     distanceM = Math.round(haversineDistanceM(Number(lat), Number(lng), Number(location.latitude), Number(location.longitude)))
     gpsValid = distanceM <= Number(location.radius_metres ?? 200)
   }
+const ipAddress = request.headers.get('x-forwarded-for')?.split(',')[0] ?? null
 
-  const ipAddress = request.headers.get('x-forwarded-for')?.split(',')[0] ?? null
-  const { score: trustScore, flags } = computeTrustScore({
-    gpsValid, distanceM,
-    radiusM: Number(location?.radius_metres ?? 200),
-    ipMatchesSite: true,
-  })
+let deviceFlag: string | null = null
+const knownDevice = (staff as any).known_device
+
+if (device_fingerprint) {
+  if (!knownDevice) {
+    await supabase
+      .from('staff')
+      .update({ 
+        known_device: device_fingerprint,
+        known_device_set_at: nowUtc.toISOString()
+      })
+      .eq('id', staff.id)
+  } else if (knownDevice !== device_fingerprint) {
+    deviceFlag = 'different_device'
+  }
+}
+
+const { score: trustScore, flags: gpsFlags } = computeTrustScore({
+  gpsValid, distanceM,
+  radiusM: Number(location?.radius_metres ?? 200),
+  ipMatchesSite: true,
+})
+
+const flags = deviceFlag ? [...gpsFlags, deviceFlag] : gpsFlags
 
   // Insert clock event
   const { data: insertedEvent, error: evtErr } = await supabase
@@ -114,6 +131,7 @@ export async function POST(request: NextRequest) {
       ip_address:      ipAddress,
       trust_score:     trustScore,
       flags:           flags.length > 0 ? flags : null,
+   device_fingerprint: device_fingerprint ?? null,
     })
     .select()
     .single()
