@@ -78,7 +78,8 @@ const { data: todayShifts } = await supabase
   .eq('work_date', today)
 
 const usedSections = (todayShifts ?? []).map((s: any) => s.section)
-const rosterEntry = rosterEntries?.find(e => !usedSections.includes(e.section)) ?? null  const scheduledStart = rosterEntry?.scheduled_start
+const rosterEntry = rosterEntries?.find(e => !usedSections.includes(e.section)) ?? null 
+ const scheduledStart = rosterEntry?.scheduled_start
     ? new Date(`${today}T${rosterEntry.scheduled_start}:00+08:00`)
     : null
 

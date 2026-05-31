@@ -20,7 +20,8 @@ const { pin, token, lat, lng, device_fingerprint } = body
 
   const { data: qr } = await supabase
     .from('staff_qr_codes')
-.select('id, name, employment_type, active, break_minutes, primary_department, known_device')
+// ✅ WITH THIS
+.select('id, location_id, staff_locations(id, name, latitude, longitude, radius_metres)')
     .eq('token', token)
     .eq('active', true)
     .maybeSingle()
