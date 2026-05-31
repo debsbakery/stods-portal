@@ -70,8 +70,15 @@ const { pin, token, lat, lng, device_fingerprint } = body
     .neq('status', 'completed')
     .order('section', { ascending: true })
 
-  const rosterEntry = rosterEntries?.[0] ?? null
-  const scheduledStart = rosterEntry?.scheduled_start
+// Find roster entry that hasn't been clocked into yet
+const { data: todayShifts } = await supabase
+  .from('shifts')
+  .select('section')
+  .eq('staff_id', staff.id)
+  .eq('work_date', today)
+
+const usedSections = (todayShifts ?? []).map((s: any) => s.section)
+const rosterEntry = rosterEntries?.find(e => !usedSections.includes(e.section)) ?? null  const scheduledStart = rosterEntry?.scheduled_start
     ? new Date(`${today}T${rosterEntry.scheduled_start}:00+08:00`)
     : null
 
@@ -149,8 +156,14 @@ const flags = deviceFlag ? [...gpsFlags, deviceFlag] : gpsFlags
   const dayOfWeek = new Date(today + 'T00:00:00').getDay()
   const dayType = rosterEntry?.day_type
     ?? (dayOfWeek === 0 ? 'sunday' : dayOfWeek === 6 ? 'saturday' : 'normal')
-  const section = rosterEntry?.section ?? 1
-  const dept = rosterEntry?.department ?? staff.primary_department ?? 'production'
+// Auto-assign next available section if no roster entry
+let section = rosterEntry?.section ?? 1
+if (!rosterEntry) {
+  for (let s = 1; s <= 3; s++) {
+    if (!usedSections.includes(s)) { section = s; break }
+  }
+}
+    const dept = rosterEntry?.department ?? staff.primary_department ?? 'production'
 
   const { error: shiftErr } = await supabase
     .from('shifts')
