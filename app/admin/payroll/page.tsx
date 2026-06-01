@@ -36,8 +36,8 @@ type Totals = {
 function currentWeekSunday() {
   const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Australia/Perth' }))
   now.setHours(0, 0, 0, 0)
-  const day = now.getDay() // 0 = Sunday
-  now.setDate(now.getDate() - day) // Go back to Sunday
+  const day = now.getDay() // 0 = Sunday, 1 = Monday ... 6 = Saturday
+  now.setDate(now.getDate() - day) // Subtract day index to get back to Sunday
   return now.toISOString().slice(0, 10)
 }
 
