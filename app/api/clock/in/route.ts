@@ -80,8 +80,8 @@ const { data: todayShifts } = await supabase
 const usedSections = (todayShifts ?? []).map((s: any) => s.section)
 const rosterEntry = rosterEntries?.find(e => !usedSections.includes(e.section)) ?? null 
  const scheduledStart = rosterEntry?.scheduled_start
-    ? new Date(`${today}T${rosterEntry.scheduled_start}:00+08:00`)
-    : null
+? new Date(`${today}T${rosterEntry.scheduled_start.slice(0, 5)}:00+08:00`)
+ : null
 
   const { paidTime, snapReason } = computeClockIn({
     rawTime: nowUtc,
