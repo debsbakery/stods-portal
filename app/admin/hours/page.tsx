@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { Plus, X } from 'lucide-react'
+import { Plus, X, LogOut } from 'lucide-react'
 
 type ClockEvent = {
   id: string
@@ -46,6 +46,13 @@ function toPerth(iso: string | null) {
 
 function perthToday() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/Perth' })
+}
+
+function perthNowTime() {
+  return new Date().toLocaleTimeString('en-AU', {
+    timeZone: 'Australia/Perth',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  })
 }
 
 function statusBadge(shift: Shift) {
@@ -97,7 +104,7 @@ export default function HoursPage() {
     next: () => { const x = new Date(date); x.setDate(x.getDate() + 1); setDate(x.toISOString().slice(0, 10)) },
   }
 
-  // Manual entry state
+  // ── Manual entry state ──
   const [staffList, setStaffList] = useState<{ id: string; name: string; primary_department: string }[]>([])
   const [showManual, setShowManual] = useState(false)
   const [manualForm, setManualForm] = useState({
@@ -153,6 +160,47 @@ export default function HoursPage() {
       setManualError(e.message)
     } finally {
       setManualSaving(false)
+    }
+  }
+
+  // ── Force clock-out state ──
+  const [forceShift, setForceShift] = useState<Shift | null>(null)
+  const [forceTime, setForceTime] = useState('')
+  const [forceSaving, setForceSaving] = useState(false)
+  const [forceError, setForceError] = useState<string | null>(null)
+
+  function openForceClockOut(shift: Shift) {
+    setForceShift(shift)
+    setForceTime(perthNowTime())
+    setForceError(null)
+    setForceSaving(false)
+  }
+
+  async function handleForceClockOut() {
+    if (!forceShift || !forceTime) return
+    setForceSaving(true)
+    setForceError(null)
+    try {
+      const res = await fetch('/api/admin/shifts/manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          staff_id:       forceShift.staff_id,
+          work_date:      forceShift.work_date,
+          clock_out_time: forceTime,
+          shift_id:       forceShift.id,
+          reason:         'Admin force clock-out',
+          force_out:      true,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setForceShift(null)
+      fetchShifts()
+    } catch (e: any) {
+      setForceError(e.message)
+    } finally {
+      setForceSaving(false)
     }
   }
 
@@ -218,9 +266,19 @@ export default function HoursPage() {
                   </td>
                   <td className="px-4 py-3 text-gray-700">{toPerth(shift.effective_start)}</td>
                   <td className="px-4 py-3 text-gray-700">
-                    {shift.effective_end
-                      ? toPerth(shift.effective_end)
-                      : <span className="text-yellow-600 text-xs">Still in</span>}
+                    {shift.effective_end ? (
+                      toPerth(shift.effective_end)
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-yellow-600 text-xs">Still in</span>
+                        <button
+                          onClick={() => openForceClockOut(shift)}
+                          className="flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium hover:bg-red-200"
+                        >
+                          <LogOut className="h-3 w-3" /> Clock Out
+                        </button>
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right font-mono">
                     {shift.paid_hours != null ? shift.paid_hours.toFixed(2) : '—'}
@@ -258,7 +316,55 @@ export default function HoursPage() {
         </div>
       )}
 
-      {/* Manual Entry Modal */}
+      {/* ── Force Clock-Out Modal ── */}
+      {forceShift && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => setForceShift(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4"
+            onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b bg-red-50 rounded-t-2xl flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Force Clock Out</h3>
+                <p className="text-sm text-gray-600">{forceShift.staff.name}</p>
+              </div>
+              <button onClick={() => setForceShift(null)} className="p-2 hover:bg-red-100 rounded-lg">
+                <X className="h-5 w-5 text-gray-400" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="text-sm text-gray-600">
+                Clocked in at <span className="font-semibold">{toPerth(forceShift.effective_start)}</span>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1.5">Clock Out Time</label>
+                <input
+                  type="time"
+                  value={forceTime}
+                  onChange={e => setForceTime(e.target.value)}
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-red-500"
+                />
+              </div>
+              {forceError && <p className="text-sm text-red-600">{forceError}</p>}
+            </div>
+            <div className="p-5 border-t bg-gray-50 rounded-b-2xl flex gap-2">
+              <button
+                onClick={handleForceClockOut}
+                disabled={forceSaving}
+                className="flex-1 py-2.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                <LogOut className="h-4 w-4" />
+                {forceSaving ? 'Saving…' : 'Confirm Clock Out'}
+              </button>
+              <button onClick={() => setForceShift(null)}
+                className="px-4 py-2.5 border rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Manual Entry Modal ── */}
       {showManual && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowManual(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
@@ -285,8 +391,6 @@ export default function HoursPage() {
                   {staffList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </div>
-
-              {/* Clock-in only toggle */}
               <div className="flex items-center gap-3">
                 <label className="relative inline-flex items-center cursor-pointer">
                   <input type="checkbox" checked={manualForm.clock_in_only}
@@ -297,7 +401,6 @@ export default function HoursPage() {
                 <span className="text-sm text-gray-700 font-medium">Clock-in only</span>
                 <span className="text-xs text-gray-400">(no clock out yet)</span>
               </div>
-
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1.5">Clock In</label>
@@ -317,13 +420,11 @@ export default function HoursPage() {
                     }`} />
                 </div>
               </div>
-
               {manualForm.clock_in_only && (
                 <p className="text-xs text-amber-600 bg-amber-50 px-3 py-2 rounded-lg">
                   ⏱ This will create an open shift. Staff can clock out normally, or you can add the end time later.
                 </p>
               )}
-
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1.5">Department</label>
                 <select value={manualForm.department}
