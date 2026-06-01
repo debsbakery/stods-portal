@@ -33,16 +33,17 @@ type Totals = {
   pending_approval: number
 }
 
-function currentWeekMonday() {
+function currentWeekSunday() {
   const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Australia/Perth' }))
-  const day = now.getDay()
-  const diff = day === 0 ? -6 : 1 - day
-  now.setDate(now.getDate() + diff)
+  now.setHours(0, 0, 0, 0)
+  const day = now.getDay() // 0 = Sunday
+  now.setDate(now.getDate() - day) // Go back to Sunday
   return now.toISOString().slice(0, 10)
 }
 
 export default function PayrollPage() {
-  const [weekStart, setWeekStart] = useState(currentWeekMonday)
+// ✅ NEW
+const [weekStart, setWeekStart] = useState(currentWeekSunday)
   const [summary, setSummary] = useState<StaffSummary[]>([])
   const [totals, setTotals] = useState<Totals | null>(null)
   const [sickHours, setSickHours] = useState<Record<string, number>>({})
@@ -149,10 +150,10 @@ export default function PayrollPage() {
           {weekStart} → {weekEnd}
         </span>
         <button onClick={nextWeek} className="p-2 rounded border hover:bg-gray-50">▶</button>
-        <button onClick={() => setWeekStart(currentWeekMonday())}
-          className="text-sm text-indigo-600 hover:underline">This Week</button>
-      </div>
-
+        // ✅ NEW
+<button onClick={() => setWeekStart(currentWeekSunday())}
+  className="text-sm text-indigo-600 hover:underline">This Week</button>
+</div>
       {totals && totals.pending_approval > 0 && (
         <div className="bg-orange-50 border border-orange-200 text-orange-800 px-4 py-3 rounded-lg text-sm">
           ⚠️ <strong>{totals.pending_approval}</strong> shift{totals.pending_approval !== 1 ? 's' : ''} still pending approval —
