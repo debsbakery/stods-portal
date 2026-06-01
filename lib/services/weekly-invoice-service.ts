@@ -1,30 +1,28 @@
 // lib/services/weekly-invoice-service.ts
-//
-// Single source of truth for weekly invoice generation.
-// Used by the admin manual-trigger endpoint, and the Sunday cron.
-
 import { createAdminClient } from '@/lib/supabase/admin'
+import { sendEmail }         from '@/lib/email-sender'
+import { generateWeeklyInvoicePDF } from '@/lib/pdf/weekly-invoice-pdf'
 
 export interface WeeklyInvoiceResult {
-  success:        boolean
+  success:            boolean
   weekly_invoice_id?: string
   invoice_number?:    number
-  customer_id:    string
-  week_start:     string
-  week_end:       string
-  order_count:    number
-  total_amount:   number
-  gst_amount:     number
-  message:        string
-  was_revised:    boolean
+  customer_id:        string
+  week_start:         string
+  week_end:           string
+  order_count:        number
+  total_amount:       number
+  gst_amount:         number
+  message:            string
+  was_revised:        boolean
+  email_sent?:        boolean
+  email_error?:       string
 }
 
-/**
- * Get the Sunday-Saturday week range for a given anchor date.
- */
+// ── Brisbane-aware week range ─────────────────────────────────────────────────
 export function getPreviousWeekRange(anchor: Date = new Date()): { start: string; end: string } {
   const brisbane = new Date(
-    anchor.toLocaleString('en-US', { timeZone: 'Australia/Perth' })
+    anchor.toLocaleString('en-US', { timeZone: 'Australia/Brisbane' })
   )
   brisbane.setHours(0, 0, 0, 0)
 
@@ -45,10 +43,10 @@ export function getPreviousWeekRange(anchor: Date = new Date()): { start: string
   }
 }
 
-/**
- * Get next available invoice number (shared sequence with daily orders).
- */
-async function getNextInvoiceNumber(supabase: ReturnType<typeof createAdminClient>): Promise<number> {
+// ── Shared invoice number (orders + weekly_invoices sequence) ─────────────────
+async function getNextInvoiceNumber(
+  supabase: ReturnType<typeof createAdminClient>
+): Promise<number> {
   const { data: maxOrder } = await supabase
     .from('orders')
     .select('invoice_number')
@@ -66,45 +64,339 @@ async function getNextInvoiceNumber(supabase: ReturnType<typeof createAdminClien
     .maybeSingle()
 
   const max = Math.max(
-    Number(maxOrder?.invoice_number ?? 0),
+    Number(maxOrder?.invoice_number  ?? 0),
     Number(maxWeekly?.invoice_number ?? 0),
   )
   return max + 1
 }
 
-/**
- * Generate (or regenerate) a weekly invoice for a single customer + week.
- * Idempotent: if a weekly_invoice already exists for that customer+week,
- * it will be UPDATED with revised totals (status: 'revised') rather than duplicated.
- */
+// ── Build weekly invoice email HTML ───────────────────────────────────────────
+function buildWeeklyInvoiceEmail(params: {
+  invoiceNumber: string
+  weekStart:     string
+  weekEnd:       string
+  dueDate:       string
+  totalAmount:   number
+  gstAmount:     number
+  customerName:  string
+  isRevised:     boolean
+  dayLines: Array<{
+    delivery_date:  string
+    invoice_number: number | null
+    order_id:       string
+    total_amount:   number
+  }>
+  bakery: {
+    name:       string
+    email:      string
+    phone:      string
+    address:    string
+    abn:        string
+    bankName:   string
+    bankBSB:    string
+    bankAccount:string
+  }
+  siteUrl: string
+}): string {
+  const {
+    invoiceNumber, weekStart, weekEnd, dueDate,
+    totalAmount, gstAmount, customerName, isRevised,
+    dayLines, bakery, siteUrl,
+  } = params
+
+  const subtotal   = totalAmount - gstAmount
+  const periodFrom = new Date(weekStart + 'T00:00:00').toLocaleDateString('en-AU')
+  const periodTo   = new Date(weekEnd   + 'T00:00:00').toLocaleDateString('en-AU')
+  const dueDateFmt = new Date(dueDate   + 'T00:00:00').toLocaleDateString('en-AU')
+
+  const dayRowsHtml = dayLines.map(line => {
+    const dateObj   = new Date(line.delivery_date + 'T00:00:00')
+    const dayName   = dateObj.toLocaleDateString('en-AU', { weekday: 'long', day: '2-digit', month: '2-digit' })
+    const reference = line.invoice_number
+      ? `Daily #${String(line.invoice_number).padStart(6, '0')}`
+      : `Order ${line.order_id.slice(0, 8).toUpperCase()}`
+    return `
+      <tr>
+        <td style="padding:10px;border-bottom:1px solid #ddd;">${dayName}</td>
+        <td style="padding:10px;border-bottom:1px solid #ddd;color:#555;">${reference}</td>
+        <td style="padding:10px;border-bottom:1px solid #ddd;text-align:right;font-weight:bold;">
+          $${Number(line.total_amount).toFixed(2)}
+        </td>
+      </tr>`
+  }).join('')
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  body{font-family:Arial,sans-serif;color:#333;max-width:700px;margin:0 auto;padding:20px;}
+  .header{background:#3E1F00;color:white;padding:30px;text-align:center;border-radius:8px 8px 0 0;}
+  .header h1{margin:0;font-size:26px;}
+  .header p{margin:5px 0;opacity:.9;font-size:14px;}
+  .badge{background:rgba(255,255,255,.2);padding:6px 18px;border-radius:20px;display:inline-block;margin:6px 4px;font-weight:bold;}
+  .revised-banner{background:#dc2626;color:white;text-align:center;padding:10px;font-weight:bold;font-size:15px;}
+  .card{background:white;padding:25px;margin:15px 0;border:1px solid #e5e7eb;border-radius:8px;}
+  table.items{width:100%;border-collapse:collapse;}
+  table.items th{background:#3E1F00;color:white;padding:10px;text-align:left;font-size:14px;}
+  .payment-box{background:#f0fdf4;border:1px solid #16a34a;border-radius:8px;padding:20px;margin:15px 0;}
+  .bank-row{padding:4px 0;font-size:14px;}
+  .footer{text-align:center;color:#888;font-size:12px;padding:20px;border-top:1px solid #e5e7eb;margin-top:20px;}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🍞 ${bakery.name}</h1>
+  <p>${bakery.address}</p>
+  <p>${bakery.email} | ${bakery.phone}</p>
+  <p>ABN: ${bakery.abn}</p>
+  <div class="badge">Weekly Tax Invoice</div>
+  <div class="badge">Invoice #${invoiceNumber}</div>
+</div>
+
+${isRevised ? `<div class="revised-banner">⚠️ REVISED INVOICE — This replaces the previously issued invoice for this week</div>` : ''}
+
+<div class="card">
+  <table style="width:100%;">
+    <tr>
+      <td style="vertical-align:top;">
+        <p style="margin:5px 0;font-size:16px;font-weight:bold;">${customerName}</p>
+      </td>
+      <td style="vertical-align:top;text-align:right;">
+        <p style="margin:5px 0;"><strong>Invoice #:</strong> ${invoiceNumber}</p>
+        <p style="margin:5px 0;"><strong>Period:</strong> ${periodFrom} – ${periodTo}</p>
+        <p style="margin:5px 0;"><strong>Due:</strong> ${dueDateFmt}</p>
+      </td>
+    </tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;color:#3E1F00;">Deliveries This Week</h3>
+  <table class="items">
+    <thead>
+      <tr>
+        <th>Delivery Day</th>
+        <th>Reference</th>
+        <th style="text-align:right;">Amount (inc GST)</th>
+      </tr>
+    </thead>
+    <tbody>${dayRowsHtml}</tbody>
+  </table>
+
+  <div style="margin-top:20px;text-align:right;">
+    <p style="margin:4px 0;">Subtotal (ex GST): <strong>$${subtotal.toFixed(2)}</strong></p>
+    <p style="margin:4px 0;">GST (10%): <strong>$${gstAmount.toFixed(2)}</strong></p>
+    <p style="margin:8px 0;font-size:20px;color:#3E1F00;border-top:2px solid #3E1F00;padding-top:8px;">
+      <strong>TOTAL: $${totalAmount.toFixed(2)}</strong>
+    </p>
+  </div>
+</div>
+
+<div class="payment-box">
+  <h3 style="margin-top:0;color:#166534;">Payment Information</h3>
+  <div class="bank-row"><strong>Bank:</strong> ${bakery.bankName}</div>
+  <div class="bank-row"><strong>BSB:</strong> ${bakery.bankBSB}</div>
+  <div class="bank-row"><strong>Account:</strong> ${bakery.bankAccount}</div>
+  <div class="bank-row"><strong>Reference:</strong> ${invoiceNumber}</div>
+  <p style="margin:15px 0 0 0;padding:12px;background:white;border-radius:5px;border-left:4px solid #16a34a;">
+    <strong>Payment Due: ${dueDateFmt}</strong>
+  </p>
+</div>
+
+<div style="text-align:center;margin:20px 0;">
+  <a href="${siteUrl}/admin/weekly-invoices"
+     style="display:inline-block;padding:12px 25px;background:#3E1F00;color:white;text-decoration:none;border-radius:6px;font-weight:bold;">
+    View Invoice Online
+  </a>
+</div>
+
+<div class="footer">
+  <p><strong>${bakery.name}</strong> | ${bakery.address}</p>
+  <p>${bakery.email} | ${bakery.phone} | ABN: ${bakery.abn}</p>
+  <p>GST included: $${gstAmount.toFixed(2)} | Generated: ${new Date().toLocaleString('en-AU')}</p>
+</div>
+
+</body>
+</html>`
+}
+
+// ── Send email for an already-generated weekly invoice ────────────────────────
+export async function sendWeeklyInvoiceEmail(weeklyInvoiceId: string): Promise<{
+  success:     boolean
+  email_sent_to: string[]
+  error?:      string
+}> {
+  const supabase = createAdminClient()
+
+  // Fetch weekly invoice + customer + linked orders
+  const { data: weekly, error: wErr } = await supabase
+    .from('weekly_invoices')
+    .select('*, customer:customers(id, business_name, email, email_2, address, phone, abn, payment_terms)')
+    .eq('id', weeklyInvoiceId)
+    .single()
+
+  if (wErr || !weekly) throw new Error('Weekly invoice not found')
+
+  const customer = weekly.customer as any
+  if (!customer?.email) throw new Error('Customer has no email address')
+
+  const { data: links } = await supabase
+    .from('weekly_invoice_orders')
+    .select('order_id')
+    .eq('weekly_invoice_id', weeklyInvoiceId)
+
+  const orderIds = (links ?? []).map((l: any) => l.order_id)
+
+  const { data: orders } = await supabase
+    .from('orders')
+    .select('id, delivery_date, invoice_number, total_amount')
+    .in('id', orderIds.length ? orderIds : ['00000000-0000-0000-0000-000000000000'])
+    .order('delivery_date', { ascending: true })
+
+  const dayLines = (orders ?? []).map((o: any) => ({
+    delivery_date:  o.delivery_date,
+    invoice_number: o.invoice_number,
+    order_id:       o.id,
+    total_amount:   Number(o.total_amount || 0),
+  }))
+
+  // ✅ NEW
+const bakery = {
+  name:        process.env.RESEND_FROM_NAME    ?? process.env.BAKERY_NAME    ?? '',
+  email:       process.env.RESEND_FROM_EMAIL   ?? process.env.BAKERY_EMAIL   ?? '',
+  phone:       process.env.BAKERY_PHONE        ?? '',
+  address:     process.env.BAKERY_ADDRESS      ?? '',
+  abn:         process.env.BAKERY_ABN          ?? '',
+  bankName:    process.env.BAKERY_BANK_NAME    ?? '',
+  bankBSB:     process.env.BAKERY_BANK_BSB     ?? '',
+  bankAccount: process.env.BAKERY_BANK_ACCOUNT ?? '',
+}
+
+  const siteUrl      = process.env.NEXT_PUBLIC_SITE_URL ?? ''
+  const fromName     = process.env.RESEND_FROM_NAME  ?? bakery.name
+  const fromEmail    = process.env.RESEND_FROM_EMAIL ?? bakery.email
+  const invoiceNum   = String(weekly.invoice_number ?? weekly.id.slice(0,8).toUpperCase()).padStart(6, '0')
+  const isRevised    = weekly.status === 'revised'
+
+  // Build HTML
+  const html = buildWeeklyInvoiceEmail({
+    invoiceNumber: invoiceNum,
+    weekStart:     weekly.week_start,
+    weekEnd:       weekly.week_end,
+    dueDate:       weekly.due_date ?? weekly.week_end,
+    totalAmount:   Number(weekly.total_amount),
+    gstAmount:     Number(weekly.gst_amount),
+    customerName:  customer.business_name ?? customer.email,
+    isRevised,
+    dayLines,
+    bakery,
+    siteUrl,
+  })
+
+  // Generate PDF
+  let pdfBuffer: Buffer | null = null
+  try {
+    const pdf = await generateWeeklyInvoicePDF({
+      weekly: {
+        id:             weekly.id,
+        invoice_number: weekly.invoice_number,
+        week_start:     weekly.week_start,
+        week_end:       weekly.week_end,
+        total_amount:   Number(weekly.total_amount),
+        gst_amount:     Number(weekly.gst_amount),
+        issued_at:      weekly.issued_at,
+        revised_at:     weekly.revised_at,
+        due_date:       weekly.due_date,
+        status:         weekly.status,
+      },
+      customer: {
+        business_name: customer.business_name,
+        email:         customer.email,
+        address:       customer.address,
+        phone:         customer.phone,
+        abn:           customer.abn,
+      },
+      dayLines,
+      bakery,
+    })
+    pdfBuffer = Buffer.from(pdf.output('arraybuffer'))
+  } catch (pdfErr) {
+    console.warn('[weekly-email] PDF generation failed:', pdfErr)
+  }
+
+  const safeCustomerName = (customer.business_name ?? 'customer')
+    .replace(/[^a-z0-9]/gi, '-').substring(0, 40)
+
+  const attachments = pdfBuffer ? [{
+    filename:    `Weekly-Invoice-${invoiceNum}-${safeCustomerName}.pdf`,
+    content:     pdfBuffer,
+    contentType: 'application/pdf',
+  }] : undefined
+
+  const subject = isRevised
+    ? `REVISED: Weekly Invoice ${invoiceNum} — ${bakery.name}`
+    : `Weekly Invoice ${invoiceNum} — ${bakery.name}`
+
+  const emailsSentTo: string[] = []
+
+  // Send to primary email
+  await sendEmail({
+    to:          customer.email,
+    subject,
+    html,
+    from:        `${fromName} <${fromEmail}>`,
+    attachments,
+  })
+  emailsSentTo.push(customer.email)
+
+  // CC to email_2 if set
+  if (customer.email_2) {
+    await new Promise(r => setTimeout(r, 400))
+    await sendEmail({
+      to:          customer.email_2,
+      subject,
+      html,
+      from:        `${fromName} <${fromEmail}>`,
+      attachments,
+    })
+    emailsSentTo.push(customer.email_2)
+  }
+
+  // Mark email as sent on the weekly invoice
+  await supabase
+    .from('weekly_invoices')
+    .update({ emailed_at: new Date().toISOString() } as any)
+    .eq('id', weeklyInvoiceId)
+
+  return { success: true, email_sent_to: emailsSentTo }
+}
+
+// ── Generate (+ optionally send email) ───────────────────────────────────────
 export async function generateWeeklyInvoice(
   customerId: string,
   weekStart:  string,
   weekEnd:    string,
+  options: { sendEmail?: boolean } = {}
 ): Promise<WeeklyInvoiceResult> {
   const supabase = createAdminClient()
 
-  // ── 1. Validate customer ─────────────────────────────────────────────────
   const { data: customer, error: cErr } = await supabase
     .from('customers')
     .select('id, business_name, payment_terms, invoice_frequency, invoice_brand')
     .eq('id', customerId)
     .single()
 
-  if (cErr || !customer) {
-    throw new Error(`Customer ${customerId} not found`)
-  }
+  if (cErr || !customer) throw new Error(`Customer ${customerId} not found`)
   if (customer.invoice_frequency !== 'weekly') {
     throw new Error(
-      `Customer "${customer.business_name}" is set to '${customer.invoice_frequency}' billing — must be 'weekly' to generate a weekly invoice.`
+      `Customer "${customer.business_name}" is set to '${customer.invoice_frequency}' billing — must be 'weekly'.`
     )
   }
 
-  // ── 2. Find all orders in the week range that aren't cancelled ──────────
-   // ── 2. Find orders in the week range ────────────────────────────────────
-  // On first run: only grab orders that are NOT already invoiced individually
-  // On revision: also include orders already linked to THIS weekly invoice
-  const { data: allWeekOrders, error: oErr } = await supabase
+  const { data: orders, error: oErr } = await supabase
     .from('orders')
     .select('id, delivery_date, total_amount, status, weekly_invoice_id')
     .eq('customer_id', customerId)
@@ -113,25 +405,7 @@ export async function generateWeeklyInvoice(
     .neq('status', 'cancelled')
     .order('delivery_date', { ascending: true })
 
-    if (oErr) throw new Error(oErr.message)
-
-  // Check if a weekly invoice already exists for this customer+week (needed for filter)
-  const { data: existing } = await supabase
-    .from('weekly_invoices')
-    .select('id, invoice_number, status')
-    .eq('customer_id', customerId)
-    .eq('week_start',  weekStart)
-    .maybeSingle()
-
-  // Filter: include orders that are pending/confirmed OR already part of this weekly invoice
-  const orders = (allWeekOrders ?? []).filter(o => {
-    // Already linked to this weekly invoice (revision) — always include
-    if (existing && o.weekly_invoice_id === existing.id) return true
-    // Already invoiced individually — skip (don't double-count)
-    if (o.status === 'invoiced' && !o.weekly_invoice_id) return false
-    // Pending/confirmed — include
-    return true
-   })
+  if (oErr) throw new Error(oErr.message)
 
   if (!orders || orders.length === 0) {
     return {
@@ -147,12 +421,10 @@ export async function generateWeeklyInvoice(
     }
   }
 
-  // ── 3. Sum totals ──────────────────────────────────────────────────────
   const totalAmount = Math.round(
     orders.reduce((s, o) => s + Number(o.total_amount || 0), 0) * 100
   ) / 100
 
-  // ── 4. Compute GST portion from line items ──────────────────────────────
   const orderIds = orders.map(o => o.id)
   const { data: lineItems } = await supabase
     .from('order_items')
@@ -165,13 +437,18 @@ export async function generateWeeklyInvoice(
     ) * 100
   ) / 100
 
-  // ── 5. Calculate due date ───────────────────────────────────────────────
   const dueDate = new Date(weekEnd)
   dueDate.setDate(dueDate.getDate() + (customer.payment_terms ?? 14))
   const dueDateStr = dueDate.toISOString().split('T')[0]
 
- 
-  let weeklyId: string
+  const { data: existing } = await supabase
+    .from('weekly_invoices')
+    .select('id, invoice_number, status')
+    .eq('customer_id', customerId)
+    .eq('week_start',  weekStart)
+    .maybeSingle()
+
+  let weeklyId:      string
   let invoiceNumber: number
   let wasRevised = false
 
@@ -180,24 +457,15 @@ export async function generateWeeklyInvoice(
     weeklyId      = existing.id
     invoiceNumber = existing.invoice_number ?? 0
 
-    const { error: updErr } = await supabase
-      .from('weekly_invoices')
-      .update({
-        total_amount:   totalAmount,
-        gst_amount:     gstAmount,
-        status:         'revised',
-        revised_at:     new Date().toISOString(),
-        due_date:       dueDateStr,
-        invoice_brand:  customer.invoice_brand ?? null,
-      })
-      .eq('id', existing.id)
+    await supabase.from('weekly_invoices').update({
+      total_amount:  totalAmount,
+      gst_amount:    gstAmount,
+      status:        'revised',
+      revised_at:    new Date().toISOString(),
+      due_date:      dueDateStr,
+    }).eq('id', existing.id)
 
-    if (updErr) throw new Error(updErr.message)
-
-    await supabase
-      .from('weekly_invoice_orders')
-      .delete()
-      .eq('weekly_invoice_id', existing.id)
+    await supabase.from('weekly_invoice_orders').delete().eq('weekly_invoice_id', existing.id)
 
   } else {
     invoiceNumber = await getNextInvoiceNumber(supabase)
@@ -214,7 +482,6 @@ export async function generateWeeklyInvoice(
         status:         'issued',
         issued_at:      new Date().toISOString(),
         due_date:       dueDateStr,
-        invoice_brand:  customer.invoice_brand ?? null,
       })
       .select('id')
       .single()
@@ -223,52 +490,24 @@ export async function generateWeeklyInvoice(
     weeklyId = created.id
   }
 
-  // ── 7. Link orders to weekly invoice ────────────────────────────────────
-  const links = orderIds.map(oid => ({
-    weekly_invoice_id: weeklyId,
-    order_id:          oid,
-  }))
+  await supabase.from('weekly_invoice_orders').insert(
+    orderIds.map(oid => ({ weekly_invoice_id: weeklyId, order_id: oid }))
+  )
 
-  const { error: linkErr } = await supabase
-    .from('weekly_invoice_orders')
-    .insert(links)
+  await supabase.from('orders').update({ weekly_invoice_id: weeklyId }).in('id', orderIds)
 
-  if (linkErr) throw new Error(linkErr.message)
+  // Sync AR transaction
+  await supabase.from('ar_transactions').delete().eq('description', `weekly:${weeklyId}`)
+  await supabase.from('ar_transactions').insert({
+    customer_id:  customerId,
+    type:         'invoice',
+    amount:       totalAmount,
+    due_date:     dueDateStr,
+    description:  `weekly:${weeklyId}`,
+    created_at:   new Date().toISOString(),
+  })
 
-  // ── 8. Stamp orders with weekly_invoice_id + mark as invoiced ──────────
-  await supabase
-    .from('orders')
-    .update({
-      weekly_invoice_id: weeklyId,
-      status:            'invoiced',
-      invoiced_at:       new Date().toISOString(),
-      
-    })
-    .in('id', orderIds)
-
-    // ── 9. Sync ar_transactions (one row for the weekly invoice) ───────────
-  // Delete ANY prior weekly invoice AR entries for this weekly invoice
-  // Match on weekly_invoice_id OR on the description pattern
-  const weeklyInvDesc = `Weekly Invoice #${invoiceNumber}`
-
-  await supabase
-    .from('ar_transactions')
-    .delete()
-    .eq('customer_id', customerId)
-    .eq('description', weeklyInvDesc)
-
-     await supabase
-      .from('ar_transactions')
-      .insert({
-        customer_id:  customerId,
-        type:         'invoice',
-        amount:       totalAmount,
-        due_date:     dueDateStr,
-        description:  weeklyInvDesc,
-        invoice_id:   weeklyId,
-        created_at:   new Date().toISOString(),
-      })
-  // ── 10. Recalculate customer balance ────────────────────────────────────
+  // Recalculate customer balance
   const { data: allTx } = await supabase
     .from('ar_transactions')
     .select('type, amount, amount_paid')
@@ -284,10 +523,21 @@ export async function generateWeeklyInvoice(
     }, 0) * 100
   ) / 100
 
-  await supabase
-    .from('customers')
-    .update({ balance: newBalance })
-    .eq('id', customerId)
+  await supabase.from('customers').update({ balance: newBalance }).eq('id', customerId)
+
+  // Optionally send email
+  let emailSent  = false
+  let emailError: string | undefined
+
+  if (options.sendEmail) {
+    try {
+      await sendWeeklyInvoiceEmail(weeklyId)
+      emailSent = true
+    } catch (e: any) {
+      emailError = e.message
+      console.error('[weekly-invoice] Email failed:', e.message)
+    }
+  }
 
   return {
     success:           true,
@@ -303,244 +553,7 @@ export async function generateWeeklyInvoice(
       ? `Weekly invoice #${invoiceNumber} REVISED (${orders.length} orders, $${totalAmount.toFixed(2)})`
       : `Weekly invoice #${invoiceNumber} CREATED (${orders.length} orders, $${totalAmount.toFixed(2)})`,
     was_revised:       wasRevised,
+    email_sent:        emailSent,
+    email_error:       emailError,
   }
-}
-
-
-export function buildDayLines(
-  orders: Array<{ id: string; delivery_date: string; invoice_number: number | null; total_amount: number }>,
-  itemsByOrderId: Map<string, Array<{
-    product_name: string
-    custom_description: string | null
-    quantity: number
-    unit_price: number
-    subtotal: number
-    gst_applicable: boolean
-  }>>
-) {
-  // Group orders by delivery_date
-  const dayMap = new Map<string, {
-    delivery_date: string
-    total_amount: number
-    orders: Array<{
-      order_id: string
-      invoice_number: number | null
-      total_amount: number
-      items: Array<{
-        product_name: string
-        custom_description: string | null
-        quantity: number
-        unit_price: number
-        subtotal: number
-        gst_applicable: boolean
-      }>
-    }>
-  }>()
-
-  for (const o of orders) {
-    const date = o.delivery_date
-    if (!dayMap.has(date)) {
-      dayMap.set(date, {
-        delivery_date: date,
-        total_amount: 0,
-        orders: [],
-      })
-    }
-    const day = dayMap.get(date)!
-    day.total_amount = Math.round((day.total_amount + Number(o.total_amount || 0)) * 100) / 100
-    day.orders.push({
-      order_id:       o.id,
-      invoice_number: o.invoice_number,
-      total_amount:   Number(o.total_amount || 0),
-      items:          itemsByOrderId.get(o.id) ?? [],
-    })
-  }
-
-  // Return sorted by date
-  return Array.from(dayMap.values()).sort((a, b) => a.delivery_date.localeCompare(b.delivery_date))
-}
-
-
-/**
- * Send a weekly invoice email with PDF attachment.
- */
-export async function sendWeeklyInvoiceEmail(weeklyInvoiceId: string) {
-  const { Resend } = await import('resend')
-  const { generateWeeklyInvoicePDF } = await import('@/lib/pdf/weekly-invoice-pdf')
-  type OrderLineItem = import('@/lib/pdf/weekly-invoice-pdf').OrderLineItem
-  type DayGroup = import('@/lib/pdf/weekly-invoice-pdf').DayGroup
-
-  const resend = new Resend(process.env.RESEND_API_KEY)
-  const supabase = createAdminClient()
-
-  // 1. Fetch weekly invoice + customer
-  const { data: weekly, error: wErr } = await supabase
-    .from('weekly_invoices')
-    .select(`*, customer:customers ( business_name, email, address, phone, abn )`)
-    .eq('id', weeklyInvoiceId)
-    .single()
-
-  if (wErr || !weekly) throw new Error(`Weekly invoice ${weeklyInvoiceId} not found`)
-  if (!weekly.customer?.email) throw new Error(`No email for customer on weekly invoice ${weeklyInvoiceId}`)
-
-  // 2. Fetch linked order IDs
-  const { data: links } = await supabase
-    .from('weekly_invoice_orders')
-    .select('order_id')
-    .eq('weekly_invoice_id', weeklyInvoiceId)
-
-  const orderIds = (links ?? []).map((l: any) => l.order_id)
-
-  // 3. Fetch orders (need delivery_date + total for grouping)
-  const { data: orders } = await supabase
-    .from('orders')
-    .select('id, delivery_date, total_amount')
-    .in('id', orderIds)
-    .order('delivery_date', { ascending: true })
-
-  // 4. Fetch all order items
-  const { data: allItems } = await supabase
-    .from('order_items')
-    .select('order_id, product_name, custom_description, quantity, unit_price, subtotal, gst_applicable')
-    .in('order_id', orderIds)
-    .order('product_name', { ascending: true })
-
-  // Group items by order_id
-  const itemsByOrderId = new Map<string, OrderLineItem[]>()
-  for (const item of (allItems ?? [])) {
-    const oid = item.order_id as string
-    if (!itemsByOrderId.has(oid)) itemsByOrderId.set(oid, [])
-    itemsByOrderId.get(oid)!.push({
-      product_name:       item.product_name as string,
-      custom_description: item.custom_description as string | null,
-      quantity:           Number(item.quantity),
-      unit_price:         Number(item.unit_price),
-      subtotal:           Number(item.subtotal),
-      gst_applicable:     item.gst_applicable as boolean,
-    })
-  }
-
-  // 5. Group by delivery date
-  const dayMap = new Map<string, { items: OrderLineItem[]; total: number }>()
-  for (const o of (orders ?? [])) {
-    const date = o.delivery_date
-    if (!dayMap.has(date)) dayMap.set(date, { items: [], total: 0 })
-    const day = dayMap.get(date)!
-    day.total = Math.round((day.total + Number(o.total_amount || 0)) * 100) / 100
-    day.items.push(...(itemsByOrderId.get(o.id) ?? []))
-  }
-
-  const days: DayGroup[] = Array.from(dayMap.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, data]) => ({
-      delivery_date: date,
-      items:         data.items,
-      day_total:     data.total,
-    }))
-
-  // 6. Bakery details
-  const bakery = {
-    name:        process.env.RESEND_FROM_NAME ?? 'Norbake',
-    email:       process.env.RESEND_FROM_EMAIL ?? 'orders@norbakebroome.com',
-    phone:       process.env.NEXT_PUBLIC_BAKERY_PHONE   ?? '',
-    address:     process.env.NEXT_PUBLIC_BAKERY_ADDRESS ?? '',
-    abn:         process.env.NEXT_PUBLIC_BAKERY_ABN     ?? '',
-    bankName:    process.env.NEXT_PUBLIC_BANK_NAME      ?? '',
-    bankBSB:     process.env.NEXT_PUBLIC_BANK_BSB       ?? '',
-    bankAccount: process.env.NEXT_PUBLIC_BANK_ACCOUNT   ?? '',
-  }
-
-  // 7. Generate PDF
-  const pdf = await generateWeeklyInvoicePDF({
-    weekly: {
-      id:             weekly.id,
-      invoice_number: weekly.invoice_number,
-      week_start:     weekly.week_start,
-      week_end:       weekly.week_end,
-      total_amount:   Number(weekly.total_amount),
-      gst_amount:     Number(weekly.gst_amount),
-      issued_at:      weekly.issued_at,
-      revised_at:     weekly.revised_at,
-      due_date:       weekly.due_date,
-      status:         weekly.status,
-    },
-    customer: {
-      business_name: weekly.customer?.business_name ?? '',
-      email:         weekly.customer?.email         ?? '',
-      address:       weekly.customer?.address,
-      phone:         weekly.customer?.phone,
-      abn:           weekly.customer?.abn,
-    },
-    days,
-    bakery,
-  })
-
-  const pdfBuffer = Buffer.from(pdf.output('arraybuffer'))
-  const filename  = `weekly-invoice-${String(weekly.invoice_number).padStart(6, '0')}.pdf`
-
-  // 8. Email with itemised HTML body
-  const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'orders@norbakebroome.com'
-  const fromName  = process.env.RESEND_FROM_NAME  ?? 'Norbake'
-  const replyTo   = process.env.RESEND_REPLY_TO   ?? fromEmail
-
-  let bodyHtml = ''
-  for (const day of days) {
-    const dateObj = new Date(day.delivery_date + 'T00:00:00')
-    const label = dateObj.toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'short' })
-    bodyHtml += `<tr style="background:#e5e7eb;"><td colspan="4" style="padding:8px;font-weight:bold;">${label}</td></tr>`
-    for (const item of day.items) {
-      const name = item.custom_description || item.product_name
-      bodyHtml += `<tr>
-        <td style="padding:4px 10px;">${name}</td>
-        <td style="padding:4px 8px;text-align:center;">${item.quantity}</td>
-        <td style="padding:4px 8px;text-align:right;">$${item.unit_price.toFixed(2)}</td>
-        <td style="padding:4px 8px;text-align:right;">$${item.subtotal.toFixed(2)}</td>
-      </tr>`
-    }
-    bodyHtml += `<tr style="background:#f9fafb;">
-      <td colspan="3" style="padding:4px 8px;text-align:right;font-weight:bold;">Day Total</td>
-      <td style="padding:4px 8px;text-align:right;font-weight:bold;">$${day.day_total.toFixed(2)}</td>
-    </tr>`
-  }
-
-  const { error: emailErr } = await resend.emails.send({
-    from:    `${fromName} <${fromEmail}>`,
-    to:      weekly.customer.email,
-    replyTo: replyTo,
-    subject: `Weekly Invoice #${weekly.invoice_number} — ${weekly.week_start} to ${weekly.week_end}`,
-    html: `
-      <div style="font-family:Arial,sans-serif;max-width:700px;margin:0 auto;">
-        <h2>Weekly Invoice #${weekly.invoice_number}</h2>
-        <p>Hi ${weekly.customer.business_name},</p>
-        <p>Please find attached your weekly invoice for <strong>${weekly.week_start}</strong> to <strong>${weekly.week_end}</strong>.</p>
-        <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
-          <thead><tr style="background:#000;color:#fff;">
-            <th style="padding:8px;text-align:left;">Item</th>
-            <th style="padding:8px;text-align:center;">Qty</th>
-            <th style="padding:8px;text-align:right;">Unit</th>
-            <th style="padding:8px;text-align:right;">Amount</th>
-          </tr></thead>
-          <tbody>${bodyHtml}</tbody>
-        </table>
-        <table style="width:100%;border-collapse:collapse;margin:20px 0;">
-          <tr><td style="padding:10px;">Subtotal (ex GST)</td><td style="padding:10px;text-align:right;">$${(Number(weekly.total_amount) - Number(weekly.gst_amount)).toFixed(2)}</td></tr>
-          <tr><td style="padding:10px;">GST</td><td style="padding:10px;text-align:right;">$${Number(weekly.gst_amount).toFixed(2)}</td></tr>
-          <tr style="background:#f3f4f6;"><td style="padding:10px;font-weight:bold;">Total (inc GST)</td><td style="padding:10px;text-align:right;font-weight:bold;">$${Number(weekly.total_amount).toFixed(2)}</td></tr>
-          <tr><td style="padding:10px;">Due Date</td><td style="padding:10px;text-align:right;">${weekly.due_date}</td></tr>
-        </table>
-        <p style="color:#6b7280;font-size:13px;">Full detail on attached PDF.</p>
-        <p>Thank you!<br><strong>${fromName}</strong></p>
-      </div>
-    `,
-    attachments: [{ filename, content: pdfBuffer }],
-  })
-
-  if (emailErr) throw new Error(`Email send failed: ${emailErr.message}`)
-
-  await supabase
-    .from('weekly_invoices')
-    .update({ emailed_at: new Date().toISOString() })
-    .eq('id', weeklyInvoiceId)
-
-  return { success: true, email: weekly.customer.email, invoice_number: weekly.invoice_number }
 }
