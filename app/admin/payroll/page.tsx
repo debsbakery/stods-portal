@@ -34,13 +34,22 @@ type Totals = {
 }
 
 function currentWeekSunday() {
-  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Australia/Perth' }))
-  now.setHours(0, 0, 0, 0)
-  const day = now.getDay() // 0 = Sunday, 1 = Monday ... 6 = Saturday
-  now.setDate(now.getDate() - day) // Subtract day index to get back to Sunday
-  return now.toISOString().slice(0, 10)
+  // Get current date in Perth using Intl
+  const now = new Date()
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Australia/Perth',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  })
+  // Get today's date string in Perth (YYYY-MM-DD)
+  const todayPerth = formatter.format(now) // returns YYYY-MM-DD via en-CA locale
+  const d = new Date(todayPerth + 'T00:00:00')
+  const day = d.getDay() // 0 = Sunday
+  d.setDate(d.getDate() - day)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${dd}`
 }
-
 export default function PayrollPage() {
 // ✅ NEW
 const [weekStart, setWeekStart] = useState(currentWeekSunday)
