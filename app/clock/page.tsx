@@ -4,25 +4,25 @@
 import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 async function generateFingerprint(): Promise<string> {
-  const components = [
-    navigator.userAgent,
-    navigator.language,
-    screen.width + 'x' + screen.height,
-    screen.colorDepth,
-    new Date().getTimezoneOffset(),
-    navigator.hardwareConcurrency ?? '',
-    (navigator as any).deviceMemory ?? '',
-  ].join('|')
-
-  // Simple hash
-  let hash = 0
-  for (let i = 0; i < components.length; i++) {
-    const char = components.charCodeAt(i)
-    hash = ((hash << 5) - hash) + char
-    hash = hash & hash
+  // Use persistent localStorage ID — survives across sessions on same browser
+  const STORAGE_KEY = 'kc_device_id'
+  try {
+    let deviceId = localStorage.getItem(STORAGE_KEY)
+    if (!deviceId) {
+      // Generate a new unique ID for this browser/device
+      deviceId = crypto.randomUUID
+        ? crypto.randomUUID()
+        : Math.random().toString(36).slice(2) + Date.now().toString(36)
+      localStorage.setItem(STORAGE_KEY, deviceId)
+    }
+    return deviceId
+  } catch {
+    // Fallback if localStorage unavailable (private browsing etc)
+    return Math.random().toString(36).slice(2)
   }
-  return Math.abs(hash).toString(36)
 }
+  
+
 function ClockPageContent() {
   const searchParams = useSearchParams()
   const token        = searchParams.get('token') ?? ''
