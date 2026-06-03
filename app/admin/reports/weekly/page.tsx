@@ -53,7 +53,8 @@ export default async function WeeklyReportPage() {
   const items = (rawItems ?? [])
     .filter(item => {
       const o = item.orders as any
-      return o?.status === 'invoiced' || o?.status === 'pending'
+// ✅ NEW
+return o?.status === 'invoiced' || o?.status === 'pending' || o?.status === 'paid'
     })
     .map(item => ({
       ...item,
@@ -257,8 +258,8 @@ export default async function WeeklyReportPage() {
 
     week.order_ids.add(order.id)
     week.revenue += exGst
-    if (order.status === 'invoiced') week.invoiced_revenue += exGst
-    if (order.status === 'pending')  week.pending_revenue  += exGst
+  if (order.status === 'invoiced' || order.status === 'paid') week.invoiced_revenue += exGst
+if (order.status === 'pending')                             week.pending_revenue  += exGst
     if (order.customer_id) week.customers.add(order.customer_id)
     if (order.delivery_date < week.first_day) week.first_day = order.delivery_date
     if (order.delivery_date > week.last_day)  week.last_day  = order.delivery_date
