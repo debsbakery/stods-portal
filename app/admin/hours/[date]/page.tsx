@@ -50,9 +50,9 @@ function toPerth(iso: string | null) {
 
 function GpsDetail({ event, label }: { event: ClockEvent | null; label: string }) {
   if (!event) return null
-  const score = event.trust_score ?? 0
+  const score  = event.trust_score ?? 0
   const colour = score >= 80 ? 'text-green-700' : score >= 50 ? 'text-yellow-700' : 'text-red-700'
-  const bg     = score >= 80 ? 'bg-green-50' : score >= 50 ? 'bg-yellow-50' : 'bg-red-50'
+  const bg     = score >= 80 ? 'bg-green-50'    : score >= 50 ? 'bg-yellow-50'    : 'bg-red-50'
   return (
     <div className={`rounded-lg p-3 text-xs space-y-1 ${bg}`}>
       <div className="font-semibold text-gray-700">{label}</div>
@@ -78,23 +78,35 @@ export default function DayDetailPage() {
   const router       = useRouter()
   const focusId      = searchParams.get('shift')
 
-  const [shifts, setShifts]                   = useState<Shift[]>([])
-  const [selected, setSelected]               = useState<Shift | null>(null)
-  const [loading, setLoading]                 = useState(true)
-  const [overrideHrs, setOverrideHrs]         = useState('')
-  const [overrideQtr, setOverrideQtr]         = useState('0')
-  const [overrideReason, setOverrideReason]   = useState('')
-  const [managerNote, setManagerNote]         = useState('')
-  const [saving, setSaving]                   = useState(false)
-  const [msg, setMsg]                         = useState<string | null>(null)
-
-  const [myUserId, setMyUserId] = useState<string | null>(null)
+  const [shifts, setShifts]                 = useState<Shift[]>([])
+  const [selected, setSelected]             = useState<Shift | null>(null)
+  const [loading, setLoading]               = useState(true)
+  const [overrideHrs, setOverrideHrs]       = useState('')
+  const [overrideQtr, setOverrideQtr]       = useState('0')
+  const [overrideReason, setOverrideReason] = useState('')
+  const [managerNote, setManagerNote]       = useState('')
+  const [saving, setSaving]                 = useState(false)
+  const [msg, setMsg]                       = useState<string | null>(null)
+  const [myUserId, setMyUserId]             = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete]   = useState(false)
 
   useEffect(() => {
     fetch('/api/auth/my-role')
       .then(r => r.json())
       .then(j => setMyUserId(j.user_id ?? null))
   }, [])
+
+  const fetchShifts = async (selectId?: string) => {
+    const r = await fetch(`/api/admin/shifts?from=${date}&to=${date}`)
+    const j = await r.json()
+    const list: Shift[] = j.shifts ?? []
+    setShifts(list)
+    const target = selectId
+      ? list.find(s => s.id === selectId)
+      : list.find(s => s.id === selected?.id) ?? list[0] ?? null
+    setSelected(target ?? null)
+    setLoading(false)
+  }
 
   useEffect(() => {
     fetch(`/api/admin/shifts?from=${date}&to=${date}`)
@@ -114,6 +126,7 @@ export default function DayDetailPage() {
     setOverrideHrs('')
     setOverrideQtr('0')
     setOverrideReason('')
+    setConfirmDelete(false)
     setManagerNote(shift.manager_note ?? '')
   }
 
@@ -129,9 +142,7 @@ export default function DayDetailPage() {
     const j = await res.json()
     if (res.ok) {
       setMsg('✅ Shift approved')
-      const updated = { ...selected, ...j.shift, staff: selected.staff }
-      setSelected(updated)
-      setShifts(prev => prev.map(s => s.id === updated.id ? updated : s))
+      await fetchShifts()
     } else {
       setMsg(`❌ ${j.error}`)
     }
@@ -140,7 +151,8 @@ export default function DayDetailPage() {
 
   const override = async () => {
     const totalMins = (parseInt(overrideHrs || '0') * 60) + parseInt(overrideQtr)
-    if (!selected || !totalMins || !overrideReason || !myUserId) return
+    if (!selected || !overrideReason || !myUserId) return
+    if (totalMins === undefined || totalMins === null) return
     setSaving(true)
     setMsg(null)
     const res = await fetch(`/api/admin/shifts/${selected.id}/override`, {
@@ -155,13 +167,29 @@ export default function DayDetailPage() {
     const j = await res.json()
     if (res.ok) {
       setMsg('✅ Override saved')
-      const updated = { ...selected, ...j.shift, staff: selected.staff }
-      setSelected(updated)
-      setShifts(prev => prev.map(s => s.id === updated.id ? updated : s))
       setOverrideHrs('')
       setOverrideQtr('0')
       setOverrideReason('')
+      await fetchShifts()
     } else {
+      setMsg(`❌ ${j.error}`)
+    }
+    setSaving(false)
+  }
+
+  const deleteShift = async () => {
+    if (!selected || !myUserId) return
+    setSaving(true)
+    setMsg(null)
+    const res = await fetch(`/api/admin/shifts/${selected.id}/override`, {
+      method: 'DELETE',
+    })
+    if (res.ok) {
+      setMsg('✅ Shift deleted')
+      setConfirmDelete(false)
+      await fetchShifts()
+    } else {
+      const j = await res.json()
       setMsg(`❌ ${j.error}`)
     }
     setSaving(false)
@@ -184,7 +212,7 @@ export default function DayDetailPage() {
       ) : (
         <div className="grid md:grid-cols-5 gap-5">
 
-          {/* Shift list — 2 cols */}
+          {/* Shift list */}
           <div className="md:col-span-2 space-y-2">
             {shifts.map(shift => (
               <button key={shift.id} onClick={() => selectShift(shift)}
@@ -218,7 +246,7 @@ export default function DayDetailPage() {
             ))}
           </div>
 
-          {/* Detail panel — 3 cols */}
+          {/* Detail panel */}
           {selected && (
             <div className="md:col-span-3 bg-white rounded-xl border border-gray-200 p-5 space-y-5">
               <div>
@@ -234,7 +262,7 @@ export default function DayDetailPage() {
 
               {/* Pay summary */}
               <div className="grid grid-cols-4 gap-2 bg-gray-50 rounded-lg p-3 text-center text-sm">
-                              {[
+                {[
                   { label: 'Paid Hrs',  value: selected.paid_hours != null ? selected.paid_hours.toFixed(2) : '—' },
                   { label: 'Gross',     value: selected.gross_pay != null ? `$${Number(selected.gross_pay).toFixed(2)}` : '—' },
                   { label: 'True Cost', value: selected.true_shift_cost != null ? `$${Number(selected.true_shift_cost).toFixed(2)}` : '—' },
@@ -319,10 +347,34 @@ export default function DayDetailPage() {
                       </div>
                     </div>
                     <button onClick={override}
-                      disabled={saving || (!overrideHrs && overrideQtr === '0') || !overrideReason || !myUserId}
+                      disabled={saving || !overrideReason || !myUserId}
                       className="w-full bg-indigo-600 text-white py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50">
                       Save Override
                     </button>
+                  </div>
+
+                  {/* Delete shift */}
+                  <div className="border-t pt-4">
+                    {!confirmDelete ? (
+                      <button onClick={() => setConfirmDelete(true)}
+                        className="w-full border border-red-300 text-red-600 py-2 rounded-lg text-sm font-medium hover:bg-red-50">
+                        🗑 Delete Shift
+                      </button>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-xs text-red-600 font-medium">Are you sure? This cannot be undone.</p>
+                        <div className="flex gap-2">
+                          <button onClick={deleteShift} disabled={saving}
+                            className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm font-semibold hover:bg-red-700 disabled:opacity-50">
+                            Yes, Delete
+                          </button>
+                          <button onClick={() => setConfirmDelete(false)}
+                            className="flex-1 border rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 py-2">
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
