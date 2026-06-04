@@ -34,7 +34,7 @@ type Shift = {
   approved_by: string | null
   approved_at: string | null
   manager_note: string | null
-  staff: { full_name: string; employment_type: string; base_hourly_rate: number | null }
+  staff: { name: string; employment_type: string; base_hourly_rate: number | null }
   clock_in: ClockEvent | null
   clock_out: ClockEvent | null
 }
@@ -193,7 +193,7 @@ export default function DayDetailPage() {
                     ? 'border-indigo-500 bg-indigo-50'
                     : 'border-gray-200 hover:border-indigo-300 bg-white'
                 }`}>
-                <div className="font-semibold text-gray-900">{shift.staff.full_name}</div>
+                <div className="font-semibold text-gray-900">{shift.staff.name}</div>
                 <div className="text-xs text-gray-500 mt-0.5">
                   {toPerth(shift.effective_start)} → {toPerth(shift.effective_end)}
                 </div>
@@ -222,7 +222,7 @@ export default function DayDetailPage() {
           {selected && (
             <div className="md:col-span-3 bg-white rounded-xl border border-gray-200 p-5 space-y-5">
               <div>
-                <h2 className="font-bold text-gray-900 text-lg">{selected.staff.full_name}</h2>
+                <h2 className="font-bold text-gray-900 text-lg">{selected.staff.name}</h2>
                 <div className="text-xs text-gray-500 capitalize">{selected.staff.employment_type}</div>
               </div>
 
