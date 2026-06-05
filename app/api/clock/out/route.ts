@@ -8,20 +8,20 @@ import { calculateShift } from '@/lib/services/shift-calculator'
 
 export async function POST(request: NextRequest) {
   const body = await request.json()
-const { pin, token, lat, lng, device_fingerprint } = body
+  const { pin, token, lat, lng, device_fingerprint } = body
   if (!pin || !token) {
     return NextResponse.json({ error: 'PIN and QR token required' }, { status: 400 })
   }
 
   const supabase = createAdminClient()
   const nowUtc   = new Date()
-  const today    = nowUtc.toLocaleDateString('en-CA', { timeZone: 'Australia/Perth' })
-  const nowLocal = new Date(nowUtc.toLocaleString('en-US', { timeZone: 'Australia/Perth' }))
+  // ✅ Fix 1 — was Australia/Perth
+  const today    = nowUtc.toLocaleDateString('en-CA', { timeZone: 'Australia/Brisbane' })
+  const nowLocal = new Date(nowUtc.toLocaleString('en-US', { timeZone: 'Australia/Brisbane' }))
 
   const { data: qr } = await supabase
     .from('staff_qr_codes')
-// ✅ WITH THIS
-.select('id, location_id, staff_locations(id, name, latitude, longitude, radius_metres)')
+    .select('id, location_id, staff_locations(id, name, latitude, longitude, radius_metres)')
     .eq('token', token)
     .eq('active', true)
     .maybeSingle()
@@ -51,7 +51,6 @@ const { pin, token, lat, lng, device_fingerprint } = body
     .maybeSingle()
 
   if (!clockInEvent) {
-    // Debug: check what events exist at all
     const { data: allEvents } = await supabase
       .from('clock_events')
       .select('event_type, raw_time')
@@ -94,12 +93,12 @@ const { pin, token, lat, lng, device_fingerprint } = body
       .in('status', ['present', 'scheduled'])
       .order('section', { ascending: true })
 
-    // Pick the one that's 'present' (currently being worked) or first available
     rosterEntry = entries?.find(e => e.status === 'present') ?? entries?.[0] ?? null
   }
 
+  // ✅ Fix 2 — was +08:00 (Perth), Brisbane is UTC+10
   const scheduledEnd = rosterEntry?.scheduled_end
-    ? new Date(`${today}T${rosterEntry.scheduled_end}:00+08:00`)
+    ? new Date(`${today}T${rosterEntry.scheduled_end}:00+10:00`)
     : null
 
   const paidStart = new Date(clockInEvent.paid_time)
@@ -118,49 +117,50 @@ const { pin, token, lat, lng, device_fingerprint } = body
     distanceM = Math.round(haversineDistanceM(Number(lat), Number(lng), Number(location.latitude), Number(location.longitude)))
     gpsValid = distanceM <= Number(location.radius_metres ?? 200)
   }
-const ipAddress = request.headers.get('x-forwarded-for')?.split(',')[0] ?? null
 
-let deviceFlag: string | null = null
-const knownDevice = (staff as any).known_device
+  const ipAddress = request.headers.get('x-forwarded-for')?.split(',')[0] ?? null
 
-if (device_fingerprint) {
-  if (!knownDevice) {
-    await supabase
-      .from('staff')
-      .update({ 
-        known_device: device_fingerprint,
-        known_device_set_at: nowUtc.toISOString()
-      })
-      .eq('id', staff.id)
-  } else if (knownDevice !== device_fingerprint) {
-    deviceFlag = 'different_device'
+  let deviceFlag: string | null = null
+  const knownDevice = (staff as any).known_device
+
+  if (device_fingerprint) {
+    if (!knownDevice) {
+      await supabase
+        .from('staff')
+        .update({
+          known_device: device_fingerprint,
+          known_device_set_at: nowUtc.toISOString()
+        })
+        .eq('id', staff.id)
+    } else if (knownDevice !== device_fingerprint) {
+      deviceFlag = 'different_device'
+    }
   }
-}
 
-const { score: trustScore, flags: gpsFlags } = computeTrustScore({
-  gpsValid, distanceM,
-  radiusM: Number(location?.radius_metres ?? 200),
-  ipMatchesSite: true,
-})
+  const { score: trustScore, flags: gpsFlags } = computeTrustScore({
+    gpsValid, distanceM,
+    radiusM: Number(location?.radius_metres ?? 200),
+    ipMatchesSite: true,
+  })
 
-const flags = deviceFlag ? [...gpsFlags, deviceFlag] : gpsFlags
+  const flags = deviceFlag ? [...gpsFlags, deviceFlag] : gpsFlags
 
   const { data: outEvent, error: evtErr } = await supabase
     .from('clock_events')
     .insert({
-      staff_id:        staff.id,
-      roster_entry_id: clockInEvent.roster_entry_id ?? rosterEntry?.id ?? null,
-      event_type:      'clock_out',
-      raw_time:        nowUtc.toISOString(),
-      paid_time:       paidTime.toISOString(),
-      snap_reason:     snapReason,
-      gps_lat:         lat ?? null,
-      gps_lng:         lng ?? null,
-      gps_valid:       gpsValid,
-      ip_address:      ipAddress,
-      trust_score:     trustScore,
-      flags:           flags.length > 0 ? flags : null,
-   device_fingerprint: device_fingerprint ?? null,
+      staff_id:           staff.id,
+      roster_entry_id:    clockInEvent.roster_entry_id ?? rosterEntry?.id ?? null,
+      event_type:         'clock_out',
+      raw_time:           nowUtc.toISOString(),
+      paid_time:          paidTime.toISOString(),
+      snap_reason:        snapReason,
+      gps_lat:            lat ?? null,
+      gps_lng:            lng ?? null,
+      gps_valid:          gpsValid,
+      ip_address:         ipAddress,
+      trust_score:        trustScore,
+      flags:              flags.length > 0 ? flags : null,
+      device_fingerprint: device_fingerprint ?? null,
     })
     .select()
     .single()
@@ -233,9 +233,9 @@ const flags = deviceFlag ? [...gpsFlags, deviceFlag] : gpsFlags
     await supabase.from('roster_entries').update({ status: 'completed' }).eq('id', rosterEntry.id)
 
   } else {
-    const grossMins  = Math.round((paidTime.getTime() - paidStart.getTime()) / 60000)
-    const breakMins  = Number(staff.break_minutes ?? 30)
-    const paidMins   = Math.max(0, grossMins - breakMins)
+    const grossMins = Math.round((paidTime.getTime() - paidStart.getTime()) / 60000)
+    const breakMins = Number(staff.break_minutes ?? 30)
+    const paidMins  = Math.max(0, grossMins - breakMins)
 
     const { error: fallbackErr } = await supabase.from('shifts').upsert({
       staff_id:        staff.id,
@@ -262,15 +262,23 @@ const flags = deviceFlag ? [...gpsFlags, deviceFlag] : gpsFlags
     Math.max(0, (paidTime.getTime() - paidStart.getTime()) / 60000 - Number(staff.break_minutes ?? 30)) / 60 * 100
   ) / 100
 
-  const rawOutStr = nowLocal.toTimeString().slice(0, 5)
-  const rawInStr  = new Date(new Date(clockInEvent.paid_time).toLocaleString('en-US', { timeZone: 'Australia/Perth' })).toTimeString().slice(0, 5)
+  // ✅ Fix 3 — was Australia/Perth on all three strings
+  const rawOutStr = nowLocal.toLocaleTimeString('en-AU', {
+    timeZone: 'Australia/Brisbane', hour: '2-digit', minute: '2-digit', hour12: false,
+  })
+  const rawInStr = new Date(clockInEvent.paid_time).toLocaleTimeString('en-AU', {
+    timeZone: 'Australia/Brisbane', hour: '2-digit', minute: '2-digit', hour12: false,
+  })
+  const paidOutStr = paidTime.toLocaleTimeString('en-AU', {
+    timeZone: 'Australia/Brisbane', hour: '2-digit', minute: '2-digit', hour12: false,
+  })
 
   return NextResponse.json({
     success:     true,
     staff_name:  staff.name,
     raw_time:    rawOutStr,
     clocked_in:  rawInStr,
-    clocked_out: paidTime.toTimeString().slice(0, 5),
+    clocked_out: paidOutStr,
     paid_hours:  paidHours,
     gross_pay:   calc?.grossPay ?? null,
     snap_reason: snapReason,
