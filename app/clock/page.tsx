@@ -26,7 +26,21 @@ async function generateFingerprint(): Promise<string> {
 function ClockPageContent() {
   const searchParams = useSearchParams()
   const token        = searchParams.get('token') ?? ''
+// Add near the top of ClockPageContent, with the other useState declarations
+const [currentTime, setCurrentTime] = useState('')
 
+useEffect(() => {
+  const tick = () => setCurrentTime(
+    new Date().toLocaleTimeString('en-AU', {
+      timeZone: 'Australia/Brisbane',
+      hour:     '2-digit',
+      minute:   '2-digit',
+    })
+  )
+  tick()
+  const interval = setInterval(tick, 1000)
+  return () => clearInterval(interval)
+}, [])
   const [step,      setStep]      = useState<'validate'|'pin'|'done'|'error'|'change-pin'>('validate')
   const [pin,       setPin]       = useState('')
   const [mode,      setMode]      = useState<'in'|'out'>('in')
@@ -518,13 +532,10 @@ function ClockPageContent() {
       )}
 
       {/* Current time */}
-      <div className="mt-8 text-gray-400 text-sm">
-        {new Date().toLocaleTimeString('en-AU', {
-          timeZone: 'Australia/Perth',
-          hour:     '2-digit',
-          minute:   '2-digit',
-        })}
-      </div>
+  
+<div className="mt-8 text-gray-400 text-sm">
+  {currentTime}
+</div>
     </div>
   )
 }

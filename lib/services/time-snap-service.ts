@@ -71,6 +71,7 @@ export function computeClockIn(params: {
     snapReason: `late_${Math.round(diffMin)}min_rounded_up_to_${fmtT(paidTime)}`,
   }
 }
+// ✅ Replace the entire computeClockOut function
 export function computeClockOut(params: {
   rawTime:        Date
   scheduledEnd:   Date | null
@@ -92,14 +93,27 @@ export function computeClockOut(params: {
     }
   }
 
-  // Fixed_start + casual: snap DOWN to last 15min interval
+  // Snap down to last 15min interval
   const paidTime = snapTime(rawTime, 'down')
 
-  // Safety: never go before paid start
+  // Safety: never go before paid start — use snapped raw, not paidStart
+  // This handles early clock-out where paidStart was snapped forward
   if (paidTime.getTime() <= paidStart.getTime()) {
+    const snappedRaw = snapTime(rawTime, 'down')
+    // If raw itself is before paidStart, give zero hours (snap to paidStart)
+    // but only if they've actually worked some time
+    const rawDiffMin = (rawTime.getTime() - paidStart.getTime()) / 60000
+    if (rawDiffMin < 0) {
+      // Clocked out before shift paid start — zero hours
+      return {
+        paidTime:   paidStart,
+        snapReason: 'clock_out_before_shift_start_zero_hours',
+      }
+    }
+    // Worked less than 15min — pay from paidStart to snapped raw (or paidStart if same)
     return {
       paidTime:   paidStart,
-      snapReason: 'clock_out_same_or_before_start_adjusted',
+      snapReason: `clock_out_under_15min_paid_from_${fmtT(paidStart)}`,
     }
   }
 

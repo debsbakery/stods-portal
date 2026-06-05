@@ -14,9 +14,7 @@ export async function POST(request: NextRequest) {
 
   const supabase = createAdminClient()
   const nowUtc   = new Date()
-  // ✅ Fix 1 — was Australia/Perth
   const today    = nowUtc.toLocaleDateString('en-CA', { timeZone: 'Australia/Brisbane' })
-  const nowLocal = new Date(nowUtc.toLocaleString('en-US', { timeZone: 'Australia/Brisbane' }))
 
   const { data: qr } = await supabase
     .from('staff_qr_codes')
@@ -39,30 +37,30 @@ export async function POST(request: NextRequest) {
 
   const twentyFourHoursAgo = new Date(nowUtc.getTime() - 86400000)
 
-  const { data: existingIn } = await supabase
+  // ✅ After
+const { data: existingIn } = await supabase
+  .from('clock_events')
+  .select('id, raw_time, paid_time')
+  .eq('staff_id', staff.id)
+  .eq('event_type', 'clock_in')
+  .gte('raw_time', twentyFourHoursAgo.toISOString())
+  .order('raw_time', { ascending: false })
+  .maybeSingle()
+
+if (existingIn) {
+  const { data: existingOut } = await supabase
     .from('clock_events')
-    .select('id, paid_time')
+    .select('id')
     .eq('staff_id', staff.id)
-    .eq('event_type', 'clock_in')
-    .gte('raw_time', twentyFourHoursAgo.toISOString())
-    .order('raw_time', { ascending: false })
+    .eq('event_type', 'clock_out')
+    .gte('raw_time', existingIn.raw_time)  // ✅ was paid_time
     .maybeSingle()
 
-  if (existingIn) {
-    const { data: existingOut } = await supabase
-      .from('clock_events')
-      .select('id')
-      .eq('staff_id', staff.id)
-      .eq('event_type', 'clock_out')
-      .gte('raw_time', existingIn.paid_time)
-      .maybeSingle()
-
-    if (!existingOut) {
-      return NextResponse.json({ error: `${staff.name} is already clocked in`, already_in: true }, { status: 409 })
-    }
+  if (!existingOut) {
+    return NextResponse.json({ error: `${staff.name} is already clocked in`, already_in: true }, { status: 409 })
   }
+}
 
-  // Find the next unstarted roster entry (supports split shifts)
   const { data: rosterEntries } = await supabase
     .from('roster_entries')
     .select('*')
@@ -72,7 +70,6 @@ export async function POST(request: NextRequest) {
     .neq('status', 'completed')
     .order('section', { ascending: true })
 
-  // Find roster entry that hasn't been clocked into yet
   const { data: todayShifts } = await supabase
     .from('shifts')
     .select('section')
@@ -82,7 +79,6 @@ export async function POST(request: NextRequest) {
   const usedSections = (todayShifts ?? []).map((s: any) => s.section)
   const rosterEntry = rosterEntries?.find(e => !usedSections.includes(e.section)) ?? null
 
-  // ✅ Fix 2 — was +08:00 (Perth), Brisbane is UTC+10
   const scheduledStart = rosterEntry?.scheduled_start
     ? new Date(`${today}T${rosterEntry.scheduled_start.slice(0, 5)}:00+10:00`)
     : null
@@ -128,7 +124,6 @@ export async function POST(request: NextRequest) {
 
   const flags = deviceFlag ? [...gpsFlags, deviceFlag] : gpsFlags
 
-  // Insert clock event
   const { data: insertedEvent, error: evtErr } = await supabase
     .from('clock_events')
     .insert({
@@ -158,12 +153,10 @@ export async function POST(request: NextRequest) {
     await supabase.from('roster_entries').update({ status: 'present' }).eq('id', rosterEntry.id)
   }
 
-  // ── Create shift row immediately (open shift — no end time) ──
   const dayOfWeek = new Date(today + 'T00:00:00').getDay()
   const dayType = rosterEntry?.day_type
     ?? (dayOfWeek === 0 ? 'sunday' : dayOfWeek === 6 ? 'saturday' : 'normal')
 
-  // Auto-assign next available section if no roster entry
   let section = rosterEntry?.section ?? 1
   if (!rosterEntry) {
     for (let s = 1; s <= 3; s++) {
@@ -194,15 +187,14 @@ export async function POST(request: NextRequest) {
 
   if (shiftErr) {
     console.error('[clock-in] shift create error:', shiftErr.message)
-    // Don't fail the whole clock-in — the event is already recorded
   }
 
-  // ✅ Fix 3 — was Australia/Perth
-  const rawTimeStr  = nowLocal.toLocaleTimeString('en-AU', {
-    timeZone: 'Australia/Brisbane', hour: '2-digit', minute: '2-digit', hour12: false,
+  // Format nowUtc directly — no intermediate Date object
+  const rawTimeStr = nowUtc.toLocaleTimeString('en-AU', {
+    timeZone: 'Australia/Brisbane', hour: 'numeric', minute: '2-digit', hour12: true,
   })
   const paidTimeStr = paidTime.toLocaleTimeString('en-AU', {
-    timeZone: 'Australia/Brisbane', hour: '2-digit', minute: '2-digit', hour12: false,
+    timeZone: 'Australia/Brisbane', hour: 'numeric', minute: '2-digit', hour12: true,
   })
 
   return NextResponse.json({

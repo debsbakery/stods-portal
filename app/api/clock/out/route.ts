@@ -15,9 +15,7 @@ export async function POST(request: NextRequest) {
 
   const supabase = createAdminClient()
   const nowUtc   = new Date()
-  // ✅ Fix 1 — was Australia/Perth
   const today    = nowUtc.toLocaleDateString('en-CA', { timeZone: 'Australia/Brisbane' })
-  const nowLocal = new Date(nowUtc.toLocaleString('en-US', { timeZone: 'Australia/Brisbane' }))
 
   const { data: qr } = await supabase
     .from('staff_qr_codes')
@@ -42,7 +40,7 @@ export async function POST(request: NextRequest) {
 
   const { data: clockInEvent } = await supabase
     .from('clock_events')
-    .select('id, paid_time, roster_entry_id')
+.select('id, raw_time, paid_time, roster_entry_id')
     .eq('staff_id', staff.id)
     .eq('event_type', 'clock_in')
     .gte('raw_time', twentyFourHoursAgo.toISOString())
@@ -65,13 +63,14 @@ export async function POST(request: NextRequest) {
     }, { status: 409 })
   }
 
-  const { data: existingOut } = await supabase
-    .from('clock_events')
-    .select('id')
-    .eq('staff_id', staff.id)
-    .eq('event_type', 'clock_out')
-    .gte('raw_time', clockInEvent.paid_time)
-    .maybeSingle()
+ // ✅ After
+const { data: existingOut } = await supabase
+  .from('clock_events')
+  .select('id')
+  .eq('staff_id', staff.id)
+  .eq('event_type', 'clock_out')
+  .gte('raw_time', clockInEvent.raw_time)  // ✅ was paid_time
+  .maybeSingle()
 
   if (existingOut) {
     return NextResponse.json({ error: `${staff.name} has already clocked out`, already_out: true }, { status: 409 })
@@ -96,7 +95,6 @@ export async function POST(request: NextRequest) {
     rosterEntry = entries?.find(e => e.status === 'present') ?? entries?.[0] ?? null
   }
 
-  // ✅ Fix 2 — was +08:00 (Perth), Brisbane is UTC+10
   const scheduledEnd = rosterEntry?.scheduled_end
     ? new Date(`${today}T${rosterEntry.scheduled_end}:00+10:00`)
     : null
@@ -262,15 +260,15 @@ export async function POST(request: NextRequest) {
     Math.max(0, (paidTime.getTime() - paidStart.getTime()) / 60000 - Number(staff.break_minutes ?? 30)) / 60 * 100
   ) / 100
 
-  // ✅ Fix 3 — was Australia/Perth on all three strings
-  const rawOutStr = nowLocal.toLocaleTimeString('en-AU', {
-    timeZone: 'Australia/Brisbane', hour: '2-digit', minute: '2-digit', hour12: false,
+  // Format nowUtc directly — no intermediate Date object
+  const rawOutStr = nowUtc.toLocaleTimeString('en-AU', {
+    timeZone: 'Australia/Brisbane', hour: 'numeric', minute: '2-digit', hour12: true,
   })
   const rawInStr = new Date(clockInEvent.paid_time).toLocaleTimeString('en-AU', {
-    timeZone: 'Australia/Brisbane', hour: '2-digit', minute: '2-digit', hour12: false,
+    timeZone: 'Australia/Brisbane', hour: 'numeric', minute: '2-digit', hour12: true,
   })
   const paidOutStr = paidTime.toLocaleTimeString('en-AU', {
-    timeZone: 'Australia/Brisbane', hour: '2-digit', minute: '2-digit', hour12: false,
+    timeZone: 'Australia/Brisbane', hour: 'numeric', minute: '2-digit', hour12: true,
   })
 
   return NextResponse.json({
