@@ -39,14 +39,16 @@ type Shift = {
   clock_out: ClockEvent | null
 }
 
-function toPerth(iso: string | null) {
+ // ✅ After
+function toBrisbane(iso: string | null) {
   if (!iso) return '—'
   return new Date(iso).toLocaleString('en-AU', {
-    timeZone: 'Australia/Perth',
+    timeZone: 'Australia/Brisbane',
     weekday: 'short', day: '2-digit', month: 'short',
     hour: '2-digit', minute: '2-digit',
   })
 }
+
 
 function GpsDetail({ event, label }: { event: ClockEvent | null; label: string }) {
   if (!event) return null
@@ -56,8 +58,8 @@ function GpsDetail({ event, label }: { event: ClockEvent | null; label: string }
   return (
     <div className={`rounded-lg p-3 text-xs space-y-1 ${bg}`}>
       <div className="font-semibold text-gray-700">{label}</div>
-      <div>Raw: {toPerth(event.raw_time)}</div>
-      <div>Paid: {toPerth(event.paid_time)}</div>
+      <div>Raw: {toBrisbane(event.raw_time)}</div>
+      <div>Paid: {toBrisbane(event.paid_time)}</div>
       <div>Snap: <span className="font-mono">{event.snap_reason}</span></div>
       {event.gps_lat && (
         <div>📍 {event.gps_lat}, {event.gps_lng}
@@ -203,7 +205,7 @@ export default function DayDetailPage() {
         <button onClick={() => router.push('/admin/hours')}
           className="text-gray-500 hover:text-gray-700 text-sm">← Back</button>
         <h1 className="text-xl font-bold text-gray-900">
-          Shifts — {date} (Perth)
+Shifts — {date} (Brisbane)
         </h1>
       </div>
 
@@ -223,7 +225,7 @@ export default function DayDetailPage() {
                 }`}>
                 <div className="font-semibold text-gray-900">{shift.staff.name}</div>
                 <div className="text-xs text-gray-500 mt-0.5">
-                  {toPerth(shift.effective_start)} → {toPerth(shift.effective_end)}
+                  {toBrisbane(shift.effective_start)} → {toBrisbane(shift.effective_end)}
                 </div>
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   <span className="bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded">
@@ -279,11 +281,11 @@ export default function DayDetailPage() {
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
                   <div className="text-xs text-gray-500">Effective Start</div>
-                  <div className="font-medium">{toPerth(selected.effective_start)}</div>
+                  <div className="font-medium">{toBrisbane(selected.effective_start)}</div>
                 </div>
                 <div>
                   <div className="text-xs text-gray-500">Effective End</div>
-                  <div className="font-medium">{toPerth(selected.effective_end)}</div>
+                  <div className="font-medium">{toBrisbane(selected.effective_end)}</div>
                 </div>
                 <div>
                   <div className="text-xs text-gray-500">Break</div>
@@ -381,7 +383,7 @@ export default function DayDetailPage() {
 
               {selected.status === 'approved' && (
                 <div className="text-sm text-green-700 bg-green-50 rounded-lg p-3">
-                  ✅ Approved at {toPerth(selected.approved_at)}
+                  ✅ Approved at {toBrisbane(selected.approved_at)}
                 </div>
               )}
             </div>
