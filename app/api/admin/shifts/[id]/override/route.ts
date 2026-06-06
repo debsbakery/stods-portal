@@ -1,5 +1,4 @@
 // POST /api/admin/shifts/[id]/override
-// Body: { override_paid_minutes: number, reason: string, approved_by_id: string }
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -10,14 +9,13 @@ export async function POST(
   const supabase = createAdminClient()
   const { override_paid_minutes, reason, approved_by_id } = await req.json()
 
-  if (!override_paid_minutes || !reason || !approved_by_id) {
+  if (override_paid_minutes === undefined || override_paid_minutes === null || !reason || !approved_by_id) {
     return NextResponse.json(
       { error: 'override_paid_minutes, reason and approved_by_id are required' },
       { status: 400 }
     )
   }
 
-  // Fetch current shift to recalculate pay
   const { data: shift, error: fetchErr } = await supabase
     .from('shifts')
     .select('staff_id, effective_start, effective_end, applicable_rate, break_minutes')
@@ -36,8 +34,6 @@ export async function POST(
 
   const now = new Date().toISOString()
 
-  // Calculate new effective_end from effective_start + override minutes
-  // (keeps the stored times honest for audit)
   let newEffectiveEnd: string | null = null
   if (shift.effective_start) {
     const end = new Date(shift.effective_start)
@@ -53,9 +49,9 @@ export async function POST(
       gross_pay:     newGrossPay,
       effective_end: newEffectiveEnd,
       status:        'approved',
-      approved_by:   approved_by_id,
+      approved_by:   null,
       approved_at:   now,
-      manager_note:  `Override: ${reason}`,
+      manager_note:  `Override by auth:${approved_by_id.slice(0, 8)} — ${reason}`,
     })
     .eq('id', params.id)
     .select()
@@ -63,13 +59,12 @@ export async function POST(
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Log override to clock_events — update the clock_out event
   await supabase
     .from('clock_events')
     .update({
       override_paid_time: newEffectiveEnd,
       override_reason:    reason,
-      overridden_by:      approved_by_id,
+      overridden_by:      null,
       overridden_at:      now,
     })
     .eq('id', data.clock_out_id)
