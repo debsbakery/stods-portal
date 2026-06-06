@@ -13,6 +13,13 @@ interface StatementLine {
   amount_paid?: number
 }
 
+interface AgingSummary {
+  current:  number  // 0-14 days
+  days30:   number  // 15-30 days
+  days60:   number  // 31-60 days
+  older:    number  // 60+ days
+}
+
 interface StatementData {
   customer: {
     id: string
@@ -28,7 +35,7 @@ interface StatementData {
   closingBalance: number
   startDate: string | null
   endDate: string
-  // ── Brand overrides ──────────────────────────────────────
+  aging?: AgingSummary
   bakeryName?: string
   bakeryEmail?: string
   logoUrl?: string
@@ -38,9 +45,10 @@ interface StatementData {
 export async function generateStatementPDF(data: StatementData): Promise<Buffer> {
   const {
     customer, lines, openingBalance, closingBalance, startDate, endDate,
-    bakeryName   = "Deb's Bakery",
-    bakeryEmail  = 'noreply@debsbakery.store',
-    headerColor  = [0, 0.416, 0.306],
+    aging,
+    bakeryName  = process.env.BAKERY_NAME  ?? 'Kimbercrust Bakery',
+    bakeryEmail = process.env.BAKERY_EMAIL ?? 'orders@kimbercrust.com',
+    headerColor = [0, 0.416, 0.306],
   } = data
 
   const pdfDoc   = await PDFDocument.create()
@@ -86,10 +94,9 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
     opts: { size?: number; bold?: boolean; color?: [number, number, number] } = {}
   ) => {
     page.drawText(String(text ?? ''), {
-      x,
-      y:     yPos,
-      size:  opts.size ?? 9,
-      font:  opts.bold ? fontBold : font,
+      x, y: yPos,
+      size: opts.size ?? 9,
+      font: opts.bold ? fontBold : font,
       color: rgb(...(opts.color ?? DARK)),
     })
   }
@@ -111,67 +118,42 @@ export async function generateStatementPDF(data: StatementData): Promise<Buffer>
     if (!status || status === 'na') return
     if (status === 'paid') {
       drawRect(x, y - 3, 32, 11, [0.86, 0.97, 0.88])
-      page.drawText('PAID', {
-        x: x + 4, y: y + 1, size: 6.5, font: fontBold, color: rgb(...GREEN),
-      })
+      page.drawText('PAID', { x: x + 4, y: y + 1, size: 6.5, font: fontBold, color: rgb(...GREEN) })
     } else if (status === 'partial') {
       drawRect(x, y - 3, 38, 11, [0.99, 0.95, 0.82])
-      page.drawText('PART PD', {
-        x: x + 3, y: y + 1, size: 6.5, font: fontBold, color: rgb(...AMBER),
-      })
+      page.drawText('PART PD', { x: x + 3, y: y + 1, size: 6.5, font: fontBold, color: rgb(...AMBER) })
     } else if (status === 'unpaid') {
       drawRect(x, y - 3, 36, 11, [0.99, 0.90, 0.90])
-      page.drawText('UNPAID', {
-        x: x + 3, y: y + 1, size: 6.5, font: fontBold, color: rgb(...RED),
-      })
+      page.drawText('UNPAID', { x: x + 3, y: y + 1, size: 6.5, font: fontBold, color: rgb(...RED) })
     }
   }
 
   const addPageHeader = (pageRef: typeof page, isFirst: boolean) => {
     const h = pageRef.getSize().height
-    pageRef.drawRectangle({
-      x: 0, y: h - 75, width, height: 75,
-      color: rgb(...HEADER),
-    })
-    pageRef.drawText(bakeryName, {
-      x: 50, y: h - 35, size: 22, font: fontBold, color: rgb(1, 1, 1),
-    })
-    pageRef.drawText('ACCOUNT STATEMENT', {
-      x: 50, y: h - 55, size: 9, font, color: rgb(0.8, 1, 0.9),
-    })
-
+    pageRef.drawRectangle({ x: 0, y: h - 75, width, height: 75, color: rgb(...HEADER) })
+    pageRef.drawText(bakeryName, { x: 50, y: h - 35, size: 22, font: fontBold, color: rgb(1, 1, 1) })
+    pageRef.drawText('ACCOUNT STATEMENT', { x: 50, y: h - 55, size: 9, font, color: rgb(0.8, 1, 0.9) })
     if (isFirst) {
-      const periodStr =
-        (startDate ? formatDate(startDate) : 'Beginning') +
-        ' - ' + formatDate(endDate)
-      pageRef.drawText('Statement Period', {
-        x: RIGHT_MARGIN - 180, y: h - 35, size: 8, font, color: rgb(0.8, 1, 0.9),
-      })
-      pageRef.drawText(periodStr, {
-        x: RIGHT_MARGIN - 180, y: h - 50, size: 10, font: fontBold, color: rgb(1, 1, 1),
-      })
-      pageRef.drawText('Printed: ' + formatDate(new Date().toISOString()), {
-        x: RIGHT_MARGIN - 180, y: h - 65, size: 8, font, color: rgb(0.8, 1, 0.9),
-      })
+      const periodStr = (startDate ? formatDate(startDate) : 'Beginning') + ' - ' + formatDate(endDate)
+      pageRef.drawText('Statement Period',   { x: RIGHT_MARGIN - 180, y: h - 35, size: 8,  font,     color: rgb(0.8, 1, 0.9) })
+      pageRef.drawText(periodStr,            { x: RIGHT_MARGIN - 180, y: h - 50, size: 10, font: fontBold, color: rgb(1, 1, 1) })
+      pageRef.drawText('Printed: ' + formatDate(new Date().toISOString()), { x: RIGHT_MARGIN - 180, y: h - 65, size: 8, font, color: rgb(0.8, 1, 0.9) })
     } else {
-      pageRef.drawText('(continued)', {
-        x: RIGHT_MARGIN - 80, y: h - 50, size: 9, font, color: rgb(0.8, 1, 0.9),
-      })
+      pageRef.drawText('(continued)', { x: RIGHT_MARGIN - 80, y: h - 50, size: 9, font, color: rgb(0.8, 1, 0.9) })
     }
   }
 
   const drawTableHeader = (yRef: number) => {
     drawRect(50, yRef - 4, RIGHT_MARGIN - 50, 18, [0.1, 0.1, 0.1])
-    page.drawText('DATE',        { x: COL.date    + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
-    page.drawText('DESCRIPTION', { x: COL.desc    + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
-    page.drawText('STATUS',      { x: COL.status  + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
-   // REPLACE WITH:
-page.drawText('CHARGES/CREDITS', { x: COL.debit  + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
-page.drawText('PAYMENTS',        { x: COL.credit + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
-    page.drawText('BALANCE',     { x: COL.balance + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
+    page.drawText('DATE',            { x: COL.date    + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
+    page.drawText('DESCRIPTION',     { x: COL.desc    + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
+    page.drawText('STATUS',          { x: COL.status  + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
+    page.drawText('CHARGES/CREDITS', { x: COL.debit   + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
+    page.drawText('PAYMENTS',        { x: COL.credit  + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
+    page.drawText('BALANCE',         { x: COL.balance + 2, y: yRef + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
   }
 
-  // ── First page ────────────────────────────────────────────────────────────
+  // ── First page ──
   addPageHeader(page, true)
   let y = height - 95
 
@@ -194,20 +176,14 @@ page.drawText('PAYMENTS',        { x: COL.credit + 2, y: yRef + 2, size: 7, font
 
   drawRect(box1X, boxY - boxH, 105, boxH, [0.94, 0.97, 0.94])
   page.drawText('Opening Balance', { x: box1X + 8, y: boxY - 20, size: 7, font, color: rgb(...GREY) })
-  page.drawText(formatCurrency(openingBalance), {
-    x: box1X + 8, y: boxY - 38, size: 13, font: fontBold, color: rgb(...DARK),
-  })
+  page.drawText(formatCurrency(openingBalance), { x: box1X + 8, y: boxY - 38, size: 13, font: fontBold, color: rgb(...DARK) })
 
   const closeCol = closingBalance > 0 ? RED : GREEN
   drawRect(box2X, boxY - boxH, 105, boxH, closingBalance > 0 ? [0.97, 0.94, 0.94] : [0.94, 0.97, 0.94])
   page.drawText('Closing Balance', { x: box2X + 8, y: boxY - 20, size: 7, font, color: rgb(...GREY) })
-  page.drawText(formatCurrency(closingBalance), {
-    x: box2X + 8, y: boxY - 38, size: 13, font: fontBold, color: rgb(...closeCol),
-  })
+  page.drawText(formatCurrency(closingBalance), { x: box2X + 8, y: boxY - 38, size: 13, font: fontBold, color: rgb(...closeCol) })
   if (closingBalance > 0) {
-    page.drawText('AMOUNT DUE', {
-      x: box2X + 8, y: boxY - 54, size: 7, font: fontBold, color: rgb(...RED),
-    })
+    page.drawText('AMOUNT DUE', { x: box2X + 8, y: boxY - 54, size: 7, font: fontBold, color: rgb(...RED) })
   }
 
   y -= 10
@@ -227,7 +203,7 @@ page.drawText('PAYMENTS',        { x: COL.credit + 2, y: yRef + 2, size: 7, font
   let rowIndex = 0
 
   for (const line of lines) {
-    if (y < 100) {
+    if (y < 180) {  // leave more room for aging summary on last page
       page = pdfDoc.addPage([595, 842])
       addPageHeader(page, false)
       y = page.getSize().height - 100
@@ -251,24 +227,21 @@ page.drawText('PAYMENTS',        { x: COL.credit + 2, y: yRef + 2, size: 7, font
       drawStatus(line.paid_status, COL.status, y)
     }
 
-   // REPLACE WITH:
-if (line.debit != null && line.debit !== 0) {
-  const isNegDebit = line.debit < 0
-  drawText(
-    isNegDebit
-      ? `-$${Math.abs(line.debit).toFixed(2)}`
-      : formatCurrency(line.debit),
-    COL.debit, y,
-    { size: 8, color: isNegDebit ? GREEN : DARK }
-  )
-  // Show owing amount for part-paid invoices
-  if (line.paid_status === 'partial' && line.amount_paid != null) {
-    const owing = line.debit - (line.amount_paid ?? 0)
-    if (owing > 0.01) {
-      drawText(`(${formatCurrency(owing)} owing)`, COL.debit, y - 9, { size: 6, color: AMBER })
+    if (line.debit != null && line.debit !== 0) {
+      const isNegDebit = line.debit < 0
+      drawText(
+        isNegDebit ? `-$${Math.abs(line.debit).toFixed(2)}` : formatCurrency(line.debit),
+        COL.debit, y,
+        { size: 8, color: isNegDebit ? GREEN : DARK }
+      )
+      if (line.paid_status === 'partial' && line.amount_paid != null) {
+        const owing = line.debit - (line.amount_paid ?? 0)
+        if (owing > 0.01) {
+          drawText(`(${formatCurrency(owing)} owing)`, COL.debit, y - 9, { size: 6, color: AMBER })
+        }
+      }
     }
-  }
-}
+
     if (line.credit != null && line.credit > 0) {
       drawText(formatCurrency(line.credit), COL.credit, y, { size: 8, color: GREEN })
     }
@@ -276,8 +249,7 @@ if (line.debit != null && line.debit !== 0) {
     const balColor = line.balance > 0 ? RED : (line.balance < 0 ? GREEN : DARK)
     drawText(formatCurrency(line.balance), COL.balance, y, { size: 8, bold: true, color: balColor })
 
-       // Extra height for part-paid rows showing owing amount
-    const rowHeight = (line.paid_status === 'partial') ? 24 : 16
+    const rowHeight = line.paid_status === 'partial' ? 24 : 16
     y -= rowHeight
     rowIndex++
   }
@@ -286,19 +258,16 @@ if (line.debit != null && line.debit !== 0) {
   drawLine(50, y, RIGHT_MARGIN, y, 1)
   y -= 18
 
- // REPLACE WITH:
-const totalCharges = lines.reduce((s, l) => s + (l.debit ?? 0), 0)  // net of credits
-const totalPayments = lines.reduce((s, l) => s + (l.credit ?? 0), 0)
+  const totalCharges  = lines.reduce((s, l) => s + (l.debit  ?? 0), 0)
+  const totalPayments = lines.reduce((s, l) => s + (l.credit ?? 0), 0)
 
-drawText('TOTALS', COL.desc, y, { size: 9, bold: true })
-drawText(
-  totalCharges >= 0
-    ? formatCurrency(totalCharges)
-    : `-$${Math.abs(totalCharges).toFixed(2)}`,
-  COL.debit, y,
-  { size: 9, bold: true, color: totalCharges < 0 ? GREEN : DARK }
-)
-drawText(formatCurrency(totalPayments), COL.credit, y, { size: 9, bold: true, color: GREEN })
+  drawText('TOTALS', COL.desc, y, { size: 9, bold: true })
+  drawText(
+    totalCharges >= 0 ? formatCurrency(totalCharges) : `-$${Math.abs(totalCharges).toFixed(2)}`,
+    COL.debit, y,
+    { size: 9, bold: true, color: totalCharges < 0 ? GREEN : DARK }
+  )
+  drawText(formatCurrency(totalPayments), COL.credit, y, { size: 9, bold: true, color: GREEN })
 
   y -= 8
   drawLine(50, y, RIGHT_MARGIN, y)
@@ -315,35 +284,70 @@ drawText(formatCurrency(totalPayments), COL.credit, y, { size: 9, bold: true, co
     { size: 11, bold: true, color: closingBalance > 0 ? RED : GREEN }
   )
 
-  // ── Footer ────────────────────────────────────────────────────────────────
-  y -= 45
+  // ── Ageing Summary ──────────────────────────────────────────────────────────
+  if (aging && closingBalance > 0.01) {
+    y -= 35
+
+    // Section header
+    drawRect(50, y - 4, RIGHT_MARGIN - 50, 18, [0.1, 0.1, 0.1])
+    page.drawText('AGEING SUMMARY', {
+      x: 55, y: y + 2, size: 8, font: fontBold, color: rgb(1, 1, 1),
+    })
+    y -= 20
+
+    // Column positions for aging
+    const ageCols = {
+      label:   50,
+      current: 200,
+      d30:     300,
+      d60:     400,
+      total:   500,
+    }
+
+    // Sub-headers
+    drawRect(50, y - 4, RIGHT_MARGIN - 50, 14, [0.92, 0.92, 0.92])
+    page.drawText('0–14 days (Current)', { x: ageCols.current, y: y,     size: 7, font: fontBold, color: rgb(...DARK) })
+    page.drawText('15–30 days',          { x: ageCols.d30,     y: y,     size: 7, font: fontBold, color: rgb(...DARK) })
+    page.drawText('31–60 days',          { x: ageCols.d60,     y: y,     size: 7, font: fontBold, color: rgb(...AMBER) })
+    page.drawText('60+ days',            { x: ageCols.total,   y: y,     size: 7, font: fontBold, color: rgb(...RED) })
+    y -= 20
+
+    // Values row
+    drawRect(50, y - 4, RIGHT_MARGIN - 50, 18, [0.97, 0.97, 0.97])
+
+    const agingTotal = aging.current + aging.days30 + aging.days60 + aging.older
+
+    page.drawText(formatCurrency(aging.current), { x: ageCols.current, y: y + 2, size: 10, font: fontBold, color: rgb(...GREEN) })
+    page.drawText(formatCurrency(aging.days30),  { x: ageCols.d30,     y: y + 2, size: 10, font: fontBold, color: rgb(...AMBER) })
+    page.drawText(formatCurrency(aging.days60),  { x: ageCols.d60,     y: y + 2, size: 10, font: fontBold, color: rgb(...AMBER) })
+    page.drawText(formatCurrency(aging.older),   { x: ageCols.total,   y: y + 2, size: 10, font: fontBold, color: rgb(...RED) })
+    y -= 20
+
+    drawLine(50, y, RIGHT_MARGIN, y)
+    y -= 14
+
+    // Total row
+    drawText('Total Outstanding:', ageCols.label, y, { size: 8, bold: true })
+    page.drawText(formatCurrency(agingTotal), {
+      x: ageCols.total, y, size: 10, font: fontBold,
+      color: rgb(...(agingTotal > 0 ? RED : GREEN)),
+    })
+    y -= 10
+  }
+
+  // ── Footer ──────────────────────────────────────────────────────────────────
+  y -= 20
   drawLine(50, y, RIGHT_MARGIN, y)
   y -= 15
 
-  drawText(
-    'Payment Terms: ' + (customer.payment_terms || '30 days'),
-    50, y,
-    { size: 8, color: GREY }
-  )
-  drawText(
-    `${bakeryName}  |  ${bakeryEmail}`,
-    RIGHT_MARGIN - 250, y,
-    { size: 8, color: GREY }
-  )
+  drawText('Payment Terms: ' + (customer.payment_terms || '30 days'), 50, y, { size: 8, color: GREY })
+  drawText(`${bakeryName}  |  ${bakeryEmail}`, RIGHT_MARGIN - 250, y, { size: 8, color: GREY })
 
   y -= 16
   if (closingBalance > 0) {
-    drawText(
-      'Amount of ' + formatCurrency(closingBalance) + ' is due for payment.',
-      50, y,
-      { size: 8, color: RED }
-    )
+    drawText('Amount of ' + formatCurrency(closingBalance) + ' is due for payment.', 50, y, { size: 8, color: RED })
   } else {
-    drawText(
-      'Your account is up to date. Thank you for your business.',
-      50, y,
-      { size: 8, color: GREEN }
-    )
+    drawText('Your account is up to date. Thank you for your business.', 50, y, { size: 8, color: GREEN })
   }
 
   const pdfBytes = await pdfDoc.save()
