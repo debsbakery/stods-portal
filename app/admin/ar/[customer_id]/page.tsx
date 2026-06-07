@@ -92,6 +92,11 @@ async function getCustomerLedger(customerId: string) {
   // ── AR Transactions ───────────────────────────────────────────────────
   for (const tx of arTxRaw ?? []) {
     const isCredit   = tx.type === 'credit'
+     // Skip overpayment credits — they are accounted for in the payment line
+  // They show as negative balance artifacts when displayed separately
+  if (isCredit && (tx.description ?? '').toLowerCase().includes('overpayment credit')) {
+    continue
+  }
     const txAmount   = Number(tx.amount      || 0)
     const amtPaid    = Number(tx.amount_paid || 0)
     const invoiceNum = tx.invoice_id ? invoiceMap[tx.invoice_id] : null
@@ -140,8 +145,8 @@ async function getCustomerLedger(customerId: string) {
       date:        tx.created_at,
       type:        isCredit ? 'credit' : 'invoice',
       description: finalDescription,
-      debit:       txAmount,
-      credit:      isCredit ? txAmount : 0,
+       debit:       isCredit ? Math.max(txAmount - amtPaid, 0) : txAmount,
+  credit:      isCredit ? Math.max(txAmount - amtPaid, 0) : 0,
       balance:     0,
       amount_paid: amtPaid,
       outstanding: Math.max(txAmount - amtPaid, 0),
@@ -176,12 +181,13 @@ async function getCustomerLedger(customerId: string) {
   // ── Sort + running balance ────────────────────────────────────────────
   entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
+ // ✅ After — closing brace added
   let running = 0
   for (const e of entries) {
     if (e.type === 'invoice') {
       running += e.debit
     } else if (e.type === 'credit') {
-      running -= e.debit
+      running -= e.outstanding
     } else if (e.type === 'payment') {
       running -= e.credit
     }
@@ -199,14 +205,16 @@ async function getCustomerLedger(customerId: string) {
     .filter(e => e.type === 'credit')
     .reduce((s, e) => s + e.credit, 0)
 
-  return {
-    customer,
-    entries:        [...entries].reverse(),
-    totalInvoiced,
-    totalPaid,
-    totalCredits,
-    currentBalance: Math.round(running * 100) / 100,
-  }
+  
+// ✅ After
+return {
+  customer,
+  entries:        [...entries].reverse(),
+  totalInvoiced,
+  totalPaid,
+  totalCredits,
+  currentBalance: Math.round(Number(customer.balance ?? running) * 100) / 100,
+}
 }
 
 export default async function CustomerLedgerPage({
