@@ -9,8 +9,8 @@ interface OpenInvoice {
   amount: number
   amount_paid: number
   outstanding: number
-  status: 'unpaid' | 'partial'
-}
+  status: 'unpaid' | 'partial' | 'paid'
+  invoice_number?: number | null}
 
 interface OpenInvoicesData {
   customer: {
@@ -21,13 +21,13 @@ interface OpenInvoicesData {
     payment_terms?: string
   }
   invoices: OpenInvoice[]
-  totalOutstanding: number
+   totalOutstanding: number
+  customerBalance?: number
   asAt: string
 }
 
 export async function generateOpenInvoicesPDF(data: OpenInvoicesData): Promise<Buffer> {
-  const { customer, invoices, totalOutstanding, asAt } = data
-
+  const { customer, invoices, totalOutstanding, customerBalance, asAt } = data
   const pdfDoc  = await PDFDocument.create()
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
   const font     = await pdfDoc.embedFont(StandardFonts.Helvetica)
@@ -160,6 +160,24 @@ export async function generateOpenInvoicesPDF(data: OpenInvoicesData): Promise<B
   page.drawRectangle({ x: 380, y: y - 6, width: RIGHT_MARGIN - 380, height: 24, color: rgb(0.99, 0.94, 0.94) })
   page.drawText('TOTAL OUTSTANDING:', { x: 290, y: y + 3, size: 10, font: fontBold, color: rgb(...DARK) })
   page.drawText(fmt(totalOutstanding), { x: 465,  y: y + 3, size: 11, font: fontBold, color: rgb(...RED) })
+
+    // ✅ Credit balance section
+  if ((customerBalance ?? 0) < -0.01) {
+    y -= 20
+    const creditAmt = Math.abs(customerBalance ?? 0)
+    page.drawRectangle({ x: 50, y: y - 8, width: RIGHT_MARGIN - 50, height: 36, color: rgb(0.94, 0.99, 0.94) })
+    page.drawText('CREDIT BALANCE ON ACCOUNT', {
+      x: 58, y: y + 14, size: 8, font: fontBold, color: rgb(...GREEN),
+    })
+    page.drawText(
+      `This account has a credit balance of ${fmt(creditAmt)} available.`,
+      { x: 58, y: y + 2, size: 8, font, color: rgb(...GREY) }
+    )
+    page.drawText(fmt(creditAmt), {
+      x: RIGHT_MARGIN - 80, y: y + 8, size: 13, font: fontBold, color: rgb(...GREEN),
+    })
+    y -= 20
+  }
 
   // Footer
   y -= 35
