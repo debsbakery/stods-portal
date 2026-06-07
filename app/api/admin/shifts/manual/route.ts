@@ -148,7 +148,7 @@ export async function POST(request: NextRequest) {
         break_minutes:   0,
         paid_minutes:    0,
         paid_hours:      0,
-        status:          'clocked_in',
+status:          'pending',
         manager_note:    `Manual clock-in: ${reason ?? 'QR scan failed'}`,
       })
       .select()
