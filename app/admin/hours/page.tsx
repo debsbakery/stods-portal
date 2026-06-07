@@ -206,8 +206,17 @@ export default function HoursPage() {
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">⏱ Staff Hours</h1>
+ <div className="flex items-center justify-between">
+  <div className="flex items-center gap-4">
+    <button
+      onClick={() => router.push('/admin')}
+      className="flex items-center gap-1 text-sm hover:opacity-80"
+      style={{ color: '#CE1126' }}
+    >
+      ← Back to Admin
+    </button>
+    <h1 className="text-2xl font-bold text-gray-900">⏱ Staff Hours</h1>
+  </div>
         <div className="flex items-center gap-2">
           <button onClick={() => { setManualError(null); setShowManual(true) }}
             className="flex items-center gap-1.5 bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-amber-800">
