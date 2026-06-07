@@ -208,13 +208,13 @@ export default function HoursPage() {
     <div className="max-w-5xl mx-auto p-6 space-y-6">
  <div className="flex items-center justify-between">
   <div className="flex items-center gap-4">
-    <button
-      onClick={() => router.push('/admin')}
-      className="flex items-center gap-1 text-sm hover:opacity-80"
-      style={{ color: '#CE1126' }}
-    >
-      ← Back to Admin
-    </button>
+   <a
+  href="/admin"
+  className="flex items-center gap-1 text-sm hover:opacity-80"
+  style={{ color: '#CE1126' }}
+>
+  ← Back to Admin
+</a>
     <h1 className="text-2xl font-bold text-gray-900">⏱ Staff Hours</h1>
   </div>
         <div className="flex items-center gap-2">
