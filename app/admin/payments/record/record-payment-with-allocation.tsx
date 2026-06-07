@@ -25,15 +25,15 @@ interface Customer {
 }
 
 interface Invoice {
-  id:             string;
-  delivery_date:  string;
-  total_amount:   number;
-  amount_paid:    number | null;
-  customer_id:    string;
-  invoice_number: number | null;
-  status:         string | null;
+  id: string
+  customer_id: string
+  delivery_date: string
+  total_amount: number | string
+  amount_paid: number | string
+  status: string
+  invoice_number: number | null
+  is_weekly?: boolean  // ✅ add this
 }
-
 interface Credit {
   id:             string;
   customer_id:    string;
@@ -48,6 +48,7 @@ interface Allocation {
   invoice_id: string;
   amount:     number;
   is_credit?: boolean;
+   is_weekly?: boolean
   accept_as_full?: boolean;
   short_amount?: number;
 }
@@ -154,7 +155,7 @@ export default function RecordPaymentWithAllocation({
       if (due < 0.01) continue;
       const allocate = money(Math.min(remaining, due));
       if (allocate > 0 && invoice?.id) {
-        newAllocations.push({ invoice_id: invoice.id, amount: allocate });
+        newAllocations.push({ invoice_id: invoice.id, amount: allocate, is_weekly: invoice.is_weekly ?? false, });
         remaining = money(remaining - allocate);
       }
     }
@@ -183,7 +184,7 @@ export default function RecordPaymentWithAllocation({
             : a
         );
       } else if (validAmount > 0) {
-        return [...prev, { invoice_id: invoiceId, amount: validAmount }];
+return [...prev, { invoice_id: invoiceId, amount: validAmount, is_weekly: invoice.is_weekly ?? false }]
       }
       return prev;
     });
@@ -538,7 +539,7 @@ const isShort = isTicked && allocated > 0 && allocated < due;                   
                           <input type="checkbox" checked={isTicked} onChange={() => {}} className="w-5 h-5 accent-green-600 shrink-0 cursor-pointer" />
                           <div className="flex-1">
                             <p className="font-mono text-sm font-semibold text-gray-800">
-                              Invoice #{String(invoice.invoice_number).padStart(6, '0')}
+{invoice.is_weekly ? 'Weekly ' : ''}Invoice #{String(invoice.invoice_number).padStart(6, '0')}
                             </p>
                             <p className="text-xs text-gray-500">
                               {new Date(invoice.delivery_date + 'T00:00:00').toLocaleDateString('en-AU')}

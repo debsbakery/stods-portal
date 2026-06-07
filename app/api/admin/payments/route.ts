@@ -18,10 +18,9 @@ export async function POST(request: NextRequest) {
       allocations = [],
     } = body
 
-    const cashAmount = parseFloat(amount) || 0
+    const cashAmount    = parseFloat(amount) || 0
     const tickedCredits = allocations.filter((a: any) => a.is_credit)
 
-    // ── Validation ────────────────────────────────────────────────────────
     if (!customer_id) {
       return NextResponse.json({ error: 'customer_id is required' }, { status: 400 })
     }
@@ -43,12 +42,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
     }
 
-    const invoiceAllocs = allocations.filter((a: any) => !a.is_credit && a.amount > 0)
+    const invoiceAllocs         = allocations.filter((a: any) => !a.is_credit && a.amount > 0)
     const totalAllocatedToInvoices = invoiceAllocs.reduce(
       (sum: number, a: any) => sum + (parseFloat(a.amount) || 0), 0
     )
 
-    // ── Fetch ticked credits' real available amounts from DB ──────────────
+    // Fetch ticked credits
     const creditIds = tickedCredits.map((c: any) => c.invoice_id)
     let availableCredits: Array<{ id: string; amount: number; amount_paid: number; remaining: number; created_at: string }> = []
 
@@ -61,24 +60,19 @@ export async function POST(request: NextRequest) {
         .eq('type', 'credit')
 
       availableCredits = (creditTxs || [])
-        .map(c => {
-          const total    = Number(c.amount) || 0
-          const consumed = Number(c.amount_paid) || 0
-          return {
-            id: c.id,
-            amount: total,
-            amount_paid: consumed,
-            remaining: total - consumed,
-            created_at: c.created_at,
-          }
-        })
+        .map(c => ({
+          id:          c.id,
+          amount:      Number(c.amount) || 0,
+          amount_paid: Number(c.amount_paid) || 0,
+          remaining:   (Number(c.amount) || 0) - (Number(c.amount_paid) || 0),
+          created_at:  c.created_at,
+        }))
         .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
     }
 
     const totalCreditPool = availableCredits.reduce((s, c) => s + c.remaining, 0)
     const totalAvailable  = cashAmount + totalCreditPool
 
-    // ── Sanity: don't allow allocations to exceed available pool ──────────
     if (totalAllocatedToInvoices > totalAvailable + 0.01) {
       return NextResponse.json(
         { error: `Allocated $${totalAllocatedToInvoices.toFixed(2)} exceeds available $${totalAvailable.toFixed(2)}` },
@@ -86,11 +80,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // ── Determine credit consumption ──────────────────────────────────────
     const cashAppliedToInvoices   = Math.min(Math.max(0, cashAmount), totalAllocatedToInvoices)
     const creditAppliedToInvoices = Math.max(0, totalAllocatedToInvoices - cashAppliedToInvoices)
 
-    // ── Create the payment record (cash only) ─────────────────────────────
+    // Create payment record
     let payment: any = null
     if (cashAmount !== 0) {
       const { data: paymentRow, error: paymentError } = await supabase
@@ -111,20 +104,19 @@ export async function POST(request: NextRequest) {
       payment = paymentRow
     }
 
-    // ── Apply allocations to invoices ─────────────────────────────────────
+    // Apply allocations to invoices
     let cashRemaining = Math.max(0, cashAmount)
 
     for (const allocation of invoiceAllocs) {
       if (!allocation.invoice_id || !allocation.amount) continue
-      const allocAmount = Number(allocation.amount)
+      const allocAmount    = Number(allocation.amount)
       const isAcceptedFull = allocation.accept_as_full === true
-      const shortAmount = Number(allocation.short_amount || 0)
+      const shortAmount    = Number(allocation.short_amount || 0)
+      const isWeekly       = allocation.is_weekly === true  // ✅ weekly invoice flag
 
-      // Cash portion of this allocation
       const cashPart = Math.min(cashRemaining, allocAmount)
       cashRemaining -= cashPart
 
-      // Link cash payment → invoice (only if there was cash)
       if (cashPart > 0 && payment) {
         await supabase.from('invoice_payments').insert({
           invoice_id: allocation.invoice_id,
@@ -133,71 +125,94 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      // Update ar_transactions.amount_paid by the FULL allocation
-      const { data: arTx } = await supabase
-        .from('ar_transactions')
-        .select('id, amount, amount_paid')
-        .eq('invoice_id', allocation.invoice_id)
-        .single()
-
-      if (arTx) {
-        let newAmountPaid = Number(arTx.amount_paid || 0) + allocAmount
-        const arTotal = Number(arTx.amount)
-
-        // If accepted as full payment, mark the AR transaction as fully paid
-        if (isAcceptedFull) {
-          newAmountPaid = arTotal
-        }
-
-        const isFullyPaid = newAmountPaid >= arTotal - 0.005
-        const updateData: any = { amount_paid: Math.round(newAmountPaid * 100) / 100 }
-        if (isFullyPaid) {
-          updateData.paid_date = payment_date || new Date().toISOString().split('T')[0]
-        }
-        await supabase.from('ar_transactions').update(updateData).eq('id', arTx.id)
-      }
-
-      // Update orders.amount_paid + status
-      const { data: order } = await supabase
-        .from('orders')
-        .select('amount_paid, total_amount')
-        .eq('id', allocation.invoice_id)
-        .single()
-
-      if (order) {
-        let newAmountPaid = Math.round(((Number(order.amount_paid) || 0) + allocAmount) * 100) / 100
-        const orderTotal = Number(order.total_amount) || 0
-
-        // If accepted as full, set amount_paid = total
-        if (isAcceptedFull) {
-          newAmountPaid = orderTotal
-        }
-
-        const isOrderFullyPaid = newAmountPaid >= orderTotal - 0.01
-
-        const orderUpdate: any = { amount_paid: newAmountPaid }
-        if (isOrderFullyPaid) {
-          orderUpdate.status = 'paid'
-        }
-
-        await supabase
-          .from('orders')
-          .update(orderUpdate)
+      if (isWeekly) {
+        // ✅ Handle weekly invoice — update weekly_invoices table directly
+        const { data: wi } = await supabase
+          .from('weekly_invoices')
+          .select('id, amount_paid, total_amount')
           .eq('id', allocation.invoice_id)
-      }
+          .single()
 
-      // ── Write to payment_allocations for audit trail + unapply ────────
-      await supabase.from('payment_allocations').insert({
-        payment_id: payment?.id || null,
-        order_id: allocation.invoice_id,
-        amount: allocAmount,
-        is_full_payment: isAcceptedFull,
-        short_amount: isAcceptedFull ? shortAmount : 0,
-        allocated_by: null,
-      })
+        if (wi) {
+          let newAmountPaid = Math.round(((Number(wi.amount_paid) || 0) + allocAmount) * 100) / 100
+          const wiTotal     = Number(wi.total_amount) || 0
+
+          if (isAcceptedFull) newAmountPaid = wiTotal
+
+          const isFullyPaid = newAmountPaid >= wiTotal - 0.01
+          await supabase
+            .from('weekly_invoices')
+            .update({
+              amount_paid: newAmountPaid,
+              status:      isFullyPaid ? 'paid' : 'partial',
+            })
+            .eq('id', allocation.invoice_id)
+
+          // ✅ Also update ar_transactions if one exists for this weekly invoice
+          const { data: arTx } = await supabase
+            .from('ar_transactions')
+            .select('id, amount, amount_paid')
+            .eq('invoice_id', allocation.invoice_id)
+            .maybeSingle()
+
+          if (arTx) {
+            let newArPaid = Number(arTx.amount_paid || 0) + allocAmount
+            if (isAcceptedFull) newArPaid = Number(arTx.amount)
+            await supabase
+              .from('ar_transactions')
+              .update({ amount_paid: Math.round(newArPaid * 100) / 100 })
+              .eq('id', arTx.id)
+          }
+        }
+
+      } else {
+        // Regular order invoice — existing logic
+        const { data: arTx } = await supabase
+          .from('ar_transactions')
+          .select('id, amount, amount_paid')
+          .eq('invoice_id', allocation.invoice_id)
+          .single()
+
+        if (arTx) {
+          let newAmountPaid = Number(arTx.amount_paid || 0) + allocAmount
+          const arTotal     = Number(arTx.amount)
+          if (isAcceptedFull) newAmountPaid = arTotal
+          const isFullyPaid = newAmountPaid >= arTotal - 0.005
+          const updateData: any = { amount_paid: Math.round(newAmountPaid * 100) / 100 }
+          if (isFullyPaid) {
+            updateData.paid_date = payment_date || new Date().toISOString().split('T')[0]
+          }
+          await supabase.from('ar_transactions').update(updateData).eq('id', arTx.id)
+        }
+
+        const { data: order } = await supabase
+          .from('orders')
+          .select('amount_paid, total_amount')
+          .eq('id', allocation.invoice_id)
+          .single()
+
+        if (order) {
+          let newAmountPaid = Math.round(((Number(order.amount_paid) || 0) + allocAmount) * 100) / 100
+          const orderTotal  = Number(order.total_amount) || 0
+          if (isAcceptedFull) newAmountPaid = orderTotal
+          const isOrderFullyPaid = newAmountPaid >= orderTotal - 0.01
+          const orderUpdate: any = { amount_paid: newAmountPaid }
+          if (isOrderFullyPaid) orderUpdate.status = 'paid'
+          await supabase.from('orders').update(orderUpdate).eq('id', allocation.invoice_id)
+        }
+
+        await supabase.from('payment_allocations').insert({
+          payment_id:      payment?.id || null,
+          order_id:        allocation.invoice_id,
+          amount:          allocAmount,
+          is_full_payment: isAcceptedFull,
+          short_amount:    isAcceptedFull ? shortAmount : 0,
+          allocated_by:    null,
+        })
+      }
     }
 
-    // ── Consume credits proportionally (oldest first) ─────────────────────
+    // Consume credits
     let creditToConsume = creditAppliedToInvoices
     for (const credit of availableCredits) {
       if (creditToConsume <= 0.005) break
@@ -205,31 +220,26 @@ export async function POST(request: NextRequest) {
       if (consumeFromThis > 0) {
         await supabase
           .from('ar_transactions')
-          .update({
-            amount_paid: Math.round((credit.amount_paid + consumeFromThis) * 100) / 100,
-          })
+          .update({ amount_paid: Math.round((credit.amount_paid + consumeFromThis) * 100) / 100 })
           .eq('id', credit.id)
         creditToConsume -= consumeFromThis
       }
     }
 
-    // ── Overpayment handler ───────────────────────────────────────────────
+    // Overpayment → credit
     const cashUnallocated = Math.max(0, cashAmount - cashAppliedToInvoices)
-
     if (cashUnallocated > 0.009) {
-      await supabase
-        .from('ar_transactions')
-        .insert({
-          customer_id,
-          type:        'credit',
-          amount:      Math.round(cashUnallocated * 100) / 100,
-          amount_paid: 0,
-          description: `Overpayment credit — cash payment of $${cashAmount.toFixed(2)} exceeded allocations by $${cashUnallocated.toFixed(2)}`,
-          created_at:  new Date().toISOString(),
-        })
+      await supabase.from('ar_transactions').insert({
+        customer_id,
+        type:        'credit',
+        amount:      Math.round(cashUnallocated * 100) / 100,
+        amount_paid: 0,
+        description: `Overpayment credit — cash payment of $${cashAmount.toFixed(2)} exceeded allocations by $${cashUnallocated.toFixed(2)}`,
+        created_at:  new Date().toISOString(),
+      })
     }
 
-    // ── Recalculate customer balance from scratch ─────────────────────────
+    // Recalculate customer balance
     const { data: allTx } = await supabase
       .from('ar_transactions')
       .select('type, amount, amount_paid')
@@ -247,17 +257,15 @@ export async function POST(request: NextRequest) {
       .update({ balance: Math.round(newBalance * 100) / 100 })
       .eq('id', customer_id)
 
-    const customerName = customer.business_name || customer.contact_name
-
     return NextResponse.json({
       payment: {
-        id:           payment?.id || null,
-        customer:     customerName,
-        amount:       cashAmount,
-        new_balance:  Math.round(newBalance * 100) / 100,
-        allocations:  invoiceAllocs.length,
-        credit_used:  Math.round(creditAppliedToInvoices * 100) / 100,
-        overpayment:  cashUnallocated > 0.009 ? Math.round(cashUnallocated * 100) / 100 : 0,
+        id:          payment?.id || null,
+        customer:    customer.business_name || customer.contact_name,
+        amount:      cashAmount,
+        new_balance: Math.round(newBalance * 100) / 100,
+        allocations: invoiceAllocs.length,
+        credit_used: Math.round(creditAppliedToInvoices * 100) / 100,
+        overpayment: cashUnallocated > 0.009 ? Math.round(cashUnallocated * 100) / 100 : 0,
       },
     })
 
