@@ -452,7 +452,7 @@ export async function generateWeeklyInvoice(
   let invoiceNumber: number
   let wasRevised = false
 
-  if (existing) {
+   if (existing) {
     wasRevised    = true
     weeklyId      = existing.id
     invoiceNumber = existing.invoice_number ?? 0
@@ -490,6 +490,16 @@ export async function generateWeeklyInvoice(
     weeklyId = created.id
   }
 
+  await supabase.from('weekly_invoice_orders').insert(
+    orderIds.map(oid => ({ weekly_invoice_id: weeklyId, order_id: oid }))
+  )
+
+  // ✅ Update orders — mark as invoiced with invoice number
+  await supabase.from('orders').update({
+    weekly_invoice_id: weeklyId,
+    status:            'invoiced',
+    invoice_number:    invoiceNumber,
+  }).in('id', orderIds)
   await supabase.from('weekly_invoice_orders').insert(
     orderIds.map(oid => ({ weekly_invoice_id: weeklyId, order_id: oid }))
   )
