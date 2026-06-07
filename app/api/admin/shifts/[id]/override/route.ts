@@ -71,3 +71,49 @@ export async function POST(
 
   return NextResponse.json({ shift: data })
 }
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const supabase = createAdminClient()
+
+  // Fetch shift first to get clock event IDs
+  const { data: shift, error: fetchErr } = await supabase
+    .from('shifts')
+    .select('id, clock_in_id, clock_out_id, status')
+    .eq('id', params.id)
+    .single()
+
+  if (fetchErr || !shift) {
+    return NextResponse.json({ error: 'Shift not found' }, { status: 404 })
+  }
+
+  if (shift.status === 'approved') {
+    return NextResponse.json(
+      { error: 'Cannot delete an approved shift — unapprove it first' },
+      { status: 400 }
+    )
+  }
+
+  // Delete the shift
+  const { error: deleteErr } = await supabase
+    .from('shifts')
+    .delete()
+    .eq('id', params.id)
+
+  if (deleteErr) {
+    return NextResponse.json({ error: deleteErr.message }, { status: 500 })
+  }
+
+  // Delete associated clock events if they exist
+  const eventIds = [shift.clock_in_id, shift.clock_out_id].filter(Boolean)
+  if (eventIds.length > 0) {
+    await supabase
+      .from('clock_events')
+      .delete()
+      .in('id', eventIds)
+  }
+
+  return NextResponse.json({ success: true })
+}
