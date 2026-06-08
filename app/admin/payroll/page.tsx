@@ -37,12 +37,12 @@ function currentWeekSunday() {
   // Get current date in Perth using Intl
   const now = new Date()
   const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Australia/Perth',
+    timeZone: 'Australia/Brisbane',
     year: 'numeric', month: '2-digit', day: '2-digit',
   })
   // Get today's date string in Perth (YYYY-MM-DD)
-  const todayPerth = formatter.format(now) // returns YYYY-MM-DD via en-CA locale
-  const d = new Date(todayPerth + 'T00:00:00')
+  const todayBrisbane = formatter.format(now) // returns YYYY-MM-DD via en-CA locale
+  const d = new Date(todayBrisbane + 'T00:00:00')
   const day = d.getDay() // 0 = Sunday
   d.setDate(d.getDate() - day)
   const y = d.getFullYear()
