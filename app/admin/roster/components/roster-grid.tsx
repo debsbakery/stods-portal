@@ -119,7 +119,7 @@ export default function RosterGrid({ staff, entries, shifts, weekStart, weekDate
 const router = useRouter()
   const [localEntries, setLocalEntries] = useState<RosterEntry[]>(entries)
   const [activeDay, setActiveDay] = useState<number>(() => {
-    const today = new Date(new Date().toLocaleString('en-US', { timeZone: 'Australia/Perth' })).toISOString().split('T')[0]
+    const today = new Date(new Date().toLocaleString('en-US', { timeZone: 'Australia/Brisbane' })).toISOString().split('T')[0]
     const idx = weekDates.indexOf(today)
     return idx >= 0 ? idx : 1
   })
@@ -137,7 +137,7 @@ const router = useRouter()
   const [editForm, setEditForm] = useState<any>(null)
   const timelineRef = useRef<HTMLDivElement>(null)
   const currentDate = weekDates[activeDay]
-  const todayStr = new Date(new Date().toLocaleString('en-US', { timeZone: 'Australia/Perth' })).toISOString().split('T')[0]
+  const todayStr = new Date(new Date().toLocaleString('en-US', { timeZone: 'Australia/Brisbane' })).toISOString().split('T')[0]
 
   const weekLabel = (() => {
     const s = new Date(weekStart + 'T00:00:00')
@@ -154,9 +154,9 @@ const router = useRouter()
   }
   function actualTimeToSlot(timestamp: string): number {
     const d = new Date(timestamp)
-    // Get Perth time using Intl formatter — reliable across all environments
+    // Get brisbane time using Intl formatter — reliable across all environments
     const formatter = new Intl.DateTimeFormat('en-AU', {
-      timeZone: 'Australia/Perth',
+      timeZone: 'Australia/Brisbane',
       hour: 'numeric',
       minute: 'numeric',
       hour12: false,
@@ -520,7 +520,7 @@ const router = useRouter()
 
                   {/* Current time line */}
                   {currentDate === todayStr && (() => {
-                    const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Australia/Perth' }))
+                    const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Australia/Brisbane' }))
                     const ns = timeToSlot(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`)
                     return ns > 0 && ns < TOTAL_SLOTS ? (
                       <div className="absolute top-0 bottom-0 z-10 pointer-events-none" style={{ left: ns * SLOT_WIDTH - 1 }}>
@@ -584,7 +584,7 @@ const router = useRouter()
                           backgroundColor: barColor,
                           opacity: 0.9,
                         }}
-                        title={`Actual: ${shift.effective_start ? new Date(shift.effective_start).toLocaleTimeString('en-AU', { timeZone: 'Australia/Perth', hour: '2-digit', minute: '2-digit' }) : '?'} – ${shift.effective_end ? new Date(shift.effective_end).toLocaleTimeString('en-AU', { timeZone: 'Australia/Perth', hour: '2-digit', minute: '2-digit' }) : 'still in'}${isLate ? ` (${shift.arrived_late_min}min late)` : ''}`}
+                        title={`Actual: ${shift.effective_start ? new Date(shift.effective_start).toLocaleTimeString('en-AU', { timeZone: 'Australia/Brisbane', hour: '2-digit', minute: '2-digit' }) : '?'} – ${shift.effective_end ? new Date(shift.effective_end).toLocaleTimeString('en-AU', { timeZone: 'Australia/Perth', hour: '2-digit', minute: '2-digit' }) : 'still in'}${isLate ? ` (${shift.arrived_late_min}min late)` : ''}`}
                       />
                     )
                   })}
