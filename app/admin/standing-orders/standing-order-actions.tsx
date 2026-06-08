@@ -16,28 +16,32 @@ const DAY_LABELS: Record<string, string> = {
 }
 
 function getWeekOptions() {
-  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Australia/Perth' }))
+const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Australia/Brisbane' }))
   const currentDay = now.getDay()
 
   const options: Array<{ label: string; offset: number; start: string; end: string }> = []
 
-  for (let weekOffset = 1; weekOffset <= 3; weekOffset++) {
-    const daysUntilNextSunday = currentDay === 0 ? 7 : 7 - currentDay
+  for (let weekOffset = 0; weekOffset <= 3; weekOffset++) {
+    const daysUntilSunday = currentDay === 0 ? 0 : 7 - currentDay
     const weekStart = new Date(now)
-    weekStart.setDate(now.getDate() + daysUntilNextSunday + (weekOffset - 1) * 7)
+    weekStart.setDate(now.getDate() + daysUntilSunday + weekOffset * 7)
     const weekEnd = new Date(weekStart)
     weekEnd.setDate(weekStart.getDate() + 6)
 
     const startStr = weekStart.toISOString().split('T')[0]
-    const endStr = weekEnd.toISOString().split('T')[0]
+    const endStr   = weekEnd.toISOString().split('T')[0]
 
-    const formatShort = (d: Date) => d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
+    const formatShort = (d: Date) =>
+      d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
 
     options.push({
-      label: weekOffset === 1 ? 'Next Week' : weekOffset === 2 ? 'Week After Next' : '3 Weeks Out',
+      label:  weekOffset === 0 ? 'This Week'
+            : weekOffset === 1 ? 'Next Week'
+            : weekOffset === 2 ? 'Week After Next'
+            : '3 Weeks Out',
       offset: weekOffset,
-      start: startStr,
-      end: endStr,
+      start:  startStr,
+      end:    endStr,
       dateLabel: `${formatShort(weekStart)} — ${formatShort(weekEnd)}`,
     } as any)
   }
@@ -72,7 +76,9 @@ export default function StandingOrderActions() {
       ? `\n\nSkipping: ${skippedDays.map(d => DAY_LABELS[d]).join(', ')}`
       : ''
 
-    if (!confirm(`Generate standing orders for:\n\n${selected.label}\n${selected.start} to ${selected.end}${skipMsg}\n\nAlready-existing orders will be skipped.`)) return
+    if (!confirm(
+      `Generate standing orders for:\n\n${selected.label}\n${selected.start} to ${selected.end}${skipMsg}\n\nAlready-existing orders will be skipped.`
+    )) return
 
     setGenerating(true)
     setResult(null)
@@ -81,9 +87,9 @@ export default function StandingOrderActions() {
       const response = await fetch('/api/standing-orders/generate', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ 
+        body:    JSON.stringify({
           week_offset: selectedWeek,
-          skip_days: skippedDays,
+          skip_days:   skippedDays,
         }),
       })
 
@@ -121,7 +127,7 @@ export default function StandingOrderActions() {
           <Calendar className="h-4 w-4 inline mr-1" />
           Select Week
         </p>
-        <div className="flex flex-col sm:flex-row gap-2">
+        <div className="flex flex-col sm:flex-row gap-2 flex-wrap">
           {weekOptions.map(option => (
             <button
               key={option.offset}
@@ -129,6 +135,8 @@ export default function StandingOrderActions() {
               className={`px-4 py-3 rounded-lg border-2 text-left text-sm transition-all ${
                 selectedWeek === option.offset
                   ? 'border-blue-500 bg-blue-50 text-blue-800 font-semibold'
+                  : option.offset === 0
+                  ? 'border-amber-300 bg-amber-50 text-amber-800 hover:border-amber-400'
                   : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
               }`}
             >
@@ -141,6 +149,11 @@ export default function StandingOrderActions() {
             </button>
           ))}
         </div>
+        {selectedWeek === 0 && (
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mt-2">
+            ⚠️ Generating for the current week — existing orders will be skipped.
+          </p>
+        )}
       </div>
 
       {/* Day skip checkboxes */}
