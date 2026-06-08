@@ -231,7 +231,6 @@ export async function sendWeeklyInvoiceEmail(weeklyInvoiceId: string): Promise<{
 }> {
   const supabase = createAdminClient()
 
-  // Fetch weekly invoice + customer + linked orders
   const { data: weekly, error: wErr } = await supabase
     .from('weekly_invoices')
     .select('*, customer:customers(id, business_name, email, email_2, address, phone, abn, payment_terms)')
@@ -263,25 +262,23 @@ export async function sendWeeklyInvoiceEmail(weeklyInvoiceId: string): Promise<{
     total_amount:   Number(o.total_amount || 0),
   }))
 
-  // ✅ NEW
-const bakery = {
-  name:        process.env.RESEND_FROM_NAME    ?? process.env.BAKERY_NAME    ?? '',
-  email:       process.env.RESEND_FROM_EMAIL   ?? process.env.BAKERY_EMAIL   ?? '',
-  phone:       process.env.BAKERY_PHONE        ?? '',
-  address:     process.env.BAKERY_ADDRESS      ?? '',
-  abn:         process.env.BAKERY_ABN          ?? '',
-  bankName:    process.env.BAKERY_BANK_NAME    ?? '',
-  bankBSB:     process.env.BAKERY_BANK_BSB     ?? '',
-  bankAccount: process.env.BAKERY_BANK_ACCOUNT ?? '',
-}
+  const bakery = {
+    name:        process.env.RESEND_FROM_NAME    ?? process.env.BAKERY_NAME    ?? '',
+    email:       process.env.RESEND_FROM_EMAIL   ?? process.env.BAKERY_EMAIL   ?? '',
+    phone:       process.env.BAKERY_PHONE        ?? '',
+    address:     process.env.BAKERY_ADDRESS      ?? '',
+    abn:         process.env.BAKERY_ABN          ?? '',
+    bankName:    process.env.BAKERY_BANK_NAME    ?? '',
+    bankBSB:     process.env.BAKERY_BANK_BSB     ?? '',
+    bankAccount: process.env.BAKERY_BANK_ACCOUNT ?? '',
+  }
 
-  const siteUrl      = process.env.NEXT_PUBLIC_SITE_URL ?? ''
-  const fromName     = process.env.RESEND_FROM_NAME  ?? bakery.name
-  const fromEmail    = process.env.RESEND_FROM_EMAIL ?? bakery.email
-  const invoiceNum   = String(weekly.invoice_number ?? weekly.id.slice(0,8).toUpperCase()).padStart(6, '0')
-  const isRevised    = weekly.status === 'revised'
+  const siteUrl    = process.env.NEXT_PUBLIC_SITE_URL ?? ''
+  const fromName   = process.env.RESEND_FROM_NAME  ?? bakery.name
+  const fromEmail  = process.env.RESEND_FROM_EMAIL ?? bakery.email
+  const invoiceNum = String(weekly.invoice_number ?? weekly.id.slice(0,8).toUpperCase()).padStart(6, '0')
+  const isRevised  = weekly.status === 'revised'
 
-  // Build HTML
   const html = buildWeeklyInvoiceEmail({
     invoiceNumber: invoiceNum,
     weekStart:     weekly.week_start,
@@ -319,7 +316,11 @@ const bakery = {
         phone:         customer.phone,
         abn:           customer.abn,
       },
-      dayLines,
+      days: dayLines.map(line => ({
+        delivery_date: line.delivery_date,
+        day_total:     line.total_amount,
+        items:         [],
+      })),
       bakery,
     })
     pdfBuffer = Buffer.from(pdf.output('arraybuffer'))
@@ -342,7 +343,6 @@ const bakery = {
 
   const emailsSentTo: string[] = []
 
-  // Send to primary email
   await sendEmail({
     to:          customer.email,
     subject,
@@ -352,7 +352,6 @@ const bakery = {
   })
   emailsSentTo.push(customer.email)
 
-  // CC to email_2 if set
   if (customer.email_2) {
     await new Promise(r => setTimeout(r, 400))
     await sendEmail({
@@ -365,7 +364,6 @@ const bakery = {
     emailsSentTo.push(customer.email_2)
   }
 
-  // Mark email as sent on the weekly invoice
   await supabase
     .from('weekly_invoices')
     .update({ emailed_at: new Date().toISOString() } as any)
@@ -452,7 +450,7 @@ export async function generateWeeklyInvoice(
   let invoiceNumber: number
   let wasRevised = false
 
-   if (existing) {
+  if (existing) {
     wasRevised    = true
     weeklyId      = existing.id
     invoiceNumber = existing.invoice_number ?? 0
@@ -494,17 +492,11 @@ export async function generateWeeklyInvoice(
     orderIds.map(oid => ({ weekly_invoice_id: weeklyId, order_id: oid }))
   )
 
-  // ✅ Update orders — mark as invoiced with invoice number
   await supabase.from('orders').update({
     weekly_invoice_id: weeklyId,
     status:            'invoiced',
     invoice_number:    invoiceNumber,
   }).in('id', orderIds)
-  await supabase.from('weekly_invoice_orders').insert(
-    orderIds.map(oid => ({ weekly_invoice_id: weeklyId, order_id: oid }))
-  )
-
-  await supabase.from('orders').update({ weekly_invoice_id: weeklyId }).in('id', orderIds)
 
   // Sync AR transaction
   await supabase.from('ar_transactions').delete().eq('description', `weekly:${weeklyId}`)
@@ -535,7 +527,6 @@ export async function generateWeeklyInvoice(
 
   await supabase.from('customers').update({ balance: newBalance }).eq('id', customerId)
 
-  // Optionally send email
   let emailSent  = false
   let emailError: string | undefined
 
