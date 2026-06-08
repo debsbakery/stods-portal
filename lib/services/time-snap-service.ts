@@ -39,7 +39,12 @@ export function computeClockIn(params: {
 
   // Casual or no scheduled start — snap UP to next 15min
   if (!scheduledStart || employmentType === 'casual') {
-    const paidTime = snapTime(rawTime, 'up')
+  // 2-minute grace: if within 2 mins of next 15min mark, round UP instead
+  const minsIntoInterval = rawTime.getMinutes() % SNAP_INTERVAL_MIN
+  const minsToNext = SNAP_INTERVAL_MIN - minsIntoInterval
+  const paidTime = minsToNext <= 2
+    ? snapTime(rawTime, 'up')
+    : snapTime(rawTime, 'down')
     return {
       paidTime,
       snapReason: `casual_snapped_up_to_${fmtT(paidTime)}`,
