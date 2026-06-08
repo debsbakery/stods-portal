@@ -309,9 +309,16 @@ export default function WeeklyShopReport() {
         </div>
       )}
 
-      {/* Header */}
-      <div className="flex flex-wrap items-center gap-3 mb-4 no-print">
-        <h1 className="text-2xl font-bold text-gray-900">Shop Reports</h1>
+  {/* Header */}
+<div className="flex flex-wrap items-center gap-3 mb-4 no-print">
+  <a
+    href="/admin"
+    className="flex items-center gap-1 text-sm hover:opacity-80"
+    style={{ color: '#CE1126' }}
+  >
+    ← Back to Admin
+  </a>
+  <h1 className="text-2xl font-bold text-gray-900">Shop Reports</h1>
         <div className="flex items-center gap-2 ml-4">
           <button
             onClick={() => router.push(`/admin/shop-reports/${formatWeekStart(prevWeek(weekStart))}`)}
