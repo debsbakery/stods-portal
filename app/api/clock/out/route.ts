@@ -96,8 +96,8 @@ const { data: existingOut } = await supabase
   }
 
   const scheduledEnd = rosterEntry?.scheduled_end
-    ? new Date(`${today}T${rosterEntry.scheduled_end}:00+10:00`)
-    : null
+? new Date(`${today}T${rosterEntry.scheduled_end.slice(0, 5)}:00+10:00`)
+  : null
 
   const paidStart = new Date(clockInEvent.paid_time)
 
