@@ -137,8 +137,7 @@ const router = useRouter()
   const [editForm, setEditForm] = useState<any>(null)
   const timelineRef = useRef<HTMLDivElement>(null)
   const currentDate = weekDates[activeDay]
-  const todayStr = new Date(new Date().toLocaleString('en-US', { timeZone: 'Australia/Brisbane' })).toISOString().split('T')[0]
-
+const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/Brisbane' })
   const weekLabel = (() => {
     const s = new Date(weekStart + 'T00:00:00')
     const e = new Date(weekDates[6] + 'T00:00:00')
