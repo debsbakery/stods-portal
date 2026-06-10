@@ -1,7 +1,7 @@
-'use client';
+'use client'
 
 import { useState, useEffect } from 'react';
-import { Edit, Trash2, Image as ImageIcon } from 'lucide-react';
+import { Edit, Trash2, Image as ImageIcon, Search } from 'lucide-react';
 import Link from 'next/link';
 
 interface Product {
@@ -20,19 +20,19 @@ interface Product {
 const CODE_RANGES = [
   { min: 1000, max: 1999, label: '🎂 Cakes',  color: 'bg-pink-50 border-pink-200' },
   { min: 2000, max: 2750, label: '🍞 Bread',  color: 'bg-amber-50 border-amber-200' },
-  { min: 2751, max: 3750, label: '🥖 Rolls',  color: 'bg-orange-50 border-orange-200' },
-  { min: 3751, max: 4000, label: '🥧 Pies',   color: 'bg-yellow-50 border-yellow-200' },
-  { min: 4001, max: 9999, label: '🧁 Other',  color: 'bg-gray-50 border-gray-200' },
+  { min: 2751, max: 3750, label: '🥛 Rolls',  color: 'bg-orange-50 border-orange-200' },
+  { min: 3751, max: 4000, label: '🥺 Pies',   color: 'bg-yellow-50 border-yellow-200' },
+  { min: 4001, max: 9999, label: '🺜 Other',  color: 'bg-gray-50 border-gray-200' },
 ]
 
 function getCodeRangeInfo(code: string | null) {
-  if (!code) return { label: '❓ No Code', color: 'bg-gray-100 border-gray-300', range: 'none' }
+  if (!code) return { label: '❔ No Code', color: 'bg-gray-100 border-gray-300', range: 'none' }
   if (code === '900') return { label: '⚙️ Administrative', color: 'bg-blue-50 border-blue-200', range: 'admin' }
   const codeNum = parseInt(code)
   const range = CODE_RANGES.find(r => codeNum >= r.min && codeNum <= r.max)
   return range
     ? { ...range, range: `${range.min}-${range.max}` }
-    : { label: '❓ Uncategorized', color: 'bg-gray-100 border-gray-300', range: 'other' }
+    : { label: '❔ Uncategorized', color: 'bg-gray-100 border-gray-300', range: 'other' }
 }
 
 export default function ProductsView() {
@@ -40,6 +40,7 @@ export default function ProductsView() {
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState('')
   const [viewMode, setViewMode] = useState<'grid' | 'grouped'>('grid')
+  const [search,   setSearch]   = useState('')
 
   useEffect(() => { fetchProducts() }, [])
 
@@ -71,12 +72,9 @@ export default function ProductsView() {
 
   const toggleGst = async (product: Product) => {
     const newValue = !product.gst_applicable
-
-    // Optimistic update
     setProducts(prev => prev.map(p =>
       p.id === product.id ? { ...p, gst_applicable: newValue } : p
     ))
-
     try {
       const res = await fetch(`/api/products/${product.id}`, {
         method:  'PATCH',
@@ -85,7 +83,6 @@ export default function ProductsView() {
       })
       if (!res.ok) throw new Error('Failed to update GST')
     } catch (err: any) {
-      // Revert on error
       setProducts(prev => prev.map(p =>
         p.id === product.id ? { ...p, gst_applicable: !newValue } : p
       ))
@@ -96,8 +93,18 @@ export default function ProductsView() {
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(amount)
 
-  // Group products by code range
-  const groupedProducts = products.reduce((acc: any, product) => {
+  const filteredProducts = products.filter(p => {
+    if (!search) return true
+    const q = search.toLowerCase()
+    return (
+      p.name.toLowerCase().includes(q) ||
+      p.code?.includes(q) ||
+      p.category?.toLowerCase().includes(q) ||
+      p.description?.toLowerCase().includes(q)
+    )
+  })
+
+  const groupedProducts = filteredProducts.reduce((acc: any, product) => {
     const rangeInfo = getCodeRangeInfo(product.code)
     const key = rangeInfo.range
     if (!acc[key]) acc[key] = { ...rangeInfo, products: [] }
@@ -135,33 +142,23 @@ export default function ProductsView() {
     const rangeInfo = getCodeRangeInfo(product.code)
     return (
       <div className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden">
-
-        {/* Product Code Badge */}
         {product.code && (
           <div className={`px-3 py-1 text-xs font-mono font-bold ${rangeInfo.color} border-b flex justify-between items-center`}>
             <span>Code: {product.code}</span>
             {product.allow_custom_description && (
-              <span className="text-blue-600 text-[10px]">CUSTOM ✨</span>
+              <span className="text-blue-600 text-[10px]">CUSTOM ✿</span>
             )}
           </div>
         )}
-
-        {/* Product Image */}
         <div className="aspect-square bg-gray-100 relative">
           {product.image_url ? (
-            <img
-              src={product.image_url}
-              alt={product.name}
-              className="w-full h-full object-cover"
-            />
+            <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center">
               <ImageIcon className="h-16 w-16 text-gray-300" />
             </div>
           )}
         </div>
-
-        {/* Product Info */}
         <div className="p-4">
           <h3 className="text-lg font-bold mb-1">{product.name}</h3>
           {product.category && (
@@ -171,7 +168,7 @@ export default function ProductsView() {
             <p className="text-sm text-gray-600 mb-3 line-clamp-2">{product.description}</p>
           )}
           <div className="flex items-center justify-between mt-1">
-            <p className="text-2xl font-bold" style={{ color: "#3E1F00" }}>
+            <p className="text-2xl font-bold" style={{ color: "#006A4E" }}>
               {formatCurrency(product.price)}
             </p>
             <button
@@ -183,20 +180,17 @@ export default function ProductsView() {
                   : 'bg-gray-100 text-gray-500 border-gray-300 hover:bg-gray-200'
               }`}
             >
-              {product.gst_applicable ? '✓ GST' : '✗ No GST'}
+              {product.gst_applicable ? '✔ GST' : '✘ No GST'}
             </button>
           </div>
         </div>
-
-        {/* Actions */}
         <div className="p-4 border-t flex gap-2">
           <Link
             href={`/admin/products/${product.id}`}
             className="flex-1 text-center px-3 py-2 rounded-md text-white text-sm font-semibold hover:opacity-90"
-            style={{ backgroundColor: "#3E1F00" }}
+            style={{ backgroundColor: "#006A4E" }}
           >
-            <Edit className="h-4 w-4 inline mr-1" />
-            Edit
+            <Edit className="h-4 w-4 inline mr-1" />Edit
           </Link>
           <button
             onClick={() => handleDelete(product.id, product.name)}
@@ -218,7 +212,7 @@ export default function ProductsView() {
         <Link
           href="/admin/products/create"
           className="inline-block mt-4 px-6 py-2 rounded-md text-white font-semibold hover:opacity-90"
-          style={{ backgroundColor: "#3E1F00" }}
+          style={{ backgroundColor: "#006A4E" }}
         >
           + Add First Product
         </Link>
@@ -228,6 +222,24 @@ export default function ProductsView() {
 
   return (
     <div>
+      {/* Search bar */}
+      <div className="relative mb-4">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search by name, code, category, description..."
+          className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+        />
+      </div>
+
+      {search && (
+        <p className="text-xs text-gray-400 mb-3">
+          {filteredProducts.length} result{filteredProducts.length !== 1 ? 's' : ''} for "{search}"
+        </p>
+      )}
+
       {/* View Mode Toggle */}
       <div className="mb-6 flex gap-2 bg-white rounded-lg shadow p-2 w-fit">
         <button
@@ -238,7 +250,7 @@ export default function ProductsView() {
               : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}
         >
-          📊 Grid View
+          📈 Grid View
         </button>
         <button
           onClick={() => setViewMode('grouped')}
@@ -248,13 +260,13 @@ export default function ProductsView() {
               : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}
         >
-          📋 Grouped by Code
+          📏 Grouped by Code
         </button>
       </div>
 
       {/* Code Range Legend */}
       <div className="mb-6 bg-white rounded-lg shadow p-4">
-        <h3 className="font-semibold mb-3 text-sm text-gray-700">📋 Product Code Ranges</h3>
+        <h3 className="font-semibold mb-3 text-sm text-gray-700">📏 Product Code Ranges</h3>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
           {CODE_RANGES.map(range => (
             <div key={range.label} className={`p-2 rounded border text-center text-xs ${range.color}`}>
@@ -272,7 +284,7 @@ export default function ProductsView() {
       {/* Products Display */}
       {viewMode === 'grid' ? (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {products
+          {filteredProducts
             .sort((a, b) => parseInt(a.code || '99999') - parseInt(b.code || '99999'))
             .map(product => <ProductCard key={product.id} product={product} />)
           }
