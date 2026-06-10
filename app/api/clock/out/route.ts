@@ -15,21 +15,21 @@ export async function POST(request: NextRequest) {
 
   const supabase = createAdminClient()
   const nowUtc   = new Date()
-  const today    = nowUtc.toLocaleDateString('en-CA', { timeZone: 'Australia/Brisbane' })
+  const today    = nowUtc.toLocaleDateString('en-CA', { timeZone: 'Australia/Perth' })
 
   const { data: qr } = await supabase
     .from('staff_qr_codes')
-    .select('id, location_id, staff_locations(id, name, latitude, longitude, radius_metres)')
+    .select('id, location_id, clock_locations(id, name, latitude, longitude, radius_metres)')
     .eq('token', token)
     .eq('active', true)
     .maybeSingle()
 
   if (!qr) return NextResponse.json({ error: 'Invalid QR code' }, { status: 401 })
-  const location = qr.staff_locations as any
+  const location = (qr as any).clock_locations
 
   const { data: staff } = await supabase
     .from('staff')
-    .select('id, name, employment_type, active, break_minutes, primary_department')
+    .select('id, name, employment_type, active, break_minutes, primary_department, known_device')
     .eq('pin', String(pin))
     .eq('active', true)
     .maybeSingle()
@@ -38,9 +38,10 @@ export async function POST(request: NextRequest) {
 
   const twentyFourHoursAgo = new Date(nowUtc.getTime() - 86400000)
 
+  // ✅ Fix — added raw_time to select
   const { data: clockInEvent } = await supabase
     .from('clock_events')
-.select('id, raw_time, paid_time, roster_entry_id')
+    .select('id, raw_time, paid_time, roster_entry_id')
     .eq('staff_id', staff.id)
     .eq('event_type', 'clock_in')
     .gte('raw_time', twentyFourHoursAgo.toISOString())
@@ -63,14 +64,14 @@ export async function POST(request: NextRequest) {
     }, { status: 409 })
   }
 
- // ✅ After
-const { data: existingOut } = await supabase
-  .from('clock_events')
-  .select('id')
-  .eq('staff_id', staff.id)
-  .eq('event_type', 'clock_out')
-  .gte('raw_time', clockInEvent.raw_time)  // ✅ was paid_time
-  .maybeSingle()
+  // ✅ Fix — was clockInEvent.paid_time
+  const { data: existingOut } = await supabase
+    .from('clock_events')
+    .select('id')
+    .eq('staff_id', staff.id)
+    .eq('event_type', 'clock_out')
+    .gte('raw_time', clockInEvent.raw_time)
+    .maybeSingle()
 
   if (existingOut) {
     return NextResponse.json({ error: `${staff.name} has already clocked out`, already_out: true }, { status: 409 })
@@ -91,7 +92,6 @@ const { data: existingOut } = await supabase
       .eq('work_date', today)
       .in('status', ['present', 'scheduled'])
       .order('section', { ascending: true })
-
     rosterEntry = entries?.find(e => e.status === 'present') ?? entries?.[0] ?? null
   }
 
@@ -107,7 +107,11 @@ const { data: existingOut } = await supabase
     employmentType: staff.employment_type,
     paidStart,
   })
-
+// Break only applies to section 1 AND gross hours >= 5
+const grossMinsPreview = Math.round((paidTime.getTime() - paidStart.getTime()) / 60000)
+const section = rosterEntry?.section ?? 1
+const staffBreak = Number(rosterEntry?.break_minutes ?? staff.break_minutes ?? 30)
+const effectiveBreakMinutes = (section === 1 && grossMinsPreview >= 300) ? staffBreak : 0
   let distanceM: number | null = null
   let gpsValid = false
 
@@ -171,7 +175,7 @@ const { data: existingOut } = await supabase
     calc = calculateShift({
       effectiveStart:           paidStart,
       effectiveEnd:             paidTime,
-      breakMinutes:             Number(rosterEntry.break_minutes ?? staff.break_minutes ?? 30),
+breakMinutes: effectiveBreakMinutes,
       employmentType:           staff.employment_type,
       dayType:                  rosterEntry.day_type ?? 'normal',
       baseHourlyRate:           rosterEntry.base_hourly_rate,
@@ -227,12 +231,11 @@ const { data: existingOut } = await supabase
     }, { onConflict: 'staff_id,work_date,section', ignoreDuplicates: false })
 
     if (shiftErr) console.error('[clock-out] shift error:', shiftErr.message)
-
     await supabase.from('roster_entries').update({ status: 'completed' }).eq('id', rosterEntry.id)
 
   } else {
     const grossMins = Math.round((paidTime.getTime() - paidStart.getTime()) / 60000)
-    const breakMins = Number(staff.break_minutes ?? 30)
+const breakMins = effectiveBreakMinutes
     const paidMins  = Math.max(0, grossMins - breakMins)
 
     const { error: fallbackErr } = await supabase.from('shifts').upsert({
@@ -257,18 +260,18 @@ const { data: existingOut } = await supabase
   }
 
   const paidHours = calc?.paidHours ?? Math.round(
-    Math.max(0, (paidTime.getTime() - paidStart.getTime()) / 60000 - Number(staff.break_minutes ?? 30)) / 60 * 100
+Math.max(0, (paidTime.getTime() - paidStart.getTime()) / 60000 - effectiveBreakMinutes) / 60 * 100
   ) / 100
 
-  // Format nowUtc directly — no intermediate Date object
+  // ✅ Fix — format nowUtc directly, no double-offset via nowLocal
   const rawOutStr = nowUtc.toLocaleTimeString('en-AU', {
-    timeZone: 'Australia/Brisbane', hour: 'numeric', minute: '2-digit', hour12: true,
+    timeZone: 'Australia/Perth', hour: 'numeric', minute: '2-digit', hour12: true,
   })
   const rawInStr = new Date(clockInEvent.paid_time).toLocaleTimeString('en-AU', {
-    timeZone: 'Australia/Brisbane', hour: 'numeric', minute: '2-digit', hour12: true,
+    timeZone: 'Australia/Perth', hour: 'numeric', minute: '2-digit', hour12: true,
   })
   const paidOutStr = paidTime.toLocaleTimeString('en-AU', {
-    timeZone: 'Australia/Brisbane', hour: 'numeric', minute: '2-digit', hour12: true,
+    timeZone: 'Australia/Perth', hour: 'numeric', minute: '2-digit', hour12: true,
   })
 
   return NextResponse.json({
