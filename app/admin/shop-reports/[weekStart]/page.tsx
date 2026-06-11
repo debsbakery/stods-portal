@@ -171,7 +171,7 @@ export default function WeeklyShopReport() {
 
   function triggerAutoSave() {
     if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => { handleSave() }, 1500)
+    saveTimer.current = setTimeout(() => { handleSave() }, 15000)
   }
 
   function updateCell(shopId: string, date: string, field: DailyKey, val: string) {
