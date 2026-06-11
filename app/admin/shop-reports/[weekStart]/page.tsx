@@ -171,7 +171,7 @@ export default function WeeklyShopReport() {
 
   function triggerAutoSave() {
     if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => { handleSave() }, 15000)
+    saveTimer.current = setTimeout(() => { handleSave() }, 30000)
   }
 
   function updateCell(shopId: string, date: string, field: DailyKey, val: string) {
@@ -448,6 +448,7 @@ export default function WeeklyShopReport() {
                                     step={key === 'customer_count' ? '1' : '0.01'}
                                     value={row[key] === 0 ? '' : row[key]}
                                     onChange={e => updateCell(shop.id, row.report_date, key, e.target.value)}
+                                   onBlur={handleSave}
                                     placeholder="0"
                                     className="no-print w-full border rounded px-1.5 py-1 text-right text-sm
                                       focus:outline-none focus:ring-1 focus:ring-blue-400"
@@ -509,6 +510,7 @@ export default function WeeklyShopReport() {
                                 type="number" min="0" step="0.01"
                                 value={shopWages === 0 ? '' : shopWages}
                                 onChange={e => updateWage(shop.id, e.target.value)}
+                               onBlur={handleSave}
                                 placeholder="0.00"
                                 className="w-36 border rounded px-2 py-1 text-right text-sm
                                   focus:outline-none focus:ring-1 focus:ring-amber-400"
@@ -571,6 +573,7 @@ export default function WeeklyShopReport() {
                                 type="number" min="0" step="0.01"
                                 value={p[day] === 0 ? '' : p[day]}
                                 onChange={e => updatePurchase(supplier, day, e.target.value)}
+                               onBlur={handleSave}
                                 placeholder="0.00"
                                 className="no-print w-full border rounded px-2 py-1.5 text-right text-sm
                                   focus:outline-none focus:ring-1 focus:ring-teal-400"
