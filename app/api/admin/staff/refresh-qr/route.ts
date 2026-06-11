@@ -27,12 +27,11 @@ export async function POST(request: NextRequest) {
   // Generate new token
   const { data, error } = await supabase
     .from('staff_qr_codes')
-    .insert({
-      location_id,
-      token:      crypto.randomUUID(),
-      valid_date: new Date().toISOString().split('T')[0],
-      active:     true,
-    })
+  .insert({
+  location_id,
+  token:  crypto.randomUUID(),
+  active: true,
+})
     .select()
     .single()
 
