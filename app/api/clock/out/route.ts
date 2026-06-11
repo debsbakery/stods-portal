@@ -15,18 +15,17 @@ export async function POST(request: NextRequest) {
 
   const supabase = createAdminClient()
   const nowUtc   = new Date()
-  const today    = nowUtc.toLocaleDateString('en-CA', { timeZone: 'Australia/Perth' })
+  const today    = nowUtc.toLocaleDateString('en-CA', { timeZone: 'Australia/Brisbane' })
 
   const { data: qr } = await supabase
     .from('staff_qr_codes')
-    .select('id, location_id, clock_locations(id, name, latitude, longitude, radius_metres)')
+.select('id, location_id, clock_locations(id, name, latitude, longitude, radius_metres)')
     .eq('token', token)
     .eq('active', true)
     .maybeSingle()
 
   if (!qr) return NextResponse.json({ error: 'Invalid QR code' }, { status: 401 })
-  const location = (qr as any).clock_locations
-
+const location = (qr as any).staff_locations
   const { data: staff } = await supabase
     .from('staff')
     .select('id, name, employment_type, active, break_minutes, primary_department, known_device')
@@ -265,13 +264,13 @@ Math.max(0, (paidTime.getTime() - paidStart.getTime()) / 60000 - effectiveBreakM
 
   // ✅ Fix — format nowUtc directly, no double-offset via nowLocal
   const rawOutStr = nowUtc.toLocaleTimeString('en-AU', {
-    timeZone: 'Australia/Perth', hour: 'numeric', minute: '2-digit', hour12: true,
+    timeZone: 'Australia/Brisbane', hour: 'numeric', minute: '2-digit', hour12: true,
   })
   const rawInStr = new Date(clockInEvent.paid_time).toLocaleTimeString('en-AU', {
-    timeZone: 'Australia/Perth', hour: 'numeric', minute: '2-digit', hour12: true,
+    timeZone: 'Australia/Brisbane', hour: 'numeric', minute: '2-digit', hour12: true,
   })
   const paidOutStr = paidTime.toLocaleTimeString('en-AU', {
-    timeZone: 'Australia/Perth', hour: 'numeric', minute: '2-digit', hour12: true,
+    timeZone: 'Australia/Brisbane', hour: 'numeric', minute: '2-digit', hour12: true,
   })
 
   return NextResponse.json({
