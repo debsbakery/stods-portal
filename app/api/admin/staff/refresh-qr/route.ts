@@ -25,15 +25,17 @@ export async function POST(request: NextRequest) {
     .eq('active', true)
 
   // Generate new token
-  const { data, error } = await supabase
-    .from('staff_qr_codes')
+ const newToken = crypto.randomUUID()
+const { data, error } = await supabase
+  .from('staff_qr_codes')
   .insert({
-  location_id,
-  token:  crypto.randomUUID(),
-  active: true,
-})
-    .select()
-    .single()
+    location_id,
+    token:    newToken,
+    qr_token: newToken,
+    active:   true,
+  })
+  .select()
+  .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ success: true, token: data.token })
