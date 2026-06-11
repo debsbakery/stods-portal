@@ -17,14 +17,14 @@ export async function POST(request: NextRequest) {
   const nowUtc   = new Date()
   const today    = nowUtc.toLocaleDateString('en-CA', { timeZone: 'Australia/Brisbane' })
 
-  const { data: qr } = await supabase
+ const { data: qr, error: qrError } = await supabase
     .from('staff_qr_codes')
-.select('id, location_id, clock_locations(id, name, latitude, longitude, radius_metres)')
+    .select('id, location_id, staff_locations(id, name, latitude, longitude, radius_metres)')
     .eq('token', token)
     .eq('active', true)
     .maybeSingle()
 
-  if (!qr) return NextResponse.json({ error: 'Invalid QR code' }, { status: 401 })
+  if (!qr) return NextResponse.json({ error: 'Invalid QR code', debug_token: token, debug_qr_error: qrError }, { status: 401 })
 const location = (qr as any).staff_locations
   const { data: staff } = await supabase
     .from('staff')
