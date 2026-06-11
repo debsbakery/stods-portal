@@ -44,9 +44,9 @@ export default function QRDisplay({ locations }: { locations: Location[] }) {
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ location_id: locationId }),
       })
-      if (res.ok) {
-        router.refresh()
-      }
+     if (res.ok) {
+  window.location.reload()
+}
     } finally {
       setRefreshing(null)
     }
