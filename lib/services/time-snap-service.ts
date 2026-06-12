@@ -98,9 +98,10 @@ export function computeClockOut(params: {
     }
   }
 
-  // Snap down to last 15min interval
-  const paidTime = snapTime(rawTime, 'down')
-
+ // 2-minute grace on clock-out: if within 2 mins of next 15min mark, snap UP
+const msTo15 = (15 - (rawTime.getMinutes() % 15)) % 15
+const graceUp = msTo15 <= 2 && msTo15 > 0
+const paidTime = graceUp ? snapTime(rawTime, 'up') : snapTime(rawTime, 'down')
   // Safety: never go before paid start — use snapped raw, not paidStart
   // This handles early clock-out where paidStart was snapped forward
   if (paidTime.getTime() <= paidStart.getTime()) {
