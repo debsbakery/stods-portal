@@ -249,18 +249,19 @@ export async function sendWeeklyInvoiceEmail(weeklyInvoiceId: string): Promise<{
 
   const orderIds = (links ?? []).map((l: any) => l.order_id)
 
-  const { data: orders } = await supabase
-    .from('orders')
-    .select('id, delivery_date, invoice_number, total_amount')
-    .in('id', orderIds.length ? orderIds : ['00000000-0000-0000-0000-000000000000'])
-    .order('delivery_date', { ascending: true })
+ const { data: orders } = await supabase
+  .from('orders')
+  .select('id, delivery_date, invoice_number, total_amount, order_items(id, quantity, unit_price, subtotal, custom_description, product:products(name, unit))')
+  .in('id', orderIds.length ? orderIds : ['00000000-0000-0000-0000-000000000000'])
+  .order('delivery_date', { ascending: true })
 
-  const dayLines = (orders ?? []).map((o: any) => ({
-    delivery_date:  o.delivery_date,
-    invoice_number: o.invoice_number,
-    order_id:       o.id,
-    total_amount:   Number(o.total_amount || 0),
-  }))
+ const dayLines = (orders ?? []).map((o: any) => ({
+  delivery_date:  o.delivery_date,
+  invoice_number: o.invoice_number,
+  order_id:       o.id,
+  total_amount:   Number(o.total_amount || 0),
+  order_items:    o.order_items ?? [],
+}))
 
   const bakery = {
     name:        process.env.RESEND_FROM_NAME    ?? process.env.BAKERY_NAME    ?? '',
@@ -316,11 +317,17 @@ export async function sendWeeklyInvoiceEmail(weeklyInvoiceId: string): Promise<{
         phone:         customer.phone,
         abn:           customer.abn,
       },
-      days: dayLines.map(line => ({
-        delivery_date: line.delivery_date,
-        day_total:     line.total_amount,
-        items:         [],
-      })),
+    days: dayLines.map(line => ({
+  delivery_date: line.delivery_date,
+  day_total:     line.total_amount,
+  items: (line.order_items ?? []).map((i: any) => ({
+    name:       i.custom_description || i.product?.name || 'Item',
+    quantity:   i.quantity,
+    unit_price: i.unit_price,
+    subtotal:   i.subtotal,
+    unit:       i.product?.unit ?? '',
+  })),
+})),
       bakery,
     })
     pdfBuffer = Buffer.from(pdf.output('arraybuffer'))
