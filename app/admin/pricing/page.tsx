@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Trash2, DollarSign, Copy, X, Loader2 } from 'lucide-react'
+import { Plus, Trash2, DollarSign, Copy, X, Pencil, Loader2 } from 'lucide-react'
 import { SearchableSelect, SelectOption } from '@/components/ui/searchable-select'
 
 interface Customer {
@@ -64,6 +64,11 @@ export default function ContractPricingPage() {
       loadContracts(selectedCustomer)
     }
   }, [selectedCustomer])
+
+const [editingContract, setEditingContract] = useState<ContractPrice | null>(null)
+const [editPrice, setEditPrice] = useState('')
+const [editFrom, setEditFrom] = useState('')
+const [editTo, setEditTo] = useState('')
 
   // ── Load source contracts when source customer changes in modal ──
   useEffect(() => {
@@ -168,7 +173,25 @@ export default function ContractPricingPage() {
     const result = await res.json()
     if (result.success) loadContracts(selectedCustomer)
   }
-
+async function handleEdit(e: React.FormEvent) {
+  e.preventDefault()
+  if (!editingContract) return
+  const res = await fetch('/api/admin/contract-pricing', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      id: editingContract.id,
+      contractPrice: parseFloat(editPrice),
+      effectiveFrom: editFrom,
+      effectiveTo: editTo || null,
+    })
+  })
+  const result = await res.json()
+  if (result.success) {
+    setEditingContract(null)
+    loadContracts(selectedCustomer)
+  }
+}
   // ── Clone handler ────────────────────────────────────────────────
   function openCloneModal() {
     setSourceCustomerId('')
@@ -595,6 +618,7 @@ export default function ContractPricingPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b bg-gray-50">
+                  <th className="text-center py-2 px-3 text-sm font-semibold text-gray-600">Actions</th>
                   <th className="text-left py-2 px-3 text-sm font-semibold text-gray-600">Product</th>
                   <th className="text-right py-2 px-3 text-sm font-semibold text-gray-600">Standard</th>
                   <th className="text-right py-2 px-3 text-sm font-semibold text-gray-600">Contract</th>
@@ -612,48 +636,89 @@ export default function ContractPricingPage() {
                     </td>
                   </tr>
                 ) : (
-                  contracts.map((contract) => {
-                    const savings = contract.standard_price - contract.contract_price
-                    const savingsPct = ((savings / contract.standard_price) * 100).toFixed(1)
-                    return (
-                      <tr key={contract.id} className="border-b hover:bg-gray-50">
-                        <td className="py-2 px-3">
-                          <div className="font-medium text-sm">{contract.product_name}</div>
-                          <div className="text-xs text-gray-400 font-mono">
-                            {contract.product_number}
-                          </div>
-                        </td>
-                        <td className="text-right py-2 px-3 text-sm">
-                          {formatCurrency(contract.standard_price)}
-                        </td>
-                        <td
-                          className="text-right py-2 px-3 font-bold text-sm"
-                          style={{ color: '#006A4E' }}
-                        >
-                          {formatCurrency(contract.contract_price)}
-                        </td>
-                        <td className="text-right py-2 px-3 text-sm text-green-600">
-                          -{formatCurrency(savings)} ({savingsPct}%)
-                        </td>
-                        <td className="py-2 px-3 text-sm">
-                          {new Date(contract.effective_from).toLocaleDateString('en-AU')}
-                        </td>
-                        <td className="py-2 px-3 text-sm text-gray-500">
-                          {contract.effective_to
-                            ? new Date(contract.effective_to).toLocaleDateString('en-AU')
-                            : 'Ongoing'}
-                        </td>
-                        <td className="text-center py-2 px-3">
-                          <button
-                            onClick={() => handleDelete(contract.id)}
-                            className="text-red-500 hover:text-red-700 transition-colors"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    )
-                  })
+ contracts.map((contract) => {
+  const savings = contract.standard_price - contract.contract_price
+  const savingsPct = ((savings / contract.standard_price) * 100).toFixed(1)
+  const isEditing = editingContract?.id === contract.id
+  return (
+    <tr key={contract.id} className="border-b hover:bg-gray-50">
+      <td className="py-2 px-3">
+        <div className="font-medium text-sm">{contract.product_name}</div>
+        <div className="text-xs text-gray-400 font-mono">{contract.product_number}</div>
+      </td>
+      {isEditing ? (
+        <>
+          <td className="text-right py-2 px-3 text-sm">{formatCurrency(contract.standard_price)}</td>
+          <td className="py-2 px-1">
+            <input type="number" step="0.01" min="0" value={editPrice}
+              onChange={e => setEditPrice(e.target.value)}
+              className="w-24 border rounded px-2 py-1 text-right text-sm focus:ring-1 focus:ring-green-500"
+            />
+          </td>
+          <td className="py-2 px-1">
+            <input type="date" value={editFrom}
+              onChange={e => setEditFrom(e.target.value)}
+              className="border rounded px-2 py-1 text-sm focus:ring-1 focus:ring-green-500"
+            />
+          </td>
+          <td className="py-2 px-1">
+            <input type="date" value={editTo}
+              onChange={e => setEditTo(e.target.value)}
+              className="border rounded px-2 py-1 text-sm focus:ring-1 focus:ring-green-500"
+            />
+          </td>
+          <td className="text-center py-2 px-1 text-right"></td>
+          <td className="text-center py-2 px-1">
+            <div className="flex gap-1 justify-center">
+              <button onClick={handleEdit}
+                className="text-xs px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700">
+                Save
+              </button>
+              <button onClick={() => setEditingContract(null)}
+                className="text-xs px-2 py-1 border rounded hover:bg-gray-100">
+                Cancel
+              </button>
+            </div>
+          </td>
+        </>
+      ) : (
+        <>
+          <td className="text-right py-2 px-3 text-sm">{formatCurrency(contract.standard_price)}</td>
+          <td className="text-right py-2 px-3 font-bold text-sm" style={{ color: '#006A4E' }}>
+            {formatCurrency(contract.contract_price)}
+          </td>
+          <td className="text-right py-2 px-3 text-sm text-green-600">
+            -{formatCurrency(savings)} ({savingsPct}%)
+          </td>
+          <td className="py-2 px-3 text-sm">
+            {new Date(contract.effective_from).toLocaleDateString('en-AU')}
+          </td>
+          <td className="py-2 px-3 text-sm text-gray-500">
+            {contract.effective_to
+              ? new Date(contract.effective_to).toLocaleDateString('en-AU')
+              : 'Ongoing'}
+          </td>
+          <td className="text-center py-2 px-3">
+            <div className="flex gap-2 justify-center">
+              <button onClick={() => {
+                setEditingContract(contract)
+                setEditPrice(String(contract.contract_price))
+                setEditFrom(contract.effective_from)
+                setEditTo(contract.effective_to ?? '')
+              }} className="text-blue-500 hover:text-blue-700">
+                <Pencil className="h-4 w-4" />
+              </button>
+              <button onClick={() => handleDelete(contract.id)}
+                className="text-red-500 hover:text-red-700">
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          </td>
+        </>
+      )}
+    </tr>
+  )
+})
                 )}
               </tbody>
             </table>

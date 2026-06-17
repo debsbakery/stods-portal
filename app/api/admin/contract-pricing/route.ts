@@ -149,3 +149,40 @@ export async function DELETE(request: NextRequest) {
     )
   }
 }
+// PUT: Update an existing contract price
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { id, contractPrice, effectiveFrom, effectiveTo } = body
+
+    if (!id || contractPrice == null || !effectiveFrom) {
+      return NextResponse.json(
+        { success: false, error: 'id, contractPrice and effectiveFrom are required' },
+        { status: 400 }
+      )
+    }
+
+    const supabase = await createServiceClient()
+
+    const { data, error } = await supabase
+      .from('customer_pricing')
+      .update({
+        contract_price: contractPrice,
+        effective_from: effectiveFrom,
+        effective_to:   effectiveTo || null,
+      })
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (error) throw error
+
+    return NextResponse.json({ success: true, data })
+  } catch (error) {
+    console.error('PUT contract error:', error)
+    return NextResponse.json(
+      { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    )
+  }
+}
