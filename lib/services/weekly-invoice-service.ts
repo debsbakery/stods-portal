@@ -320,13 +320,14 @@ export async function sendWeeklyInvoiceEmail(weeklyInvoiceId: string): Promise<{
     days: dayLines.map(line => ({
   delivery_date: line.delivery_date,
   day_total:     line.total_amount,
-  items: (line.order_items ?? []).map((i: any) => ({
-    name:       i.custom_description || i.product?.name || 'Item',
-    quantity:   i.quantity,
-    unit_price: i.unit_price,
-    subtotal:   i.subtotal,
-    unit:       i.product?.unit ?? '',
-  })),
+ items: (line.order_items ?? []).map((i: any) => ({
+  product_name:       i.product?.name || 'Item',
+  custom_description: i.custom_description || null,
+  quantity:           i.quantity,
+  unit_price:         i.unit_price,
+  subtotal:           i.subtotal,
+  gst_applicable:     i.gst_applicable ?? true,
+})),
 })),
       bakery,
     })
