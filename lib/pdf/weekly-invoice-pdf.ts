@@ -16,6 +16,7 @@ export interface DayGroup {
   delivery_date: string
   items:         OrderLineItem[]
   day_total:     number
+  po_number?:    string | null
 }
 
 export interface WeeklyInvoiceData {
@@ -175,16 +176,16 @@ export async function generateWeeklyInvoicePDF(data: WeeklyInvoiceData): Promise
     const dateStr = dateObj.toLocaleDateString('en-AU')
 
     tableBody.push([{
-      content: dayName + ' ' + dateStr,
-      colSpan: 4,
-      styles: {
-        fontStyle: 'bold',
-        fillColor: [220, 220, 220],
-        textColor: [0, 0, 0],
-        fontSize: 9,
-        cellPadding: 4,
-      },
-    }])
+  content: dayName + ' ' + dateStr + (day.po_number ? '   |   PO: ' + day.po_number : ''),
+  colSpan: 4,
+  styles: {
+    fontStyle: 'bold',
+    fillColor: [220, 220, 220],
+    textColor: [0, 0, 0],
+    fontSize: 9,
+    cellPadding: 4,
+  },
+}])
 
     if (day.items.length > 0) {
       for (const item of day.items) {

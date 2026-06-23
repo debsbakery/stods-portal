@@ -251,16 +251,17 @@ export async function sendWeeklyInvoiceEmail(weeklyInvoiceId: string): Promise<{
 
  const { data: orders } = await supabase
   .from('orders')
-  .select('id, delivery_date, invoice_number, total_amount, order_items(id, quantity, unit_price, subtotal, custom_description, product:products(name, unit))')
+  .select('id, delivery_date, invoice_number, total_amount, purchase_order_number, order_items(id, quantity, unit_price, subtotal, custom_description, gst_applicable, product:products(name, unit))')
   .in('id', orderIds.length ? orderIds : ['00000000-0000-0000-0000-000000000000'])
   .order('delivery_date', { ascending: true })
 
  const dayLines = (orders ?? []).map((o: any) => ({
-  delivery_date:  o.delivery_date,
-  invoice_number: o.invoice_number,
-  order_id:       o.id,
-  total_amount:   Number(o.total_amount || 0),
-  order_items:    o.order_items ?? [],
+  delivery_date:         o.delivery_date,
+  invoice_number:        o.invoice_number,
+  order_id:              o.id,
+  total_amount:          Number(o.total_amount || 0),
+  order_items:           o.order_items ?? [],
+  purchase_order_number: o.purchase_order_number ?? null,
 }))
 
   const bakery = {
@@ -317,17 +318,18 @@ export async function sendWeeklyInvoiceEmail(weeklyInvoiceId: string): Promise<{
         phone:         customer.phone,
         abn:           customer.abn,
       },
-    days: dayLines.map(line => ({
+ days: dayLines.map(line => ({
   delivery_date: line.delivery_date,
   day_total:     line.total_amount,
- items: (line.order_items ?? []).map((i: any) => ({
-  product_name:       i.product?.name || 'Item',
-  custom_description: i.custom_description || null,
-  quantity:           i.quantity,
-  unit_price:         i.unit_price,
-  subtotal:           i.subtotal,
-  gst_applicable:     i.gst_applicable ?? true,
-})),
+  po_number:     line.purchase_order_number ?? null,
+  items: (line.order_items ?? []).map((i: any) => ({
+    product_name:       i.product?.name || 'Item',
+    custom_description: i.custom_description || null,
+    quantity:           i.quantity,
+    unit_price:         i.unit_price,
+    subtotal:           i.subtotal,
+    gst_applicable:     i.gst_applicable ?? true,
+  })),
 })),
       bakery,
     })
