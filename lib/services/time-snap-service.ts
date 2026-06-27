@@ -37,19 +37,16 @@ export function computeClockIn(params: {
     return { paidTime: rawTime, snapReason: 'salary_presence_only' }
   }
 
-  // Casual or no scheduled start — snap UP to next 15min
-  if (!scheduledStart || employmentType === 'casual') {
-  // 2-minute grace: if within 2 mins of next 15min mark, round UP instead
-  const minsIntoInterval = rawTime.getMinutes() % SNAP_INTERVAL_MIN
-  const minsToNext = SNAP_INTERVAL_MIN - minsIntoInterval
-  const paidTime = minsToNext <= 2
-    ? snapTime(rawTime, 'up')
-    : snapTime(rawTime, 'down')
-    return {
-      paidTime,
-      snapReason: `casual_snapped_up_to_${fmtT(paidTime)}`,
-    }
+  
+// REPLACE with:
+if (!scheduledStart) {
+  // No roster entry — should not happen, but fallback to snap down
+  const paidTime = snapTime(rawTime, 'down')
+  return {
+    paidTime,
+    snapReason: `no_roster_snapped_down_to_${fmtT(paidTime)}`,
   }
+}
 
   const diffMin = (rawTime.getTime() - scheduledStart.getTime()) / 60000
 
@@ -98,10 +95,11 @@ export function computeClockOut(params: {
     }
   }
 
- // 2-minute grace on clock-out: if within 2 mins of next 15min mark, snap UP
+  // 2-minute grace on clock-out: if within 2 mins of next 15min mark, snap UP
 const msTo15 = (15 - (rawTime.getMinutes() % 15)) % 15
 const graceUp = msTo15 <= 2 && msTo15 > 0
 const paidTime = graceUp ? snapTime(rawTime, 'up') : snapTime(rawTime, 'down')
+
   // Safety: never go before paid start — use snapped raw, not paidStart
   // This handles early clock-out where paidStart was snapped forward
   if (paidTime.getTime() <= paidStart.getTime()) {
