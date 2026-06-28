@@ -17,15 +17,21 @@ export async function POST(request: NextRequest) {
   const nowUtc   = new Date()
   const today    = nowUtc.toLocaleDateString('en-CA', { timeZone: 'Australia/Brisbane' })
 
- const { data: qr, error: qrError } = await supabase
+  // Yesterday in Brisbane time — needed for split shifts clocking out after midnight
+  const yesterdayDate = new Date(nowUtc)
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1)
+  const yesterday = yesterdayDate.toLocaleDateString('en-CA', { timeZone: 'Australia/Brisbane' })
+
+  const { data: qr } = await supabase
     .from('staff_qr_codes')
     .select('id, location_id, staff_locations(id, name, latitude, longitude, radius_metres)')
     .eq('token', token)
     .eq('active', true)
     .maybeSingle()
 
-  if (!qr) return NextResponse.json({ error: 'Invalid QR code', debug_token: token, debug_qr_error: qrError }, { status: 401 })
-const location = (qr as any).staff_locations
+  if (!qr) return NextResponse.json({ error: 'Invalid QR code' }, { status: 401 })
+  const location = (qr as any).staff_locations
+
   const { data: staff } = await supabase
     .from('staff')
     .select('id, name, employment_type, active, break_minutes, primary_department, known_device')
@@ -37,7 +43,6 @@ const location = (qr as any).staff_locations
 
   const twentyFourHoursAgo = new Date(nowUtc.getTime() - 86400000)
 
-  // ✅ Fix — added raw_time to select
   const { data: clockInEvent } = await supabase
     .from('clock_events')
     .select('id, raw_time, paid_time, roster_entry_id')
@@ -63,7 +68,6 @@ const location = (qr as any).staff_locations
     }, { status: 409 })
   }
 
-  // ✅ Fix — was clockInEvent.paid_time
   const { data: existingOut } = await supabase
     .from('clock_events')
     .select('id')
@@ -78,25 +82,36 @@ const location = (qr as any).staff_locations
 
   let rosterEntry: any = null
 
+  // First try the roster_entry_id stored on the clock-in event
   if (clockInEvent.roster_entry_id) {
-    const { data } = await supabase.from('roster_entries').select('*').eq('id', clockInEvent.roster_entry_id).maybeSingle()
+    const { data } = await supabase
+      .from('roster_entries')
+      .select('*')
+      .eq('id', clockInEvent.roster_entry_id)
+      .maybeSingle()
     rosterEntry = data
   }
 
+  // Fallback — search today AND yesterday to catch split shifts clocking out after midnight
   if (!rosterEntry) {
     const { data: entries } = await supabase
       .from('roster_entries')
       .select('*')
       .eq('staff_id', staff.id)
-      .eq('work_date', today)
+      .in('work_date', [today, yesterday])
       .in('status', ['present', 'scheduled'])
+      .order('work_date', { ascending: false })
       .order('section', { ascending: true })
     rosterEntry = entries?.find(e => e.status === 'present') ?? entries?.[0] ?? null
   }
 
+  // Use roster work_date for scheduledEnd if available, else today
+  const rosterDate = rosterEntry?.work_date ?? today
+
+  // Brisbane is UTC+10, no DST
   const scheduledEnd = rosterEntry?.scheduled_end
-? new Date(`${today}T${rosterEntry.scheduled_end.slice(0, 5)}:00+10:00`)
-  : null
+    ? new Date(`${rosterDate}T${rosterEntry.scheduled_end.slice(0, 5)}:00+10:00`)
+    : null
 
   const paidStart = new Date(clockInEvent.paid_time)
 
@@ -106,16 +121,21 @@ const location = (qr as any).staff_locations
     employmentType: staff.employment_type,
     paidStart,
   })
-// Break only applies to section 1 AND gross hours >= 5
-const grossMinsPreview = Math.round((paidTime.getTime() - paidStart.getTime()) / 60000)
-const section = rosterEntry?.section ?? 1
-const staffBreak = Number(rosterEntry?.break_minutes ?? staff.break_minutes ?? 0)
-const effectiveBreakMinutes = (section === 1 && grossMinsPreview >= 300) ? staffBreak : 0
+
+  // Break only applies to section 1 AND gross hours >= 5
+  const grossMinsPreview = Math.round((paidTime.getTime() - paidStart.getTime()) / 60000)
+  const section = rosterEntry?.section ?? 1
+  const staffBreak = Number(rosterEntry?.break_minutes ?? staff.break_minutes ?? 0)
+  const effectiveBreakMinutes = (section === 1 && grossMinsPreview >= 300) ? staffBreak : 0
+
   let distanceM: number | null = null
   let gpsValid = false
 
   if (lat && lng && location?.latitude) {
-    distanceM = Math.round(haversineDistanceM(Number(lat), Number(lng), Number(location.latitude), Number(location.longitude)))
+    distanceM = Math.round(haversineDistanceM(
+      Number(lat), Number(lng),
+      Number(location.latitude), Number(location.longitude)
+    ))
     gpsValid = distanceM <= Number(location.radius_metres ?? 200)
   }
 
@@ -174,7 +194,7 @@ const effectiveBreakMinutes = (section === 1 && grossMinsPreview >= 300) ? staff
     calc = calculateShift({
       effectiveStart:           paidStart,
       effectiveEnd:             paidTime,
-breakMinutes: effectiveBreakMinutes,
+      breakMinutes:             effectiveBreakMinutes,
       employmentType:           staff.employment_type,
       dayType:                  rosterEntry.day_type ?? 'normal',
       baseHourlyRate:           rosterEntry.base_hourly_rate,
@@ -197,7 +217,7 @@ breakMinutes: effectiveBreakMinutes,
     const { error: shiftErr } = await supabase.from('shifts').upsert({
       staff_id:             staff.id,
       roster_entry_id:      rosterEntry.id,
-      work_date:            today,
+      work_date:            rosterEntry.work_date ?? today,
       section:              rosterEntry.section ?? 1,
       department:           rosterEntry.department ?? staff.primary_department,
       employment_type:      staff.employment_type,
@@ -234,7 +254,7 @@ breakMinutes: effectiveBreakMinutes,
 
   } else {
     const grossMins = Math.round((paidTime.getTime() - paidStart.getTime()) / 60000)
-const breakMins = effectiveBreakMinutes
+    const breakMins = effectiveBreakMinutes
     const paidMins  = Math.max(0, grossMins - breakMins)
 
     const { error: fallbackErr } = await supabase.from('shifts').upsert({
@@ -259,10 +279,9 @@ const breakMins = effectiveBreakMinutes
   }
 
   const paidHours = calc?.paidHours ?? Math.round(
-Math.max(0, (paidTime.getTime() - paidStart.getTime()) / 60000 - effectiveBreakMinutes) / 60 * 100
+    Math.max(0, (paidTime.getTime() - paidStart.getTime()) / 60000 - effectiveBreakMinutes) / 60 * 100
   ) / 100
 
-  // ✅ Fix — format nowUtc directly, no double-offset via nowLocal
   const rawOutStr = nowUtc.toLocaleTimeString('en-AU', {
     timeZone: 'Australia/Brisbane', hour: 'numeric', minute: '2-digit', hour12: true,
   })

@@ -37,58 +37,52 @@ export async function POST(request: NextRequest) {
 
   const twentyFourHoursAgo = new Date(nowUtc.getTime() - 86400000)
 
-  // ✅ After
-const { data: existingIn } = await supabase
-  .from('clock_events')
-  .select('id, raw_time, paid_time')
-  .eq('staff_id', staff.id)
-  .eq('event_type', 'clock_in')
-  .gte('raw_time', twentyFourHoursAgo.toISOString())
-  .order('raw_time', { ascending: false })
-  .maybeSingle()
-
-if (existingIn) {
-  const { data: existingOut } = await supabase
+  const { data: existingIn } = await supabase
     .from('clock_events')
-    .select('id')
+    .select('id, raw_time, paid_time')
     .eq('staff_id', staff.id)
-    .eq('event_type', 'clock_out')
-    .gte('raw_time', existingIn.raw_time)  // ✅ was paid_time
+    .eq('event_type', 'clock_in')
+    .gte('raw_time', twentyFourHoursAgo.toISOString())
+    .order('raw_time', { ascending: false })
     .maybeSingle()
 
-  if (!existingOut) {
-  // If the open clock-in was from a previous day, auto-close it at midnight
-  // and allow today's clock-in to proceed
-  const clockInDate = new Date(existingIn.raw_time).toLocaleDateString('en-CA', { timeZone: 'Australia/Brisbane' })
-  if (clockInDate < today) {
-    // Auto clock-out at end of that day (midnight Brisbane)
-const autoClockOut = new Date(`${clockInDate}T17:00:00+10:00`)  
-  await supabase.from('clock_events').insert({
-      staff_id:    staff.id,
-      event_type:  'clock_out',
-      raw_time:    autoClockOut.toISOString(),
-      paid_time:   autoClockOut.toISOString(),
-      snap_reason: 'auto_closed_forgot_to_clock_out',
-      gps_valid:   false,
-      trust_score: 0,
-      flags:       ['auto_closed'],
-    })
-    // Update open shift effective_end
-    await supabase.from('shifts')
-      .update({
-        effective_end: autoClockOut.toISOString(),
-        status: 'pending',
-        manager_note: 'Auto-closed: staff forgot to clock out',
-      })
+  if (existingIn) {
+    const { data: existingOut } = await supabase
+      .from('clock_events')
+      .select('id')
       .eq('staff_id', staff.id)
-      .eq('work_date', clockInDate)
-      .is('effective_end', null)
-    // Allow clock-in to continue
-  } else {
-    return NextResponse.json({ error: `${staff.name} is already clocked in`, already_in: true }, { status: 409 })
+      .eq('event_type', 'clock_out')
+      .gte('raw_time', existingIn.raw_time)
+      .maybeSingle()
+
+    if (!existingOut) {
+      const clockInDate = new Date(existingIn.raw_time).toLocaleDateString('en-CA', { timeZone: 'Australia/Brisbane' })
+      if (clockInDate < today) {
+        const autoClockOut = new Date(`${clockInDate}T17:00:00+10:00`)
+        await supabase.from('clock_events').insert({
+          staff_id:    staff.id,
+          event_type:  'clock_out',
+          raw_time:    autoClockOut.toISOString(),
+          paid_time:   autoClockOut.toISOString(),
+          snap_reason: 'auto_closed_forgot_to_clock_out',
+          gps_valid:   false,
+          trust_score: 0,
+          flags:       ['auto_closed'],
+        })
+        await supabase.from('shifts')
+          .update({
+            effective_end: autoClockOut.toISOString(),
+            status: 'pending',
+            manager_note: 'Auto-closed: staff forgot to clock out',
+          })
+          .eq('staff_id', staff.id)
+          .eq('work_date', clockInDate)
+          .is('effective_end', null)
+      } else {
+        return NextResponse.json({ error: `${staff.name} is already clocked in`, already_in: true }, { status: 409 })
+      }
+    }
   }
-}
-}
 
   const { data: rosterEntries } = await supabase
     .from('roster_entries')
@@ -122,7 +116,10 @@ const autoClockOut = new Date(`${clockInDate}T17:00:00+10:00`)
   let gpsValid = false
 
   if (lat && lng && location?.latitude && location?.longitude) {
-    distanceM = Math.round(haversineDistanceM(Number(lat), Number(lng), Number(location.latitude), Number(location.longitude)))
+    distanceM = Math.round(haversineDistanceM(
+      Number(lat), Number(lng),
+      Number(location.latitude), Number(location.longitude)
+    ))
     gpsValid = distanceM <= Number(location.radius_metres ?? 200)
   }
 
@@ -182,7 +179,8 @@ const autoClockOut = new Date(`${clockInDate}T17:00:00+10:00`)
     await supabase.from('roster_entries').update({ status: 'present' }).eq('id', rosterEntry.id)
   }
 
-  const dayOfWeek = new Date(today + 'T00:00:00').getDay()
+  // FIX: include +10:00 offset so getDay() is correct for Brisbane, not UTC
+  const dayOfWeek = new Date(today + 'T00:00:00+10:00').getDay()
   const dayType = rosterEntry?.day_type
     ?? (dayOfWeek === 0 ? 'sunday' : dayOfWeek === 6 ? 'saturday' : 'normal')
 
@@ -218,7 +216,6 @@ const autoClockOut = new Date(`${clockInDate}T17:00:00+10:00`)
     console.error('[clock-in] shift create error:', shiftErr.message)
   }
 
-  // Format nowUtc directly — no intermediate Date object
   const rawTimeStr = nowUtc.toLocaleTimeString('en-AU', {
     timeZone: 'Australia/Brisbane', hour: 'numeric', minute: '2-digit', hour12: true,
   })
