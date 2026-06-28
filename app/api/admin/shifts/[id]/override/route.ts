@@ -78,7 +78,6 @@ export async function DELETE(
 ) {
   const supabase = createAdminClient()
 
-  // Fetch shift first to get clock event IDs
   const { data: shift, error: fetchErr } = await supabase
     .from('shifts')
     .select('id, clock_in_id, clock_out_id, status')
@@ -96,7 +95,6 @@ export async function DELETE(
     )
   }
 
-  // Delete the shift
   const { error: deleteErr } = await supabase
     .from('shifts')
     .delete()
@@ -106,14 +104,78 @@ export async function DELETE(
     return NextResponse.json({ error: deleteErr.message }, { status: 500 })
   }
 
-  // Delete associated clock events if they exist
   const eventIds = [shift.clock_in_id, shift.clock_out_id].filter(Boolean)
   if (eventIds.length > 0) {
-    await supabase
-      .from('clock_events')
-      .delete()
-      .in('id', eventIds)
+    await supabase.from('clock_events').delete().in('id', eventIds)
   }
 
   return NextResponse.json({ success: true })
+}
+
+// ── PATCH — edit effective_start, effective_end, break_minutes, manager_note ──
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const supabase = createAdminClient()
+  const { effective_start, effective_end, break_minutes, manager_note, edited_by_id } = await req.json()
+
+  if (!edited_by_id) {
+    return NextResponse.json({ error: 'edited_by_id is required' }, { status: 400 })
+  }
+
+  const { data: shift, error: fetchErr } = await supabase
+    .from('shifts')
+    .select('applicable_rate, status')
+    .eq('id', params.id)
+    .single()
+
+  if (fetchErr || !shift) {
+    return NextResponse.json({ error: 'Shift not found' }, { status: 404 })
+  }
+
+  // Recalculate paid minutes from edited times
+  let paid_minutes: number | null = null
+  let paid_hours:   number | null = null
+  let gross_pay:    number | null = null
+
+  if (effective_start && effective_end) {
+    const start       = new Date(effective_start)
+    const end         = new Date(effective_end)
+    const grossMins   = (end.getTime() - start.getTime()) / 60000
+    const breakMins   = Number(break_minutes ?? 0)
+    paid_minutes      = Math.max(0, Math.round(grossMins - breakMins))
+    paid_hours        = parseFloat((paid_minutes / 60).toFixed(4))
+    const rate        = Number(shift.applicable_rate ?? 0)
+    gross_pay         = rate > 0 ? parseFloat((paid_hours * rate).toFixed(2)) : null
+  }
+
+  const updates: Record<string, any> = {
+    manager_note: manager_note ?? null,
+  }
+
+  if (effective_start !== undefined) updates.effective_start = effective_start
+  if (effective_end   !== undefined) updates.effective_end   = effective_end
+  if (break_minutes   !== undefined) updates.break_minutes   = Number(break_minutes)
+  if (paid_minutes    !== null)      updates.paid_minutes    = paid_minutes
+  if (paid_hours      !== null)      updates.paid_hours      = paid_hours
+  if (gross_pay       !== null)      updates.gross_pay       = gross_pay
+
+  // If already approved, drop back to pending so it can be re-approved
+  if (shift.status === 'approved') {
+    updates.status      = 'pending'
+    updates.approved_at = null
+    updates.approved_by = null
+  }
+
+  const { data, error } = await supabase
+    .from('shifts')
+    .update(updates)
+    .eq('id', params.id)
+    .select()
+    .single()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  return NextResponse.json({ shift: data })
 }
