@@ -189,42 +189,55 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      if (isWeekly) {
-        const { data: wi } = await supabase
-          .from('weekly_invoices')
-          .select('id, amount_paid, total_amount')
-          .eq('id', allocation.invoice_id)
-          .single()
+    // REPLACE WITH:
+if (isWeekly) {
+  const { data: wi } = await supabase
+    .from('weekly_invoices')
+    .select('id, amount_paid, total_amount')
+    .eq('id', allocation.invoice_id)
+    .single()
 
-        if (wi) {
-          let newAmountPaid = Math.round(((Number(wi.amount_paid) || 0) + allocAmount) * 100) / 100
-          const wiTotal     = Number(wi.total_amount) || 0
-          if (isAcceptedFull) newAmountPaid = wiTotal
-          const isFullyPaid = newAmountPaid >= wiTotal - 0.01
-          await supabase
-            .from('weekly_invoices')
-            .update({
-              amount_paid: newAmountPaid,
-              status:      isFullyPaid ? 'paid' : 'partial',
-            })
-            .eq('id', allocation.invoice_id)
+  if (wi) {
+    let newAmountPaid = Math.round(((Number(wi.amount_paid) || 0) + allocAmount) * 100) / 100
+    const wiTotal     = Number(wi.total_amount) || 0
+    if (isAcceptedFull) newAmountPaid = wiTotal
+    const isFullyPaid = newAmountPaid >= wiTotal - 0.01
+    await supabase
+      .from('weekly_invoices')
+      .update({
+        amount_paid: newAmountPaid,
+        status:      isFullyPaid ? 'paid' : 'partial',
+      })
+      .eq('id', allocation.invoice_id)
 
-          const { data: arTx } = await supabase
-            .from('ar_transactions')
-            .select('id, amount, amount_paid')
-            .eq('invoice_id', allocation.invoice_id)
-            .maybeSingle()
+    // Weekly invoice ar_transactions use description = 'weekly:{id}'
+    // NOT invoice_id — so look up by description first, fall back to invoice_id
+    let { data: arTx } = await supabase
+      .from('ar_transactions')
+      .select('id, amount, amount_paid')
+      .eq('customer_id', customer_id)
+      .eq('description', `weekly:${allocation.invoice_id}`)
+      .maybeSingle()
 
-          if (arTx) {
-            let newArPaid = Number(arTx.amount_paid || 0) + allocAmount
-            if (isAcceptedFull) newArPaid = Number(arTx.amount)
-            await supabase
-              .from('ar_transactions')
-              .update({ amount_paid: Math.round(newArPaid * 100) / 100 })
-              .eq('id', arTx.id)
-          }
-        }
+    if (!arTx) {
+      // Fallback to invoice_id lookup (older records)
+      const { data: arTxFallback } = await supabase
+        .from('ar_transactions')
+        .select('id, amount, amount_paid')
+        .eq('invoice_id', allocation.invoice_id)
+        .maybeSingle()
+      arTx = arTxFallback
+    }
 
+    if (arTx) {
+      let newArPaid = Number(arTx.amount_paid || 0) + allocAmount
+      if (isAcceptedFull) newArPaid = Number(arTx.amount)
+      await supabase
+        .from('ar_transactions')
+        .update({ amount_paid: Math.round(newArPaid * 100) / 100 })
+        .eq('id', arTx.id)
+    }
+  }
       } else {
         const { data: arTx } = await supabase
           .from('ar_transactions')
