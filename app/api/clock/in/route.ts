@@ -72,8 +72,8 @@ export async function POST(request: NextRequest) {
         await supabase.from('shifts')
           .update({
             effective_end: autoClockOut.toISOString(),
-            status: 'pending',
-            manager_note: 'Auto-closed: staff forgot to clock out',
+            status:        'pending',
+            manager_note:  'Auto-closed: staff forgot to clock out',
           })
           .eq('staff_id', staff.id)
           .eq('work_date', clockInDate)
@@ -84,13 +84,13 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // FIX: include completed entries as last resort
   const { data: rosterEntries } = await supabase
     .from('roster_entries')
     .select('*')
     .eq('staff_id', staff.id)
     .eq('work_date', today)
     .neq('status', 'rostered_off')
-    .neq('status', 'completed')
     .order('section', { ascending: true })
 
   const { data: todayShifts } = await supabase
@@ -100,14 +100,21 @@ export async function POST(request: NextRequest) {
     .eq('work_date', today)
 
   const usedSections = (todayShifts ?? []).map((s: any) => s.section)
-  const rosterEntry = rosterEntries?.find(e => !usedSections.includes(e.section)) ?? null
+
+  // Prefer present → scheduled → completed (last resort)
+  const rosterEntry = rosterEntries
+    ?.filter(e => !usedSections.includes(e.section))
+    ?.sort((a, b) => {
+      const priority: Record<string, number> = { present: 0, scheduled: 1, completed: 2 }
+      return (priority[a.status] ?? 9) - (priority[b.status] ?? 9)
+    })[0] ?? null
 
   const scheduledStart = rosterEntry?.scheduled_start
     ? new Date(`${today}T${rosterEntry.scheduled_start.slice(0, 5)}:00+10:00`)
     : null
 
   const { paidTime, snapReason } = computeClockIn({
-    rawTime: nowUtc,
+    rawTime:        nowUtc,
     scheduledStart,
     employmentType: staff.employment_type,
   })
@@ -133,7 +140,7 @@ export async function POST(request: NextRequest) {
       await supabase
         .from('staff')
         .update({
-          known_device: device_fingerprint,
+          known_device:        device_fingerprint,
           known_device_set_at: nowUtc.toISOString()
         })
         .eq('id', staff.id)
@@ -144,7 +151,7 @@ export async function POST(request: NextRequest) {
 
   const { score: trustScore, flags: gpsFlags } = computeTrustScore({
     gpsValid, distanceM,
-    radiusM: Number(location?.radius_metres ?? 200),
+    radiusM:       Number(location?.radius_metres ?? 200),
     ipMatchesSite: true,
   })
 
@@ -179,7 +186,6 @@ export async function POST(request: NextRequest) {
     await supabase.from('roster_entries').update({ status: 'present' }).eq('id', rosterEntry.id)
   }
 
-  // FIX: include +10:00 offset so getDay() is correct for Brisbane, not UTC
   const dayOfWeek = new Date(today + 'T00:00:00+10:00').getDay()
   const dayType = rosterEntry?.day_type
     ?? (dayOfWeek === 0 ? 'sunday' : dayOfWeek === 6 ? 'saturday' : 'normal')
