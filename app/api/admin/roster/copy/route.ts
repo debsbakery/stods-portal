@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     const staff     = staffMap.get(entry.staff_id)
 
     // Determine day type for new date
-    const newDayOfWeek = new Date(newDate + 'T00:00:00').getDay()
+const newDayOfWeek = new Date(newDate + 'T00:00:00+10:00').getDay()
     const dayType = entry.day_type === 'public_holiday' ? 'normal'  // reset PH — must be manually re-set
       : newDayOfWeek === 0 ? 'sunday'
       : newDayOfWeek === 6 ? 'saturday'
