@@ -19,6 +19,7 @@ export async function POST(request: NextRequest) {
     } = body
 
     const cashAmount    = parseFloat(amount) || 0
+    const isReversal    = cashAmount < 0
     const tickedCredits = allocations.filter((a: any) => a.is_credit)
 
     if (!customer_id) {
@@ -42,14 +43,77 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
     }
 
-    const invoiceAllocs         = allocations.filter((a: any) => !a.is_credit && a.amount > 0)
+    // ── Reversal: just record the payment row, insert ar_transaction, recalc balance ──
+    if (isReversal) {
+      const { data: paymentRow, error: paymentError } = await supabase
+        .from('payments')
+        .insert({
+          customer_id,
+          amount:           cashAmount,
+          payment_date:     payment_date || new Date().toISOString().split('T')[0],
+          payment_method:   payment_method   || null,
+          reference_number: reference_number || null,
+          notes:            notes            || null,
+          allocated_amount: 0,
+        })
+        .select()
+        .single()
+
+      if (paymentError) throw paymentError
+
+      await supabase.from('ar_transactions').insert({
+        customer_id,
+        type:        'payment',
+        amount:      cashAmount,
+        paid_date:   payment_date || new Date().toISOString().split('T')[0],
+        description: notes || `Payment reversal - ${new Date().toLocaleDateString('en-AU')}`,
+      })
+
+      // Recalculate balance
+      const { data: allTx } = await supabase
+        .from('ar_transactions')
+        .select('type, amount, amount_paid')
+        .eq('customer_id', customer_id)
+
+      const newBalance = Math.round(
+        (allTx ?? []).reduce((sum, tx) => {
+          const owed = Number(tx.amount) - Number(tx.amount_paid || 0)
+          if (tx.type === 'invoice') return sum + owed
+          if (tx.type === 'payment') return sum - Number(tx.amount)
+          if (tx.type === 'credit')  return sum - owed
+          return sum
+        }, 0) * 100
+      ) / 100
+
+      await supabase
+        .from('customers')
+        .update({ balance: newBalance })
+        .eq('id', customer_id)
+
+      return NextResponse.json({
+        payment: {
+          id:          paymentRow.id,
+          customer:    customer.business_name || customer.contact_name,
+          amount:      cashAmount,
+          new_balance: newBalance,
+          allocations: 0,
+          credit_used: 0,
+          overpayment: 0,
+        },
+      })
+    }
+
+    // ── Normal payment flow below ──
+    const invoiceAllocs = allocations.filter((a: any) => !a.is_credit && a.amount > 0)
     const totalAllocatedToInvoices = invoiceAllocs.reduce(
       (sum: number, a: any) => sum + (parseFloat(a.amount) || 0), 0
     )
 
     // Fetch ticked credits
     const creditIds = tickedCredits.map((c: any) => c.invoice_id)
-    let availableCredits: Array<{ id: string; amount: number; amount_paid: number; remaining: number; created_at: string }> = []
+    let availableCredits: Array<{
+      id: string; amount: number; amount_paid: number; remaining: number; created_at: string
+    }> = []
 
     if (creditIds.length > 0) {
       const { data: creditTxs } = await supabase
@@ -80,7 +144,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const cashAppliedToInvoices   = Math.min(Math.max(0, cashAmount), totalAllocatedToInvoices)
+    const cashAppliedToInvoices   = Math.min(cashAmount, totalAllocatedToInvoices)
     const creditAppliedToInvoices = Math.max(0, totalAllocatedToInvoices - cashAppliedToInvoices)
 
     // Create payment record
@@ -105,14 +169,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Apply allocations to invoices
-    let cashRemaining = Math.max(0, cashAmount)
+    let cashRemaining = cashAmount
 
     for (const allocation of invoiceAllocs) {
       if (!allocation.invoice_id || !allocation.amount) continue
       const allocAmount    = Number(allocation.amount)
       const isAcceptedFull = allocation.accept_as_full === true
       const shortAmount    = Number(allocation.short_amount || 0)
-      const isWeekly       = allocation.is_weekly === true  // ✅ weekly invoice flag
+      const isWeekly       = allocation.is_weekly === true
 
       const cashPart = Math.min(cashRemaining, allocAmount)
       cashRemaining -= cashPart
@@ -126,7 +190,6 @@ export async function POST(request: NextRequest) {
       }
 
       if (isWeekly) {
-        // ✅ Handle weekly invoice — update weekly_invoices table directly
         const { data: wi } = await supabase
           .from('weekly_invoices')
           .select('id, amount_paid, total_amount')
@@ -136,9 +199,7 @@ export async function POST(request: NextRequest) {
         if (wi) {
           let newAmountPaid = Math.round(((Number(wi.amount_paid) || 0) + allocAmount) * 100) / 100
           const wiTotal     = Number(wi.total_amount) || 0
-
           if (isAcceptedFull) newAmountPaid = wiTotal
-
           const isFullyPaid = newAmountPaid >= wiTotal - 0.01
           await supabase
             .from('weekly_invoices')
@@ -148,7 +209,6 @@ export async function POST(request: NextRequest) {
             })
             .eq('id', allocation.invoice_id)
 
-          // ✅ Also update ar_transactions if one exists for this weekly invoice
           const { data: arTx } = await supabase
             .from('ar_transactions')
             .select('id, amount, amount_paid')
@@ -166,7 +226,6 @@ export async function POST(request: NextRequest) {
         }
 
       } else {
-        // Regular order invoice — existing logic
         const { data: arTx } = await supabase
           .from('ar_transactions')
           .select('id, amount, amount_paid')
@@ -239,22 +298,25 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Recalculate customer balance
+    // FIX: include payment type in balance recalculation
     const { data: allTx } = await supabase
       .from('ar_transactions')
       .select('type, amount, amount_paid')
       .eq('customer_id', customer_id)
 
-    const newBalance = (allTx ?? []).reduce((sum, tx) => {
-      const owed = Number(tx.amount) - Number(tx.amount_paid || 0)
-      if (tx.type === 'invoice') return sum + owed
-      if (tx.type === 'credit')  return sum - owed
-      return sum
-    }, 0)
+    const newBalance = Math.round(
+      (allTx ?? []).reduce((sum, tx) => {
+        const owed = Number(tx.amount) - Number(tx.amount_paid || 0)
+        if (tx.type === 'invoice') return sum + owed
+        if (tx.type === 'payment') return sum - Number(tx.amount)
+        if (tx.type === 'credit')  return sum - owed
+        return sum
+      }, 0) * 100
+    ) / 100
 
     await supabase
       .from('customers')
-      .update({ balance: Math.round(newBalance * 100) / 100 })
+      .update({ balance: newBalance })
       .eq('id', customer_id)
 
     return NextResponse.json({
@@ -262,7 +324,7 @@ export async function POST(request: NextRequest) {
         id:          payment?.id || null,
         customer:    customer.business_name || customer.contact_name,
         amount:      cashAmount,
-        new_balance: Math.round(newBalance * 100) / 100,
+        new_balance: newBalance,
         allocations: invoiceAllocs.length,
         credit_used: Math.round(creditAppliedToInvoices * 100) / 100,
         overpayment: cashUnallocated > 0.009 ? Math.round(cashUnallocated * 100) / 100 : 0,
