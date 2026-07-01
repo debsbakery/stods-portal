@@ -84,13 +84,13 @@ export async function POST(req: NextRequest) {
         .from('stock_take_items')
         .insert(
           items.map((i: any) => ({
-            stock_take_id: stockTake.id,
-            ingredient_id: i.ingredient_id,
-            counted_packs: i.counted_packs ?? null,
-            pack_size_kg: i.pack_size_kg ?? null,
-            total_kg: i.total_kg ?? null,
+            stock_take_id:   stockTake.id,
+            ingredient_id:   i.ingredient_id,
+            counted_packs:   i.counted_packs ?? null,
+            pack_size_kg:    i.pack_size_kg ?? null,
+            total_kg:        i.total_kg ?? null,
             system_stock_kg: stockMap.get(i.ingredient_id) || 0,
-            notes: i.notes || null,
+            notes:           i.notes || null,
           }))
         )
 
@@ -130,17 +130,19 @@ export async function PUT(req: NextRequest) {
 
     if (takeError) throw takeError
 
+    // Declared at function scope so it's available for the return
+    let ingredients: any[] = []
+
     if (items) {
-      // Fetch current stock for variance calculation
       const ingredientIds = items.map((i: any) => i.ingredient_id)
-      const { data: ingredients } = await supabase
+      const { data: ingData } = await supabase
         .from('ingredients')
         .select('id, current_stock, unit, name')
         .in('id', ingredientIds)
 
-      const ingredientMap = new Map(
-        ingredients?.map(ing => [ing.id, ing]) || []
-      )
+      ingredients = ingData ?? []
+
+      const ingredientMap = new Map(ingredients.map(ing => [ing.id, ing]))
 
       // Delete old items
       await supabase.from('stock_take_items').delete().eq('stock_take_id', id)
@@ -150,41 +152,40 @@ export async function PUT(req: NextRequest) {
           .from('stock_take_items')
           .insert(
             items.map((i: any) => ({
-              stock_take_id: id,
-              ingredient_id: i.ingredient_id,
-              counted_packs: i.counted_packs ?? null,
-              pack_size_kg: i.pack_size_kg ?? null,
-              total_kg: i.total_kg ?? null,
+              stock_take_id:   id,
+              ingredient_id:   i.ingredient_id,
+              counted_packs:   i.counted_packs ?? null,
+              pack_size_kg:    i.pack_size_kg ?? null,
+              total_kg:        i.total_kg ?? null,
               system_stock_kg: ingredientMap.get(i.ingredient_id)?.current_stock || 0,
-              notes: i.notes || null,
+              notes:           i.notes || null,
             }))
           )
 
         if (itemsError) throw itemsError
       }
 
-      // ✨ NEW: Create stock adjustments if completing
+      // Create stock adjustments if completing
       if (status === 'completed' && items.length > 0) {
         const adjustments = []
 
         for (const item of items) {
-          const totalKg = item.total_kg || 0
+          const totalKg    = item.total_kg || 0
           const ingredient = ingredientMap.get(item.ingredient_id)
-          
           if (!ingredient) continue
 
           const systemStock = ingredient.current_stock || 0
-          const variance = totalKg - systemStock
+          const variance    = totalKg - systemStock
 
           // Only create adjustment if there's a variance
           if (Math.abs(variance) > 0.001) {
             adjustments.push({
-              ingredient_id: item.ingredient_id,
+              ingredient_id:   item.ingredient_id,
               adjustment_type: 'stocktake',
-              quantity: variance,
-              unit: ingredient.unit,
-              reason: `Physical stocktake variance: ${variance > 0 ? '+' : ''}${variance.toFixed(2)} ${ingredient.unit}. Counted: ${totalKg} ${ingredient.unit} (${item.counted_packs || 0} packs × ${item.pack_size_kg || 0} kg)`,
-              reference: `STOCKTAKE-${id}`,
+              quantity:        variance,
+              unit:            ingredient.unit,
+              reason:          `Physical stocktake variance: ${variance > 0 ? '+' : ''}${variance.toFixed(2)} ${ingredient.unit}. Counted: ${totalKg} ${ingredient.unit} (${item.counted_packs || 0} packs × ${item.pack_size_kg || 0} kg)`,
+              reference:       `STOCKTAKE-${id}`,
             })
           }
         }
@@ -203,14 +204,14 @@ export async function PUT(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       data: stockTake,
       adjustments_created: items?.filter((i: any) => {
-        const totalKg = i.total_kg || 0
-        const ing = ingredients?.find(ing => ing.id === i.ingredient_id)
+        const totalKg     = i.total_kg || 0
+        const ing         = ingredients.find(ing => ing.id === i.ingredient_id)
         const systemStock = ing?.current_stock || 0
         return Math.abs(totalKg - systemStock) > 0.001
-      }).length || 0
+      }).length || 0,
     })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
