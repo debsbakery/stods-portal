@@ -295,13 +295,17 @@ export default function EditOrderPage() {
           .eq('order_id', orderId)
           .order('id')
 
-        // Load contract pricing
+        // FIX 1 — Load contract pricing with active + date filters
+        const today = new Date().toISOString().split('T')[0]
         let contractMap: Record<string, number> = {}
         if (order.customer_id) {
           const { data: contracts } = await supabase
             .from('customer_pricing')
             .select('product_id, contract_price')
             .eq('customer_id', order.customer_id)
+            .eq('active', true)
+            .or(`effective_from.is.null,effective_from.lte.${today}`)
+            .or(`effective_to.is.null,effective_to.gte.${today}`)
 
           if (contracts) {
             contracts.forEach((row: any) => { contractMap[row.product_id] = row.contract_price })
@@ -346,6 +350,7 @@ export default function EditOrderPage() {
               cleanName = dbItem.custom_description.replace(/\s*\(\d+%\s*Credit\)/g, '').trim()
             }
 
+            // FIX 2 — Use contract price if available, otherwise use saved unit_price
             const hasContract = !is900 && contractMap[dbItem.product_id] !== undefined
 
             return {
@@ -354,7 +359,7 @@ export default function EditOrderPage() {
               productName:   is900 ? (dbItem.custom_description?.replace(/\s*\(\d+%\s*Credit\)/g, '').trim() || cleanName) : cleanName,
               productCode:   code,
               quantity:      Math.abs(dbItem.quantity),
-              unitPrice:     dbItem.unit_price,
+              unitPrice:     hasContract ? contractMap[dbItem.product_id] : dbItem.unit_price,
               gstApplicable: dbItem.gst_applicable ?? true,
               isCredit,
               creditPercent,
@@ -408,10 +413,14 @@ export default function EditOrderPage() {
     setFormData(f => ({ ...f, customerId: id }))
 
     if (id) {
+      const today = new Date().toISOString().split('T')[0]
       const { data } = await supabase
         .from('customer_pricing')
         .select('product_id, contract_price')
         .eq('customer_id', id)
+        .eq('active', true)
+        .or(`effective_from.is.null,effective_from.lte.${today}`)
+        .or(`effective_to.is.null,effective_to.gte.${today}`)
 
       if (data) {
         const map: Record<string, number> = {}
@@ -526,7 +535,7 @@ export default function EditOrderPage() {
 
       const oldTotal = originalOrder.total_amount || 0
 
-      // ── Step 1: Update the order record ────────────────────────────────
+      // ── Step 1: Update the order record ──────────────────────────────────
 
       const { error: updateError } = await supabase
         .from('orders')
@@ -546,7 +555,7 @@ export default function EditOrderPage() {
 
       if (updateError) throw new Error(`Order update failed: ${updateError.message}`)
 
-      // ── Step 2: Delete old order items, insert new ones ────────────────
+      // ── Step 2: Delete old order items, insert new ones ───────────────────
 
       const { error: deleteItemsErr } = await supabase
         .from('order_items')
@@ -580,16 +589,14 @@ export default function EditOrderPage() {
 
       if (insertItemsErr) throw new Error(`Failed to save items: ${insertItemsErr.message}`)
 
-      // ── Step 3: If invoiced → delete old AR + create new AR ────────────
+      // ── Step 3: If invoiced → delete old AR + create new AR ──────────────
 
       if (isInvoiced) {
-        // 3a: Reverse old customer balance
         await supabase.rpc('increment_customer_balance', {
           p_customer_id: originalOrder.customer_id,
           p_amount:      -oldTotal,
         })
 
-        // 3b: Delete old AR transaction for this order
         const { error: deleteArErr } = await supabase
           .from('ar_transactions')
           .delete()
@@ -599,7 +606,6 @@ export default function EditOrderPage() {
           console.error('AR delete warning:', deleteArErr.message)
         }
 
-        // 3c: Delete old credit memos for this order
         const { data: oldMemos } = await supabase
           .from('credit_memos')
           .select('id')
@@ -607,17 +613,10 @@ export default function EditOrderPage() {
 
         if (oldMemos && oldMemos.length > 0) {
           const memoIds = oldMemos.map(m => m.id)
-          await supabase
-            .from('credit_memo_items')
-            .delete()
-            .in('credit_memo_id', memoIds)
-          await supabase
-            .from('credit_memos')
-            .delete()
-            .eq('reference_order_id', orderId)
+          await supabase.from('credit_memo_items').delete().in('credit_memo_id', memoIds)
+          await supabase.from('credit_memos').delete().eq('reference_order_id', orderId)
         }
 
-        // 3d: Create new AR transaction
         const paymentTerms = customer.payment_terms || 30
         const dueDate      = new Date(formData.deliveryDate)
         dueDate.setDate(dueDate.getDate() + paymentTerms)
@@ -636,14 +635,13 @@ export default function EditOrderPage() {
 
         if (arError) throw new Error(`AR transaction failed: ${arError.message}`)
 
-        // 3e: Apply new total to customer balance
         await supabase.rpc('increment_customer_balance', {
           p_customer_id: formData.customerId,
           p_amount:      grandTotal,
         })
       }
 
-      // ── Step 4: Handle credit memos for new line items ─────────────────
+      // ── Step 4: Handle credit memos ───────────────────────────────────────
 
       if (hasCredits) {
         try {
@@ -698,8 +696,6 @@ export default function EditOrderPage() {
           console.error('Credit memo exception:', memoErr)
         }
       }
-
-      // ── Done ───────────────────────────────────────────────────────────
 
       const diffMsg = isInvoiced && totalDiff !== 0
         ? `\n\nAR adjusted: ${totalDiff > 0 ? '+' : ''}${fmt(totalDiff)}`
@@ -770,7 +766,6 @@ export default function EditOrderPage() {
         </p>
       </div>
 
-      {/* Invoiced warning banner */}
       {isInvoiced && (
         <div className="mb-6 p-4 bg-amber-50 border border-amber-300 rounded-lg flex items-start gap-3">
           <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
@@ -903,7 +898,6 @@ export default function EditOrderPage() {
           ) : (
             <div className="space-y-2">
 
-              {/* Column headers */}
               <div className="grid grid-cols-12 gap-2 text-xs font-medium text-gray-500 px-1 pb-1 border-b">
                 <span className="col-span-1">Type</span>
                 <span className="col-span-4">Product</span>
@@ -915,7 +909,6 @@ export default function EditOrderPage() {
                 <span className="col-span-1"></span>
               </div>
 
-              {/* Rows */}
               {lineItems.map(item => (
                 <div
                   key={item.id}
@@ -924,7 +917,6 @@ export default function EditOrderPage() {
                     item.isCredit ? 'bg-orange-50 border border-orange-100' : 'bg-gray-50',
                   ].join(' ')}
                 >
-                  {/* Type badge */}
                   <div className="col-span-1 pt-2">
                     <span className={[
                       'text-xs px-1.5 py-0.5 rounded font-medium',
@@ -934,7 +926,6 @@ export default function EditOrderPage() {
                     </span>
                   </div>
 
-                  {/* Product select + GST toggle */}
                   <div className="col-span-4">
                     <SearchableSelect
                       options={productOptions}
@@ -969,7 +960,6 @@ export default function EditOrderPage() {
                     )}
                   </div>
 
-                  {/* Quantity */}
                   <div className="col-span-1">
                     <input
                       type="number"
@@ -981,7 +971,6 @@ export default function EditOrderPage() {
                     />
                   </div>
 
-                  {/* Unit price */}
                   <div className="col-span-2">
                     <input
                       type="number"
@@ -996,7 +985,6 @@ export default function EditOrderPage() {
                     )}
                   </div>
 
-                  {/* Credit percent */}
                   <div className="col-span-1">
                     {item.isCredit ? (
                       <select
@@ -1013,7 +1001,6 @@ export default function EditOrderPage() {
                     )}
                   </div>
 
-                  {/* Stale checkbox */}
                   <div className="col-span-1 flex justify-center pt-2">
                     {item.isCredit ? (
                       <input
@@ -1027,7 +1014,6 @@ export default function EditOrderPage() {
                     )}
                   </div>
 
-                  {/* Line total */}
                   <div className={[
                     'col-span-1 text-sm font-medium text-right pt-2',
                     item.isCredit ? 'text-orange-600' : 'text-gray-800',
@@ -1042,7 +1028,6 @@ export default function EditOrderPage() {
                     )}
                   </div>
 
-                  {/* Remove */}
                   <div className="col-span-1 flex justify-center pt-1.5">
                     <button
                       type="button"
@@ -1055,7 +1040,6 @@ export default function EditOrderPage() {
                 </div>
               ))}
 
-              {/* Totals */}
               <div className="border-t-2 pt-4 mt-2 space-y-1 text-right">
                 <div className="text-sm text-gray-600">
                   Subtotal: <span className="font-medium ml-2">{fmt(subtotal)}</span>
@@ -1069,14 +1053,11 @@ export default function EditOrderPage() {
                 >
                   Total: {grandTotal < 0 ? `(${fmt(Math.abs(grandTotal))})` : fmt(grandTotal)}
                 </div>
-
-                {/* Show diff from original if invoiced */}
                 {isInvoiced && totalDiff !== 0 && (
                   <div className="text-sm font-semibold" style={{ color: totalDiff > 0 ? '#CE1126' : '#006A4E' }}>
                     Change from original: {totalDiff > 0 ? '+' : ''}{fmt(totalDiff)}
                   </div>
                 )}
-
                 {hasCredits && (
                   <p className="text-xs text-orange-600">
                     Includes credit lines — a credit memo will be recorded
