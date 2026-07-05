@@ -51,7 +51,7 @@ function currentWeekSunday() {
   return `${y}-${m}-${dd}`
 }
 export default function PayrollPage() {
-// ✅ NEW
+
 const [weekStart, setWeekStart] = useState(currentWeekSunday)
   const [summary, setSummary] = useState<StaffSummary[]>([])
   const [totals, setTotals] = useState<Totals | null>(null)
@@ -159,7 +159,7 @@ const [weekStart, setWeekStart] = useState(currentWeekSunday)
           {weekStart} → {weekEnd}
         </span>
         <button onClick={nextWeek} className="p-2 rounded border hover:bg-gray-50">▶</button>
-        // ✅ NEW
+        
 <button onClick={() => setWeekStart(currentWeekSunday())}
   className="text-sm text-indigo-600 hover:underline">This Week</button>
 </div>
