@@ -1,4 +1,3 @@
-// app/api/clock/in/route.ts
 export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -84,7 +83,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // FIX: include completed entries as last resort
+  // Include completed entries as last resort
   const { data: rosterEntries } = await supabase
     .from('roster_entries')
     .select('*')
@@ -186,13 +185,12 @@ export async function POST(request: NextRequest) {
     await supabase.from('roster_entries').update({ status: 'present' }).eq('id', rosterEntry.id)
   }
 
-  // REPLACE:
-const dayOfWeek = new Date(today + 'T00:00:00+10:00').getDay()
-const calendarDayType = dayOfWeek === 0 ? 'sunday' : dayOfWeek === 6 ? 'saturday' : 'normal'
-// Use calendar day type for weekends — never let roster override sunday/saturday
-const dayType = calendarDayType !== 'normal'
-  ? calendarDayType
-  : (rosterEntry?.day_type ?? 'normal')
+  // FIX: always use calendar day for sat/sun — never let roster override
+  const dayOfWeek = new Date(today + 'T00:00:00+10:00').getDay()
+  const calendarDayType = dayOfWeek === 0 ? 'sunday' : dayOfWeek === 6 ? 'saturday' : 'normal'
+  const dayType = calendarDayType !== 'normal'
+    ? calendarDayType
+    : (rosterEntry?.day_type ?? 'normal')
 
   let section = rosterEntry?.section ?? 1
   if (!rosterEntry) {
