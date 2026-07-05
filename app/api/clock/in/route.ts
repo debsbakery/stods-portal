@@ -186,9 +186,13 @@ export async function POST(request: NextRequest) {
     await supabase.from('roster_entries').update({ status: 'present' }).eq('id', rosterEntry.id)
   }
 
-  const dayOfWeek = new Date(today + 'T00:00:00+10:00').getDay()
-  const dayType = rosterEntry?.day_type
-    ?? (dayOfWeek === 0 ? 'sunday' : dayOfWeek === 6 ? 'saturday' : 'normal')
+  // REPLACE:
+const dayOfWeek = new Date(today + 'T00:00:00+10:00').getDay()
+const calendarDayType = dayOfWeek === 0 ? 'sunday' : dayOfWeek === 6 ? 'saturday' : 'normal'
+// Use calendar day type for weekends — never let roster override sunday/saturday
+const dayType = calendarDayType !== 'normal'
+  ? calendarDayType
+  : (rosterEntry?.day_type ?? 'normal')
 
   let section = rosterEntry?.section ?? 1
   if (!rosterEntry) {
