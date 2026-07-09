@@ -98,7 +98,7 @@ export async function generateOpenInvoicesPDF(data: OpenInvoicesData): Promise<B
     if (y - needed < 70) {
       page = pdfDoc.addPage([595, 842])
       y = height - 50
-      page.drawText(`${BRAND_NAME} — Open Invoice Statement (continued)`, {
+      page.drawText(`${brandName} — Open Invoice Statement (continued)`, {
         x: 50, y, size: 8, font, color: rgb(...GREY),
       })
       y -= 25
@@ -107,7 +107,7 @@ export async function generateOpenInvoicesPDF(data: OpenInvoicesData): Promise<B
 
   // Header bar
   page.drawRectangle({ x: 0, y: height - 75, width, height: 75, color: rgb(...GREEN) })
-  page.drawText(BRAND_NAME, {
+  page.drawText(brandName, {
     x: 50, y: height - 35, size: 22, font: fontBold, color: rgb(1, 1, 1),
   })
   page.drawText('OPEN INVOICE STATEMENT', {
@@ -365,7 +365,7 @@ export async function generateOpenInvoicesPDF(data: OpenInvoicesData): Promise<B
     { x: 50, y, size: 8, font, color: rgb(...GREY) }
   )
   page.drawText(
-    `${BRAND_NAME}  |  ${BRAND_EMAIL}`,
+    `${brandName}  |  ${brandEmail}`,
     { x: RIGHT_MARGIN - 250, y, size: 8, font, color: rgb(...GREY) }
   )
 
