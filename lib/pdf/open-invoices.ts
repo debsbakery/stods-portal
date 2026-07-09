@@ -1,16 +1,33 @@
 // lib/pdf/open-invoices.ts
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
 
+// ✅ Branding — env vars override; edit fallbacks per portal after xcopy
+const BRAND_NAME  = process.env.BAKERY_NAME  ?? "Sods bakery"
+const BRAND_EMAIL = process.env.BAKERY_EMAIL ?? 'orders@stodsbakery.com'
+
 interface OpenInvoice {
   date: string
   due_date: string | null
   reference: string
+  invoice_number?: number | null
   description: string
   amount: number
   amount_paid: number
   outstanding: number
   status: 'unpaid' | 'partial' | 'paid'
-  invoice_number?: number | null}
+}
+
+interface PaymentLine {
+  date: string
+  reference: string | null
+  method: string
+  amount: number
+}
+
+interface AgeingBucket {
+  label: string
+  amount: number
+}
 
 interface OpenInvoicesData {
   customer: {
@@ -21,18 +38,25 @@ interface OpenInvoicesData {
     payment_terms?: string
   }
   invoices: OpenInvoice[]
-   totalOutstanding: number
-  customerBalance?: number
+  totalOutstanding: number
+  customerBalance?: number   // negative = credit in customer's favour
   asAt: string
+  payments?: PaymentLine[]   // payments received since periodStart
+  periodStart?: string       // 1st of month of oldest unpaid invoice
+  ageing?: AgeingBucket[]    // Current / 14 / 30 / 60 / 90+
 }
 
 export async function generateOpenInvoicesPDF(data: OpenInvoicesData): Promise<Buffer> {
-  const { customer, invoices, totalOutstanding, customerBalance, asAt } = data
-  const pdfDoc  = await PDFDocument.create()
+  const {
+    customer, invoices, totalOutstanding, customerBalance, asAt,
+    payments = [], periodStart, ageing = [],
+  } = data
+
+  const pdfDoc   = await PDFDocument.create()
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
   const font     = await pdfDoc.embedFont(StandardFonts.Helvetica)
 
-  const page = pdfDoc.addPage([595, 842])
+  let page = pdfDoc.addPage([595, 842])
   const { width, height } = page.getSize()
 
   const GREEN: [number, number, number] = [0, 0.416, 0.306]
@@ -58,9 +82,23 @@ export async function generateOpenInvoicesPDF(data: OpenInvoicesData): Promise<B
     return new Date(due) < new Date()
   }
 
+  let y = height - 95
+
+  // Pagination: start a new page when running out of vertical space
+  const ensureSpace = (needed: number) => {
+    if (y - needed < 70) {
+      page = pdfDoc.addPage([595, 842])
+      y = height - 50
+      page.drawText(`${BRAND_NAME} — Open Invoice Statement (continued)`, {
+        x: 50, y, size: 8, font, color: rgb(...GREY),
+      })
+      y -= 25
+    }
+  }
+
   // Header bar
   page.drawRectangle({ x: 0, y: height - 75, width, height: 75, color: rgb(...GREEN) })
-  page.drawText("Stods Bakery", {
+  page.drawText(BRAND_NAME, {
     x: 50, y: height - 35, size: 22, font: fontBold, color: rgb(1, 1, 1),
   })
   page.drawText('OPEN INVOICE STATEMENT', {
@@ -70,9 +108,7 @@ export async function generateOpenInvoicesPDF(data: OpenInvoicesData): Promise<B
     x: RIGHT_MARGIN - 150, y: height - 45, size: 10, font: fontBold, color: rgb(1, 1, 1),
   })
 
-  let y = height - 95
-
-  // Customer info
+  // Customer info box
   page.drawRectangle({ x: 50, y: y - 55, width: 260, height: 65, color: rgb(0.97, 0.97, 0.97) })
   y -= 10
   page.drawText('TO:', { x: 50, y, size: 7, font, color: rgb(...GREY) })
@@ -90,79 +126,172 @@ export async function generateOpenInvoicesPDF(data: OpenInvoicesData): Promise<B
     page.drawText(customer.email, { x: 50, y, size: 8, font, color: rgb(...GREY) })
   }
 
-  // Total outstanding box
+  // Total outstanding box — or account status box if no open invoices
   const boxX = RIGHT_MARGIN - 150
-  page.drawRectangle({ x: boxX, y: height - 160, width: 150, height: 65, color: rgb(0.99, 0.94, 0.94) })
-  page.drawText('TOTAL OUTSTANDING', { x: boxX + 8, y: height - 110, size: 7, font, color: rgb(...GREY) })
-  page.drawText(fmt(totalOutstanding), { x: boxX + 8, y: height - 128, size: 16, font: fontBold, color: rgb(...RED) })
-  page.drawText(`${invoices.length} open invoice${invoices.length !== 1 ? 's' : ''}`, {
-    x: boxX + 8, y: height - 146, size: 8, font, color: rgb(...GREY),
-  })
+  const hasCreditBalance = (customerBalance ?? 0) < -0.01
+  const hasOpenInvoices  = invoices.length > 0
+
+  if (hasOpenInvoices) {
+    page.drawRectangle({ x: boxX, y: height - 160, width: 150, height: 65, color: rgb(0.99, 0.94, 0.94) })
+    page.drawText('TOTAL OUTSTANDING', { x: boxX + 8, y: height - 110, size: 7, font, color: rgb(...GREY) })
+    page.drawText(fmt(totalOutstanding), { x: boxX + 8, y: height - 128, size: 16, font: fontBold, color: rgb(...RED) })
+    page.drawText(`${invoices.length} open invoice${invoices.length !== 1 ? 's' : ''}`, {
+      x: boxX + 8, y: height - 146, size: 8, font, color: rgb(...GREY),
+    })
+  } else {
+    page.drawRectangle({ x: boxX, y: height - 160, width: 150, height: 65, color: rgb(0.94, 0.99, 0.94) })
+    page.drawText('ACCOUNT STATUS', { x: boxX + 8, y: height - 110, size: 7, font, color: rgb(...GREY) })
+    page.drawText('$0.00', { x: boxX + 8, y: height - 128, size: 16, font: fontBold, color: rgb(...GREEN) })
+    page.drawText('0 open invoices', { x: boxX + 8, y: height - 146, size: 8, font, color: rgb(...GREY) })
+  }
 
   y -= 25
 
-  // Divider
   page.drawLine({ start: { x: 50, y }, end: { x: RIGHT_MARGIN, y }, thickness: 1, color: rgb(0.75, 0.75, 0.75) })
   y -= 20
 
-  // Table header
-  page.drawRectangle({ x: 50, y: y - 4, width: RIGHT_MARGIN - 50, height: 18, color: rgb(0.1, 0.1, 0.1) })
-  const headers = [
-    { label: 'INV DATE', x: 52 },
-    { label: 'DUE DATE', x: 130 },
-    { label: 'REFERENCE', x: 208 },
-    { label: 'INVOICE AMT', x: 320 },
-    { label: 'PAID', x: 400 },
-    { label: 'OUTSTANDING', x: 465 },
-  ]
-  for (const h of headers) {
-    page.drawText(h.label, { x: h.x, y: y + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
-  }
-  y -= 20
-
-  let rowIdx = 0
-  for (const inv of invoices) {
-    if (rowIdx % 2 === 0) {
-      page.drawRectangle({ x: 50, y: y - 4, width: RIGHT_MARGIN - 50, height: 18, color: rgb(0.97, 0.97, 0.97) })
+  if (hasOpenInvoices) {
+    const drawInvoiceTableHeader = () => {
+      page.drawRectangle({ x: 50, y: y - 4, width: RIGHT_MARGIN - 50, height: 18, color: rgb(0.1, 0.1, 0.1) })
+      const headers = [
+        { label: 'INV DATE',    x: 52  },
+        { label: 'DUE DATE',    x: 130 },
+        { label: 'REFERENCE',   x: 208 },
+        { label: 'INVOICE AMT', x: 320 },
+        { label: 'PAID',        x: 400 },
+        { label: 'OUTSTANDING', x: 465 },
+      ]
+      for (const h of headers) {
+        page.drawText(h.label, { x: h.x, y: y + 2, size: 7, font: fontBold, color: rgb(1, 1, 1) })
+      }
+      y -= 20
     }
 
-    const overdue   = isOverdue(inv.due_date)
-    const dateColor = overdue ? RED : DARK
+    drawInvoiceTableHeader()
 
-    page.drawText(fmtDate(inv.date),     { x: 52,  y, size: 8, font, color: rgb(...DARK) })
-    page.drawText(fmtDate(inv.due_date), { x: 130, y, size: 8, font, color: rgb(...dateColor) })
-    page.drawText(inv.reference,         { x: 208, y, size: 8, font, color: rgb(...DARK) })
-    page.drawText(fmt(inv.amount),       { x: 320, y, size: 8, font, color: rgb(...DARK) })
-    page.drawText(
-      inv.amount_paid > 0 ? fmt(inv.amount_paid) : '—',
-      { x: 400, y, size: 8, font, color: rgb(...GREEN) }
-    )
-    page.drawText(fmt(inv.outstanding), { x: 465, y, size: 8, font: fontBold, color: rgb(...RED) })
+    let rowIdx = 0
+    for (const inv of invoices) {
+      if (y - 24 < 70) {
+        ensureSpace(24)
+        drawInvoiceTableHeader()
+      }
 
-    // Overdue label
-    if (overdue) {
-      page.drawText('OVERDUE', { x: RIGHT_MARGIN - 45, y, size: 6, font: fontBold, color: rgb(...RED) })
+      if (rowIdx % 2 === 0) {
+        page.drawRectangle({ x: 50, y: y - 4, width: RIGHT_MARGIN - 50, height: 18, color: rgb(0.97, 0.97, 0.97) })
+      }
+
+      const overdue   = isOverdue(inv.due_date)
+      const dateColor = overdue ? RED : DARK
+
+      page.drawText(fmtDate(inv.date),     { x: 52,  y, size: 8, font, color: rgb(...DARK) })
+      page.drawText(fmtDate(inv.due_date), { x: 130, y, size: 8, font, color: rgb(...dateColor) })
+      page.drawText(inv.reference,         { x: 208, y, size: 8, font, color: rgb(...DARK) })
+      page.drawText(fmt(inv.amount),       { x: 320, y, size: 8, font, color: rgb(...DARK) })
+      page.drawText(
+        inv.amount_paid > 0 ? fmt(inv.amount_paid) : '—',
+        { x: 400, y, size: 8, font, color: rgb(...GREEN) }
+      )
+      page.drawText(fmt(inv.outstanding), { x: 465, y, size: 8, font: fontBold, color: rgb(...RED) })
+
+      if (overdue) {
+        page.drawText('OVERDUE', { x: RIGHT_MARGIN - 45, y, size: 6, font: fontBold, color: rgb(...RED) })
+      }
+      if (inv.status === 'partial') {
+        page.drawText('PART PAID', { x: RIGHT_MARGIN - 48, y: y - 8, size: 6, font, color: rgb(...AMBER) })
+      }
+
+      y -= 20
+      rowIdx++
     }
-    // Partial label
-    if (inv.status === 'partial') {
-      page.drawText('PART PAID', { x: RIGHT_MARGIN - 48, y: y - 8, size: 6, font, color: rgb(...AMBER) })
-    }
 
+    ensureSpace(45)
+    y -= 5
+    page.drawLine({ start: { x: 50, y }, end: { x: RIGHT_MARGIN, y }, thickness: 1, color: rgb(0.4, 0.4, 0.4) })
+    y -= 18
+
+    page.drawRectangle({ x: 380, y: y - 6, width: RIGHT_MARGIN - 380, height: 24, color: rgb(0.99, 0.94, 0.94) })
+    page.drawText('TOTAL OUTSTANDING:', { x: 290, y: y + 3, size: 10, font: fontBold, color: rgb(...DARK) })
+    page.drawText(fmt(totalOutstanding), { x: 465, y: y + 3, size: 11, font: fontBold, color: rgb(...RED) })
+    y -= 10
+
+  } else {
+    page.drawText('All invoices are up to date.', {
+      x: 50, y, size: 11, font: fontBold, color: rgb(...GREEN),
+    })
     y -= 20
-    rowIdx++
   }
 
-  // Total row
-  y -= 5
-  page.drawLine({ start: { x: 50, y }, end: { x: RIGHT_MARGIN, y }, thickness: 1, color: rgb(0.4, 0.4, 0.4) })
-  y -= 18
+  // PAYMENTS RECEIVED since period start
+  if (payments.length > 0) {
+    ensureSpace(70)
+    y -= 25
+    page.drawText(
+      `PAYMENTS RECEIVED${periodStart ? ` SINCE ${fmtDate(periodStart)}` : ''}`,
+      { x: 50, y, size: 8, font: fontBold, color: rgb(...DARK) }
+    )
+    y -= 16
 
-  page.drawRectangle({ x: 380, y: y - 6, width: RIGHT_MARGIN - 380, height: 24, color: rgb(0.99, 0.94, 0.94) })
-  page.drawText('TOTAL OUTSTANDING:', { x: 290, y: y + 3, size: 10, font: fontBold, color: rgb(...DARK) })
-  page.drawText(fmt(totalOutstanding), { x: 465,  y: y + 3, size: 11, font: fontBold, color: rgb(...RED) })
+    page.drawRectangle({ x: 50, y: y - 4, width: RIGHT_MARGIN - 50, height: 16, color: rgb(0.92, 0.96, 0.93) })
+    page.drawText('DATE',      { x: 52,  y, size: 7, font: fontBold, color: rgb(...GREEN) })
+    page.drawText('METHOD',    { x: 130, y, size: 7, font: fontBold, color: rgb(...GREEN) })
+    page.drawText('REFERENCE', { x: 230, y, size: 7, font: fontBold, color: rgb(...GREEN) })
+    page.drawText('AMOUNT',    { x: 465, y, size: 7, font: fontBold, color: rgb(...GREEN) })
+    y -= 16
 
-    // ✅ Credit balance section
-  if ((customerBalance ?? 0) < -0.01) {
+    let paymentsTotal = 0
+    for (const p of payments) {
+      ensureSpace(18)
+      page.drawText(fmtDate(p.date),             { x: 52,  y, size: 8, font, color: rgb(...DARK) })
+      page.drawText(p.method.replace(/_/g, ' '), { x: 130, y, size: 8, font, color: rgb(...DARK) })
+      page.drawText(p.reference || '—',          { x: 230, y, size: 8, font, color: rgb(...GREY) })
+      page.drawText(fmt(p.amount),               { x: 465, y, size: 8, font: fontBold, color: rgb(...GREEN) })
+      paymentsTotal += p.amount
+      y -= 16
+    }
+
+    ensureSpace(20)
+    page.drawLine({ start: { x: 380, y: y + 10 }, end: { x: RIGHT_MARGIN, y: y + 10 }, thickness: 0.5, color: rgb(0.6, 0.6, 0.6) })
+    page.drawText('TOTAL PAYMENTS:', { x: 340, y, size: 8, font: fontBold, color: rgb(...DARK) })
+    page.drawText(fmt(paymentsTotal), { x: 465, y, size: 9, font: fontBold, color: rgb(...GREEN) })
+    y -= 10
+  }
+
+  // AGEING SUMMARY
+  if (ageing.length > 0 && hasOpenInvoices) {
+    ensureSpace(85)
+    y -= 28
+    page.drawText('AGEING SUMMARY', { x: 50, y, size: 8, font: fontBold, color: rgb(...DARK) })
+    y -= 16
+
+    const cells = [
+      ...ageing,
+      { label: 'TOTAL DUE', amount: ageing.reduce((s, b) => s + b.amount, 0) },
+    ]
+    const colWidth = (RIGHT_MARGIN - 50) / cells.length
+
+    page.drawRectangle({ x: 50, y: y - 4, width: RIGHT_MARGIN - 50, height: 18, color: rgb(0.1, 0.1, 0.1) })
+    cells.forEach((c, i) => {
+      page.drawText(c.label.toUpperCase(), {
+        x: 54 + i * colWidth, y: y + 2, size: 7, font: fontBold, color: rgb(1, 1, 1),
+      })
+    })
+    y -= 22
+
+    page.drawRectangle({ x: 50, y: y - 6, width: RIGHT_MARGIN - 50, height: 22, color: rgb(0.97, 0.97, 0.97) })
+    cells.forEach((c, i) => {
+      const isAlert = (c.label === '90+ Days' || c.label === 'TOTAL DUE') && c.amount > 0.01
+      page.drawText(fmt(c.amount), {
+        x: 54 + i * colWidth, y, size: 9,
+        font: isAlert ? fontBold : font,
+        color: rgb(...(isAlert ? RED : DARK)),
+      })
+    })
+    y -= 15
+  }
+
+  // Credit balance section
+  if (hasCreditBalance) {
+    ensureSpace(60)
     y -= 20
     const creditAmt = Math.abs(customerBalance ?? 0)
     page.drawRectangle({ x: 50, y: y - 8, width: RIGHT_MARGIN - 50, height: 36, color: rgb(0.94, 0.99, 0.94) })
@@ -180,7 +309,8 @@ export async function generateOpenInvoicesPDF(data: OpenInvoicesData): Promise<B
   }
 
   // Footer
-  y -= 35
+  ensureSpace(50)
+  y -= 25
   page.drawLine({ start: { x: 50, y }, end: { x: RIGHT_MARGIN, y }, thickness: 0.5, color: rgb(0.75, 0.75, 0.75) })
   y -= 15
   page.drawText(
@@ -188,7 +318,7 @@ export async function generateOpenInvoicesPDF(data: OpenInvoicesData): Promise<B
     { x: 50, y, size: 8, font, color: rgb(...GREY) }
   )
   page.drawText(
-    "Stods Bakery  |  orders@stodsbakery.com",
+    `${BRAND_NAME}  |  ${BRAND_EMAIL}`,
     { x: RIGHT_MARGIN - 250, y, size: 8, font, color: rgb(...GREY) }
   )
 
