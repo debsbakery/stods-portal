@@ -34,7 +34,6 @@ interface SendResult {
 
 export default function StatementsView({ customers, customersWithBalance }: Props) {
 
-  // ── Default to "Last Month" range on first load ─────────────────────────────
   const lastMonthStart = format(startOfMonth(subMonths(new Date(), 1)), 'yyyy-MM-dd')
   const lastMonthEnd   = format(endOfMonth(subMonths(new Date(), 1)),   'yyyy-MM-dd')
 
@@ -47,13 +46,10 @@ export default function StatementsView({ customers, customersWithBalance }: Prop
   const [results, setResults]                   = useState<SendResult[]>([])
   const [showResults, setShowResults]           = useState(false)
 
-  // ── Always read from the date pickers ───────────────────────────────────────
-  // Presets just fill in the picker values — what you see is what gets used.
   const getDateRange = (): { startDate: string; endDate: string } => {
     return { startDate: customFrom, endDate: customTo }
   }
 
-  // ── Apply a preset by filling in the date pickers ───────────────────────────
   const applyPreset = (preset: Period) => {
     setPeriod(preset)
     const now = new Date()
@@ -76,7 +72,7 @@ export default function StatementsView({ customers, customersWithBalance }: Prop
         break
       }
       case 'custom':
-        return // don't touch the dates, user is editing manually
+        return
     }
     if (from && to) {
       setCustomFrom(from)
@@ -90,7 +86,6 @@ export default function StatementsView({ customers, customersWithBalance }: Prop
     return customers.filter(c => c.id === selectedCustomer)
   }
 
-  // ── Validation helper ───────────────────────────────────────────────────────
   const validateDates = (): boolean => {
     if (!customFrom || !customTo) {
       alert('Please select both From and To dates')
@@ -143,6 +138,78 @@ export default function StatementsView({ customers, customersWithBalance }: Prop
     }
   }
 
+  // ── Open invoice statement handlers (self-windowing — ignores date pickers) ──
+  const handleOpenInvPDF = async (customerId: string, customerName: string) => {
+    setIsPrinting(true)
+    try {
+      const res = await fetch(`/api/statement/${customerId}/open-invoices`)
+      if (!res.ok) throw new Error('Failed to generate PDF')
+      const blob = await res.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = `open-invoices-${customerName.replace(/\s+/g, '-')}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err: any) {
+      alert('Failed to generate PDF: ' + err.message)
+    } finally {
+      setIsPrinting(false)
+    }
+  }
+
+  const handleOpenInvEmail = async (customerId: string, customerName: string) => {
+    if (!confirm('Send OPEN INVOICE statement to ' + customerName + '?')) return
+    setIsSending(true)
+    try {
+      const res  = await fetch(`/api/statement/${customerId}/open-invoices/email`, { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
+      if (json.skipped) { alert(json.message); return }
+      alert('Open invoice statement sent to ' + customerName)
+    } catch (err: any) {
+      alert('Failed: ' + err.message)
+    } finally {
+      setIsSending(false)
+    }
+  }
+
+   const handleSendAllOpenInv = async () => {
+    const targets = getTargetCustomers()
+    if (targets.length === 0) {
+      alert('No customers to send to')
+      return
+    }
+
+    const isSingle = selectedCustomer !== 'all' && selectedCustomer !== 'all_customers'
+
+    if (!confirm(
+      'Send OPEN INVOICE statement' + (targets.length !== 1 ? 's' : '') + ' to ' +
+      (isSingle
+        ? (targets[0]?.business_name || targets[0]?.contact_name || 'this customer')
+        : targets.length + ' customer(s)') +
+      '?\n\nCustomers with no open invoices are skipped automatically.'
+    )) return
+
+    setIsSending(true)
+    try {
+      const res  = await fetch('/api/statement/send-all-open-invoices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerIds: isSingle ? [selectedCustomer] : undefined,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
+      alert('Done!\n\nSent: ' + json.sent + '\nSkipped (no open invoices): ' + json.skipped +
+            '\nFailed: ' + json.failed + '\nTotal: ' + json.total)
+    } catch (err: any) {
+      alert('Batch send failed: ' + err.message)
+    } finally {
+      setIsSending(false)
+    }
+  }
   const handleSendAll = async () => {
     if (!validateDates()) return
 
@@ -258,13 +325,13 @@ export default function StatementsView({ customers, customersWithBalance }: Prop
       {/* Controls */}
       <div className="bg-white rounded-lg border p-5 mb-6 space-y-5">
 
-        {/* ─── Period selector — always-visible date pickers ─── */}
+        {/* Period selector */}
         <div>
           <p className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
             <Calendar className="h-4 w-4" /> Statement Period
+            <span className="text-xs font-normal text-gray-400">(monthly statements only — open invoice statements set their own period)</span>
           </p>
 
-          {/* Date pickers — always visible & editable */}
           <div className="flex flex-wrap gap-3 items-end mb-3">
             <div>
               <label className="text-xs text-gray-600 block mb-1 font-medium">From</label>
@@ -293,7 +360,6 @@ export default function StatementsView({ customers, customersWithBalance }: Prop
             </div>
           </div>
 
-          {/* Quick presets */}
           <p className="text-xs text-gray-500 mb-2">Quick presets:</p>
           <div className="flex flex-wrap gap-2">
             {([
@@ -319,7 +385,6 @@ export default function StatementsView({ customers, customersWithBalance }: Prop
             })}
           </div>
 
-          {/* Status banner */}
           <div className={`mt-3 px-3 py-2 rounded-lg text-sm ${
             !hasValidDates
               ? 'bg-red-50 text-red-700 border border-red-200'
@@ -375,6 +440,19 @@ export default function StatementsView({ customers, customersWithBalance }: Prop
             ) : (
               <><Send className="h-4 w-4" /> Email {targets.length} Statement{targets.length !== 1 ? 's' : ''}</>
             )}
+          </Button>
+
+          <Button
+            onClick={handleSendAllOpenInv}
+            disabled={isSending}
+            variant="outline"
+            className="gap-2 border-blue-600 text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+          >
+            {isSending ? (
+              <><Loader2 className="h-4 w-4 animate-spin" /> Sending...</>
+            ) : (
+              <><Send className="h-4 w-4" /> Email {targets.length} Open Invoice Statement{targets.length !== 1 ? 's' : ''}</>
+)}
           </Button>
 
           {selectedCustomer !== 'all' && selectedCustomer !== 'all_customers' && (
@@ -448,7 +526,7 @@ export default function StatementsView({ customers, customersWithBalance }: Prop
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-2 flex-wrap">
 
-                        {/* Download PDF */}
+                        {/* Download monthly statement PDF */}
                         <button
                           onClick={() => handlePrint(customer.id, name)}
                           disabled={isPrinting || !hasValidDates}
@@ -457,7 +535,7 @@ export default function StatementsView({ customers, customersWithBalance }: Prop
                           <FileText className="h-3 w-3" /> PDF
                         </button>
 
-                        {/* Email statement */}
+                        {/* Email monthly statement */}
                         {customer.email && (
                           <button
                             onClick={() => handleEmailSingle(customer.id, name)}
@@ -465,6 +543,26 @@ export default function StatementsView({ customers, customersWithBalance }: Prop
                             className="text-green-700 hover:text-green-900 flex items-center gap-1 text-xs border border-green-600 rounded px-2 py-1 hover:bg-green-50 disabled:opacity-50"
                           >
                             <Mail className="h-3 w-3" /> Email
+                          </button>
+                        )}
+
+                        {/* Open invoice statement — PDF */}
+                        <button
+                          onClick={() => handleOpenInvPDF(customer.id, name)}
+                          disabled={isPrinting}
+                          className="text-blue-600 hover:text-blue-900 flex items-center gap-1 text-xs border border-blue-400 rounded px-2 py-1 hover:bg-blue-50 disabled:opacity-50"
+                        >
+                          <FileText className="h-3 w-3" /> Open Inv PDF
+                        </button>
+
+                        {/* Open invoice statement — Email */}
+                        {customer.email && (
+                          <button
+                            onClick={() => handleOpenInvEmail(customer.id, name)}
+                            disabled={isSending}
+                            className="text-blue-700 hover:text-blue-900 flex items-center gap-1 text-xs border border-blue-600 rounded px-2 py-1 hover:bg-blue-50 disabled:opacity-50"
+                          >
+                            <Mail className="h-3 w-3" /> Email Open Inv
                           </button>
                         )}
 
@@ -486,12 +584,12 @@ export default function StatementsView({ customers, customersWithBalance }: Prop
         )}
       </div>
 
-      {/* Monthly schedule notice */}
-      <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
-        <p className="font-semibold mb-1">Automatic Monthly Schedule</p>
+      {/* Schedule notice */}
+         <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+        <p className="font-semibold mb-1">Automatic Schedule</p>
         <p>
-          Statements auto-email on the <strong>1st of each month</strong> to all
-          customers with balance greater than $0 at <strong>8:00 AM AEST</strong>.
+          <strong>Open invoice statements</strong> auto-email on the <strong>1st of each month at 5:00 PM</strong> to
+          customers with unpaid invoices. Monthly period statements are manual-only — use the green buttons above.
         </p>
       </div>
 
