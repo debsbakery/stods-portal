@@ -2,7 +2,7 @@
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
 
 // ✅ Branding — env vars override; edit fallbacks per portal after xcopy
-const BRAND_NAME  = process.env.BAKERY_NAME  ?? "Sods bakery"
+const BRAND_NAME  = process.env.BAKERY_NAME  ?? "Stods bakery"
 const BRAND_EMAIL = process.env.BAKERY_EMAIL ?? 'orders@stodsbakery.com'
 
 interface OpenInvoice {
