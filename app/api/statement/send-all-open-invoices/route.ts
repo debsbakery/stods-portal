@@ -57,7 +57,7 @@ async function run(customerIds?: string[]) {
             <p>Dear ${customerName},</p>
             <p>Please find attached a statement of your open invoices as at <strong>${data.asAt}</strong>.</p>
             <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:16px;margin:20px 0;">
-              <p style="margin:0;font-size:14px;"><strong>Total Outstanding: $${data.totalOutstanding.toFixed(2)}</strong></p>
+              <p style="margin:0;font-size:14px;">              <strong>Amount Due: $${(data.netAmountDue ?? data.totalOutstanding).toFixed(2)}</strong>
               <p style="margin:6px 0 0;font-size:12px;color:#92400e;">
                 ${data.invoices.length} open invoice${data.invoices.length !== 1 ? 's' : ''} —
                 Payment Terms: ${customer.payment_terms ? `${customer.payment_terms} days` : '30 days'}

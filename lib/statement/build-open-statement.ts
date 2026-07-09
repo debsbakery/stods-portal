@@ -14,6 +14,13 @@ export interface OpenInvoice {
   status: 'unpaid' | 'partial' | 'paid'
 }
 
+export interface CreditLine {
+  date: string
+  description: string
+  amount: number      // original credit amount
+  remaining: number   // unapplied portion
+}
+
 export interface PaymentLine {
   date: string
   reference: string | null
@@ -38,10 +45,12 @@ export interface OpenStatementData {
   totalOutstanding: number
   customerBalance?: number
   asAt: string
-  // new fields for step 2
   payments: PaymentLine[]
   periodStart: string      // 1st of month of oldest unpaid invoice
   ageing: AgeingBucket[]   // Current / 14 / 30 / 60 / 90+
+  credits: CreditLine[]        // ✅ unapplied credits
+  unappliedCredits: number     // ✅ total remaining credit value
+  netAmountDue: number         // ✅ totalOutstanding - unappliedCredits
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -60,21 +69,27 @@ export async function buildOpenStatement(customerId: string): Promise<OpenStatem
 
   if (custErr || !customer) throw new Error(`Customer not found: ${customerId}`)
 
-  // ---- 2. Unpaid invoices (oldest first) ----
+  // ---- 2. Invoices AND credits (oldest first) ----
   const { data: txns, error: txnErr } = await supabase
     .from('ar_transactions')
     .select('id, type, amount, amount_paid, description, invoice_id, due_date, created_at')
     .eq('customer_id', customerId)
-    .eq('type', 'invoice')
+    .in('type', ['invoice', 'credit'])
     .order('created_at', { ascending: true })
 
   if (txnErr) throw new Error(`Failed to fetch ar_transactions: ${txnErr.message}`)
 
-  const unpaid = (txns ?? []).filter(
-    (t) => round2(t.amount - (t.amount_paid ?? 0)) > 0.01
+  const all = txns ?? []
+  const unpaid = all.filter(
+    (t) => t.type === 'invoice' && round2(Number(t.amount) - Number(t.amount_paid ?? 0)) > 0.01
   )
 
-    // ---- 3. Invoice number lookup: invoice_numbers table first, orders fallback ----
+  // ✅ Unapplied credits: type='credit' with remaining value
+  const openCredits = all.filter(
+    (t) => t.type === 'credit' && round2(Number(t.amount) - Number(t.amount_paid ?? 0)) > 0.01
+  )
+
+  // ---- 3. Invoice number lookup: invoice_numbers table first, orders fallback ----
   const invoiceIds = unpaid.filter((t) => t.invoice_id).map((t) => t.invoice_id as string)
 
   const invoiceMap: Record<string, string> = {}
@@ -119,7 +134,24 @@ export async function buildOpenStatement(customerId: string): Promise<OpenStatem
       status: paid > 0.01 ? 'partial' : 'unpaid',
     }
   })
+
   const totalOutstanding = round2(invoices.reduce((s, i) => s + i.outstanding, 0))
+
+  // ✅ Credit lines
+  const credits: CreditLine[] = openCredits.map((t) => {
+    const amount = Number(t.amount)
+    const applied = Number(t.amount_paid ?? 0)
+    return {
+      date: t.created_at,
+      description: t.description || 'Credit note',
+      amount: round2(amount),
+      remaining: round2(amount - applied),
+    }
+  })
+
+  const unappliedCredits = round2(credits.reduce((s, c) => s + c.remaining, 0))
+  const netAmountDue = round2(totalOutstanding - unappliedCredits)
+
   // ---- 4. Period start = 1st of month of oldest unpaid invoice ----
   const anchor = unpaid.length ? new Date(unpaid[0].created_at) : today
   const periodStart = new Date(anchor.getFullYear(), anchor.getMonth(), 1)
@@ -139,14 +171,14 @@ export async function buildOpenStatement(customerId: string): Promise<OpenStatem
     date: p.payment_date,
     reference: p.reference_number ?? null,
     method: p.payment_method ?? 'bank_transfer',
-    amount: round2(p.amount),
+    amount: round2(Number(p.amount)),
   }))
 
   // ---- 6. Ageing buckets by INVOICE DATE: 0–14 / 15–30 / 31–60 / 61–90 / 90+ ----
   const buckets = { current: 0, d14: 0, d30: 0, d60: 0, d90plus: 0 }
 
   for (const inv of invoices) {
-        const age = Math.floor(
+    const age = Math.floor(
       (today.getTime() - new Date(inv.date).getTime()) / 86400000
     )
     if (age <= 14) buckets.current += inv.outstanding
@@ -174,10 +206,13 @@ export async function buildOpenStatement(customerId: string): Promise<OpenStatem
     },
     invoices,
     totalOutstanding,
-    customerBalance: customer.balance ?? 0,
+    customerBalance: round2(Number(customer.balance ?? 0)),
     asAt: toDateStr(today),
     payments,
     periodStart: periodStartStr,
     ageing,
+    credits,
+    unappliedCredits,
+    netAmountDue,
   }
 }

@@ -16,7 +16,12 @@ interface OpenInvoice {
   outstanding: number
   status: 'unpaid' | 'partial' | 'paid'
 }
-
+interface CreditLine {
+  date: string
+  description: string
+  amount: number
+  remaining: number
+}
 interface PaymentLine {
   date: string
   reference: string | null
@@ -44,14 +49,18 @@ interface OpenInvoicesData {
   payments?: PaymentLine[]   // payments received since periodStart
   periodStart?: string       // 1st of month of oldest unpaid invoice
   ageing?: AgeingBucket[]    // Current / 14 / 30 / 60 / 90+
+  credits?: CreditLine[]        // unapplied credits
+  unappliedCredits?: number
+  netAmountDue?: number
 }
 
 export async function generateOpenInvoicesPDF(data: OpenInvoicesData): Promise<Buffer> {
-  const {
+   const {
     customer, invoices, totalOutstanding, customerBalance, asAt,
     payments = [], periodStart, ageing = [],
+    credits = [], unappliedCredits = 0, netAmountDue,
+    brandName = BRAND_NAME, brandEmail = BRAND_EMAIL, headerColor,
   } = data
-
   const pdfDoc   = await PDFDocument.create()
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
   const font     = await pdfDoc.embedFont(StandardFonts.Helvetica)
@@ -254,6 +263,44 @@ export async function generateOpenInvoicesPDF(data: OpenInvoicesData): Promise<B
     page.drawText('TOTAL PAYMENTS:', { x: 340, y, size: 8, font: fontBold, color: rgb(...DARK) })
     page.drawText(fmt(paymentsTotal), { x: 465, y, size: 9, font: fontBold, color: rgb(...GREEN) })
     y -= 10
+      // ✅ UNAPPLIED CREDITS + NET AMOUNT DUE
+  if (credits.length > 0) {
+    ensureSpace(70 + credits.length * 16)
+    y -= 25
+    page.drawText('UNAPPLIED CREDITS', { x: 50, y, size: 8, font: fontBold, color: rgb(...DARK) })
+    y -= 16
+
+    page.drawRectangle({ x: 50, y: y - 4, width: RIGHT_MARGIN - 50, height: 16, color: rgb(0.92, 0.96, 0.93) })
+    page.drawText('DATE',        { x: 52,  y, size: 7, font: fontBold, color: rgb(...GREEN) })
+    page.drawText('DESCRIPTION', { x: 130, y, size: 7, font: fontBold, color: rgb(...GREEN) })
+    page.drawText('CREDIT AMT',  { x: 380, y, size: 7, font: fontBold, color: rgb(...GREEN) })
+    page.drawText('REMAINING',   { x: 465, y, size: 7, font: fontBold, color: rgb(...GREEN) })
+    y -= 16
+
+    for (const c of credits) {
+      ensureSpace(18)
+      page.drawText(fmtDate(c.date),                    { x: 52,  y, size: 8, font, color: rgb(...DARK) })
+      page.drawText(c.description.slice(0, 55),         { x: 130, y, size: 8, font, color: rgb(...DARK) })
+      page.drawText(fmt(c.amount),                      { x: 380, y, size: 8, font, color: rgb(...GREY) })
+      page.drawText(`-${fmt(c.remaining)}`,             { x: 465, y, size: 8, font: fontBold, color: rgb(...GREEN) })
+      y -= 16
+    }
+
+    ensureSpace(30)
+    y -= 4
+    page.drawLine({ start: { x: 380, y: y + 12 }, end: { x: RIGHT_MARGIN, y: y + 12 }, thickness: 0.5, color: rgb(0.6, 0.6, 0.6) })
+    page.drawText('TOTAL CREDITS:', { x: 350, y, size: 8, font: fontBold, color: rgb(...DARK) })
+    page.drawText(`-${fmt(unappliedCredits)}`, { x: 465, y, size: 9, font: fontBold, color: rgb(...GREEN) })
+    y -= 20
+
+    // Net amount due
+    page.drawRectangle({ x: 320, y: y - 6, width: RIGHT_MARGIN - 320, height: 24, color: rgb(0.99, 0.94, 0.94) })
+    page.drawText('NET AMOUNT DUE:', { x: 328, y: y + 3, size: 10, font: fontBold, color: rgb(...DARK) })
+    page.drawText(fmt(netAmountDue ?? (totalOutstanding - unappliedCredits)), {
+      x: 465, y: y + 3, size: 11, font: fontBold, color: rgb(...RED),
+    })
+    y -= 10
+  }
   }
 
   // AGEING SUMMARY
