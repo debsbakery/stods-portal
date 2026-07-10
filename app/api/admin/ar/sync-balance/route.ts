@@ -11,20 +11,22 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const [
-      { data: orders },
-      { data: payments },
-      { data: credits },
-    ] = await Promise.all([
-      supabase.from('orders').select('total_amount').eq('customer_id', customerId),
-      supabase.from('payments').select('amount').eq('customer_id', customerId),
-      supabase.from('credit_memos').select('total_amount, amount').eq('customer_id', customerId),
-    ])
+    // Canonical balance: Σ(invoice outstanding) − Σ(credit unapplied remainder)
+    const { data: allTx, error: txError } = await supabase
+      .from('ar_transactions')
+      .select('type, amount, amount_paid')
+      .eq('customer_id', customerId)
 
-    const balance =
-      (orders   || []).reduce((s, o) => s + parseFloat(o.total_amount || '0'), 0) -
-      (payments || []).reduce((s, p) => s + parseFloat(p.amount || '0'), 0) -
-      (credits  || []).reduce((s, c) => s + Math.abs(parseFloat(c.total_amount || c.amount || '0')), 0)
+    if (txError) throw txError
+
+    const balance = Math.round(
+      (allTx ?? []).reduce((sum, tx) => {
+        const owed = Number(tx.amount) - Number(tx.amount_paid || 0)
+        if (tx.type === 'invoice') return sum + owed
+        if (tx.type === 'credit')  return sum - owed
+        return sum
+      }, 0) * 100
+    ) / 100
 
     const { error } = await supabase
       .from('customers')

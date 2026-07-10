@@ -18,7 +18,6 @@ export async function POST(request: Request) {
     const supabase = await createClient()
     const paymentAmount = parseFloat(amount)
 
-    // Get current customer balance
     const { data: customer } = await supabase
       .from('customers')
       .select('balance, business_name, contact_name')
@@ -32,139 +31,126 @@ export async function POST(request: Request) {
       )
     }
 
-    const currentBalance = parseFloat(customer.balance || '0')
-    const newBalance = currentBalance - paymentAmount
+    // ── Record the payment in the payments table (single source of truth) ──
+    const { error: pmtError } = await supabase.from('payments').insert({
+      customer_id: customerId,
+      amount: paymentAmount,
+      payment_date: new Date().toISOString().split('T')[0],
+      payment_method: 'bank_transfer',
+      notes: description || 'Payment received',
+      allocated_amount: 0,
+    })
+    if (pmtError) throw pmtError
 
-    // Create payment transaction
-    const { error: txnError } = await supabase
-      .from('ar_transactions')
-      .insert({
-        customer_id: customerId,
-        type: 'payment',
-        amount: paymentAmount,
-        balance_after: newBalance,
-        paid_date: new Date().toISOString().split('T')[0],
-        description: description || 'Payment received'
-      })
-
-    if (txnError) throw txnError
-
-    // Update customer balance
-    const { error: updateError } = await supabase
-      .from('customers')
-      .update({ balance: newBalance })
-      .eq('id', customerId)
-
-    if (updateError) throw updateError
-
-    // --- Apply payment to invoices ---
+    // ── Apply payment to invoices via amount_paid ──
     let paidInvoiceIds: string[] = []
+    let remainingPayment = paymentAmount
 
     if (applyToInvoices && Array.isArray(applyToInvoices) && applyToInvoices.length > 0) {
-      // MANUAL MODE: Mark selected invoices as paid
-      const { error: markError } = await supabase
+      // MANUAL MODE: apply to selected invoices
+      const { data: selected } = await supabase
         .from('ar_transactions')
-        .update({ paid_date: new Date().toISOString().split('T')[0] })
+        .select('id, amount, amount_paid')
         .in('id', applyToInvoices)
         .eq('customer_id', customerId)
         .eq('type', 'invoice')
 
-      if (markError) {
-        console.error('Error marking invoices paid:', markError)
-      }
+      for (const invoice of selected || []) {
+        if (remainingPayment <= 0.005) break
+        const outstanding = Number(invoice.amount) - Number(invoice.amount_paid || 0)
+        if (outstanding <= 0.005) continue
+        const apply = Math.min(remainingPayment, outstanding)
+        const newPaid = Math.round((Number(invoice.amount_paid || 0) + apply) * 100) / 100
 
-      paidInvoiceIds = applyToInvoices
+        await supabase
+          .from('ar_transactions')
+          .update({
+            amount_paid: newPaid,
+            paid_date: newPaid >= Number(invoice.amount) - 0.005
+              ? new Date().toISOString().split('T')[0]
+              : null,
+          })
+          .eq('id', invoice.id)
+
+        paidInvoiceIds.push(invoice.id)
+        remainingPayment = Math.round((remainingPayment - apply) * 100) / 100
+      }
     } else {
-      // AUTO MODE (FIFO): Apply to oldest unpaid invoices first
-      const { data: unpaidInvoices } = await supabase
+      // AUTO MODE (FIFO): oldest outstanding invoices first, partials allowed
+      const { data: openInvoices } = await supabase
         .from('ar_transactions')
-        .select('id, amount')
+        .select('id, amount, amount_paid')
         .eq('customer_id', customerId)
         .eq('type', 'invoice')
-        .is('paid_date', null)
-        .order('due_date', { ascending: true, nullsFirst: false })
         .order('created_at', { ascending: true })
 
-      let remainingPayment = paymentAmount
+      for (const invoice of openInvoices || []) {
+        if (remainingPayment <= 0.005) break
+        const outstanding = Number(invoice.amount) - Number(invoice.amount_paid || 0)
+        if (outstanding <= 0.005) continue
+        const apply = Math.min(remainingPayment, outstanding)
+        const newPaid = Math.round((Number(invoice.amount_paid || 0) + apply) * 100) / 100
 
-      for (const invoice of unpaidInvoices || []) {
-        if (remainingPayment <= 0) break
+        await supabase
+          .from('ar_transactions')
+          .update({
+            amount_paid: newPaid,
+            paid_date: newPaid >= Number(invoice.amount) - 0.005
+              ? new Date().toISOString().split('T')[0]
+              : null,
+          })
+          .eq('id', invoice.id)
 
-        const invoiceAmount = parseFloat(invoice.amount)
-
-        if (remainingPayment >= invoiceAmount) {
-          // Fully pay this invoice
-          const { error: markError } = await supabase
-            .from('ar_transactions')
-            .update({ paid_date: new Date().toISOString().split('T')[0] })
-            .eq('id', invoice.id)
-
-          if (!markError) {
-            paidInvoiceIds.push(invoice.id)
-            remainingPayment -= invoiceAmount
-          }
-        }
-        // If remainingPayment < invoiceAmount, skip (partial payment — invoice stays unpaid)
-        // The customer balance is still reduced, so it's tracked at the account level
+        paidInvoiceIds.push(invoice.id)
+        remainingPayment = Math.round((remainingPayment - apply) * 100) / 100
       }
     }
 
-    // Recalculate aging after payment
-    try {
-      await recalculateAging(supabase, customerId)
-    } catch (agingError) {
-      console.error('Aging recalculation error (non-fatal):', agingError)
+    // ── Overpayment → credit note ──
+    if (remainingPayment > 0.009) {
+      await supabase.from('ar_transactions').insert({
+        customer_id: customerId,
+        type: 'credit',
+        amount: remainingPayment,
+        amount_paid: 0,
+        description: `Overpayment credit — payment of $${paymentAmount.toFixed(2)} exceeded open invoices by $${remainingPayment.toFixed(2)}`,
+      })
     }
 
-    console.log(`✅ Payment of $${paymentAmount.toFixed(2)} recorded for customer ${customerId}. ${paidInvoiceIds.length} invoices marked paid.`)
+    // ── Canonical balance: Σ(invoice outstanding) − Σ(credit unapplied) ──
+    const { data: allTx } = await supabase
+      .from('ar_transactions')
+      .select('type, amount, amount_paid')
+      .eq('customer_id', customerId)
+
+    const newBalance = Math.round(
+      (allTx ?? []).reduce((sum, tx) => {
+        const owed = Number(tx.amount) - Number(tx.amount_paid || 0)
+        if (tx.type === 'invoice') return sum + owed
+        if (tx.type === 'credit')  return sum - owed
+        return sum   // payment rows ignored — payments live in amount_paid
+      }, 0) * 100
+    ) / 100
+
+    const { error: updateError } = await supabase
+      .from('customers')
+      .update({ balance: newBalance })
+      .eq('id', customerId)
+    if (updateError) throw updateError
+
+    console.log(`✅ Payment of $${paymentAmount.toFixed(2)} recorded for ${customerId}. ${paidInvoiceIds.length} invoices touched. New balance: $${newBalance.toFixed(2)}`)
 
     return NextResponse.json({
       success: true,
       newBalance,
       paidInvoices: paidInvoiceIds.length,
-      paidInvoiceIds
+      paidInvoiceIds,
     })
   } catch (error) {
     console.error('Record payment error:', error)
     return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      },
+      { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
   }
-}
-
-// Recalculate aging buckets after payment
-async function recalculateAging(supabase: any, customerId: string) {
-  const { data: openInvoices } = await supabase
-    .from('ar_transactions')
-    .select('amount, due_date')
-    .eq('customer_id', customerId)
-    .eq('type', 'invoice')
-    .is('paid_date', null)
-
-  const buckets = { current: 0, days_1_30: 0, days_31_60: 0, days_61_90: 0, days_over_90: 0 }
-  const today = new Date()
-
-  for (const inv of openInvoices || []) {
-    if (!inv.due_date) continue
-    const diff = Math.floor((today.getTime() - new Date(inv.due_date).getTime()) / (1000 * 60 * 60 * 24))
-    const amt = parseFloat(inv.amount)
-
-    if (diff <= 0) buckets.current += amt
-    else if (diff <= 30) buckets.days_1_30 += amt
-    else if (diff <= 60) buckets.days_31_60 += amt
-    else if (diff <= 90) buckets.days_61_90 += amt
-    else buckets.days_over_90 += amt
-  }
-
-  const total_due = Object.values(buckets).reduce((s, v) => s + v, 0)
-
-  await supabase.from('ar_aging').upsert({
-    customer_id: customerId,
-    ...buckets,
-    total_due
-  })
 }

@@ -13,66 +13,78 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
-  // Mark the credit as applied (amount_paid = amount means fully used)
-  const { error: creditError } = await supabase
+  const applyAmount = Math.round(Number(amount) * 100) / 100
+
+  // ── 1. Verify the credit has enough remaining ──
+  const { data: credit } = await supabase
     .from('ar_transactions')
-    .update({ amount_paid: amount })
+    .select('id, amount, amount_paid')
     .eq('id', credit_id)
     .eq('type', 'credit')
     .eq('customer_id', customer_id)
+    .single()
+
+  if (!credit) return NextResponse.json({ error: 'Credit not found' }, { status: 404 })
+
+  const creditRemaining = Number(credit.amount) - Number(credit.amount_paid || 0)
+  if (applyAmount > creditRemaining + 0.005) {
+    return NextResponse.json(
+      { error: `Credit only has $${creditRemaining.toFixed(2)} remaining` },
+      { status: 400 }
+    )
+  }
+
+  // ── 2. Apply to open invoices FIFO (this was missing — the one-sided bug) ──
+  const { data: openInvoices } = await supabase
+    .from('ar_transactions')
+    .select('id, amount, amount_paid')
+    .eq('customer_id', customer_id)
+    .eq('type', 'invoice')
+    .order('created_at', { ascending: true })
+
+  let remaining = applyAmount
+  for (const inv of openInvoices || []) {
+    if (remaining <= 0.005) break
+    const outstanding = Number(inv.amount) - Number(inv.amount_paid || 0)
+    if (outstanding <= 0.005) continue
+    const apply = Math.min(remaining, outstanding)
+
+    await supabase
+      .from('ar_transactions')
+      .update({ amount_paid: Math.round((Number(inv.amount_paid || 0) + apply) * 100) / 100 })
+      .eq('id', inv.id)
+
+    remaining = Math.round((remaining - apply) * 100) / 100
+  }
+
+  const actuallyApplied = Math.round((applyAmount - remaining) * 100) / 100
+
+  // ── 3. Mark the credit consumed by ONLY what actually landed on invoices ──
+  const { error: creditError } = await supabase
+    .from('ar_transactions')
+    .update({ amount_paid: Math.round((Number(credit.amount_paid || 0) + actuallyApplied) * 100) / 100 })
+    .eq('id', credit_id)
 
   if (creditError) {
-    console.error('Apply credit error:', creditError)
     return NextResponse.json({ error: creditError.message }, { status: 500 })
   }
 
-  // Recalculate customer balance
-  const { error: balanceError } = await supabase.rpc('recalculate_customer_balance', {
-    p_customer_id: customer_id,
-  }).single()
-
-  // If RPC doesn't exist, fall back to manual update
-  if (balanceError) {
-    const { error: manualError } = await supabase
-      .from('customers')
-      .update({
-        balance: supabase
-          .from('ar_transactions')
-          .select('COALESCE(SUM(CASE WHEN type = \'invoice\' THEN amount - COALESCE(amount_paid,0) WHEN type = \'credit\' THEN -(amount - COALESCE(amount_paid,0)) ELSE 0 END),0)')
-          .eq('customer_id', customer_id)
-          .single()
-      })
-      .eq('id', customer_id)
-
-    if (manualError) {
-      // Do it via raw SQL instead
-      await supabase.from('customers').update({
-        balance: 0 // placeholder — the trigger should handle this
-      }).eq('id', customer_id)
-    }
-  }
-
-  // Recalculate balance directly  
+  // ── 4. Canonical balance ──
   const { data: txData } = await supabase
     .from('ar_transactions')
     .select('type, amount, amount_paid')
     .eq('customer_id', customer_id)
 
-  if (txData) {
-    const newBalance = txData.reduce((sum, tx) => {
-      if (tx.type === 'invoice') {
-        return sum + (Number(tx.amount) - Number(tx.amount_paid || 0))
-      } else if (tx.type === 'credit') {
-        return sum - (Number(tx.amount) - Number(tx.amount_paid || 0))
-      }
+  const newBalance = Math.round(
+    (txData ?? []).reduce((sum, tx) => {
+      const owed = Number(tx.amount) - Number(tx.amount_paid || 0)
+      if (tx.type === 'invoice') return sum + owed
+      if (tx.type === 'credit')  return sum - owed
       return sum
-    }, 0)
+    }, 0) * 100
+  ) / 100
 
-    await supabase
-      .from('customers')
-      .update({ balance: Math.round(newBalance * 100) / 100 })
-      .eq('id', customer_id)
-  }
+  await supabase.from('customers').update({ balance: newBalance }).eq('id', customer_id)
 
-  return NextResponse.json({ success: true })
+  return NextResponse.json({ success: true, applied: actuallyApplied, newBalance })
 }
