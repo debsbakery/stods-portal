@@ -76,10 +76,9 @@ export async function POST(request: NextRequest) {
         .eq('customer_id', customer_id)
 
       const newBalance = Math.round(
-        (allTx ?? []).reduce((sum, tx) => {
+               (allTx ?? []).reduce((sum, tx) => {
           const owed = Number(tx.amount) - Number(tx.amount_paid || 0)
           if (tx.type === 'invoice') return sum + owed
-          if (tx.type === 'payment') return sum - Number(tx.amount)
           if (tx.type === 'credit')  return sum - owed
           return sum
         }, 0) * 100
@@ -318,13 +317,12 @@ if (isWeekly) {
       .eq('customer_id', customer_id)
 
     const newBalance = Math.round(
-      (allTx ?? []).reduce((sum, tx) => {
-        const owed = Number(tx.amount) - Number(tx.amount_paid || 0)
-        if (tx.type === 'invoice') return sum + owed
-        if (tx.type === 'payment') return sum - Number(tx.amount)
-        if (tx.type === 'credit')  return sum - owed
-        return sum
-      }, 0) * 100
+              (allTx ?? []).reduce((sum, tx) => {
+          const owed = Number(tx.amount) - Number(tx.amount_paid || 0)
+          if (tx.type === 'invoice') return sum + owed
+          if (tx.type === 'credit')  return sum - owed
+          return sum
+        }, 0) * 100
     ) / 100
 
     await supabase
