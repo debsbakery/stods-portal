@@ -1,6 +1,11 @@
 // lib/services/time-snap-service.ts
 
 export const SNAP_INTERVAL_MIN = 15
+export const CLOCK_IN_GRACE_MIN = 4   // clock in ≤4 min after a 15-min mark → paid from that mark
+export const CLOCK_OUT_GRACE_MIN = 2  // clock out ≤2 min before a 15-min mark → paid to that mark
+
+// ⚠️ Per-portal: Debs/Stods = Australia/Brisbane, Norbake/Kimbercrust = Australia/Perth
+const PORTAL_TZ = 'Australia/Brisbane'
 
 export function snapMinutes(mins: number, direction: 'up' | 'down'): number {
   if (direction === 'up')   return Math.ceil(mins  / SNAP_INTERVAL_MIN) * SNAP_INTERVAL_MIN
@@ -8,22 +13,41 @@ export function snapMinutes(mins: number, direction: 'up' | 'down'): number {
   return mins
 }
 
+// NOTE: operates on UTC fields. Safe for 15-min snapping because Brisbane (+10)
+// and Perth (+8) are whole-hour offsets — 15-min boundaries align with UTC's.
 export function snapTime(date: Date, direction: 'up' | 'down'): Date {
   const result  = new Date(date)
-  const mins    = result.getMinutes()
+  const mins    = result.getUTCMinutes()
   const snapped = snapMinutes(mins, direction)
-  result.setSeconds(0, 0)
+  result.setUTCSeconds(0, 0)
   if (snapped >= 60) {
-    result.setHours(result.getHours() + 1)
-    result.setMinutes(0)
+    result.setUTCHours(result.getUTCHours() + 1)
+    result.setUTCMinutes(0)
   } else {
-    result.setMinutes(snapped)
+    result.setUTCMinutes(snapped)
   }
   return result
 }
 
-// ── Late grace period: arrivals up to GRACE_MIN minutes late are not penalised ─
-export const LATE_GRACE_MIN = 4
+// ── Clock-in snap: 15-min increments with grace ──────────────────────────
+// ≤4 min past a 15-min mark → paid from that mark (grace)
+// otherwise → paid from the NEXT mark (never paid for time before arrival)
+export function snapClockInTime(rawTime: Date): Date {
+  const minsPastMark = rawTime.getUTCMinutes() % SNAP_INTERVAL_MIN
+  return minsPastMark <= CLOCK_IN_GRACE_MIN
+    ? snapTime(rawTime, 'down')
+    : snapTime(rawTime, 'up')
+}
+
+// ── Clock-out snap: 15-min increments with grace ─────────────────────────
+// ≤2 min before the next 15-min mark → paid to that mark
+// otherwise → paid to the PREVIOUS mark (never paid past departure)
+export function snapClockOutTime(rawTime: Date): Date {
+  const minsToNextMark = (SNAP_INTERVAL_MIN - (rawTime.getUTCMinutes() % SNAP_INTERVAL_MIN)) % SNAP_INTERVAL_MIN
+  return (minsToNextMark > 0 && minsToNextMark <= CLOCK_OUT_GRACE_MIN)
+    ? snapTime(rawTime, 'up')
+    : snapTime(rawTime, 'down')
+}
 
 export function computeClockIn(params: {
   rawTime:        Date
@@ -32,48 +56,46 @@ export function computeClockIn(params: {
 }): { paidTime: Date; snapReason: string } {
   const { rawTime, scheduledStart, employmentType } = params
 
-  // Salary: presence only — raw time recorded, no pay calculation
+  // Salary: presence only
   if (employmentType === 'salary') {
     return { paidTime: rawTime, snapReason: 'salary_presence_only' }
   }
 
-  
-// REPLACE with:
-if (!scheduledStart) {
-  // No roster entry — should not happen, but fallback to snap down
-  const paidTime = snapTime(rawTime, 'down')
-  return {
-    paidTime,
-    snapReason: `no_roster_snapped_down_to_${fmtT(paidTime)}`,
-  }
-}
-
-  const diffMin = (rawTime.getTime() - scheduledStart.getTime()) / 60000
-
-  // Early or on time — snap TO scheduled start
-  if (diffMin <= 0) {
+  // No roster — 15-min increments with clock-on grace, snap UP beyond grace
+  if (!scheduledStart) {
+    const paidTime = snapClockInTime(rawTime)
     return {
-      paidTime:   scheduledStart,
-      snapReason: `early_${Math.abs(Math.round(diffMin))}min_snapped_to_scheduled_${fmtT(scheduledStart)}`,
+      paidTime,
+      snapReason: `no_roster_paid_from_${fmtT(paidTime)}`,
     }
   }
 
-  // ── ✅ NEW: Within grace period (1-4 min late) — snap to scheduled start ─
-  if (diffMin <= LATE_GRACE_MIN) {
+  const diffMin = (rawTime.getTime() - scheduledStart.getTime()) / 60000
+
+  // Early or on time — paid from scheduled start
+  if (diffMin <= 0) {
+    return {
+      paidTime:   scheduledStart,
+      snapReason: `early_${Math.abs(Math.round(diffMin))}min_paid_from_scheduled_${fmtT(scheduledStart)}`,
+    }
+  }
+
+  // Late but within clock-on grace of scheduled start — paid from scheduled start
+  if (diffMin <= CLOCK_IN_GRACE_MIN) {
     return {
       paidTime:   scheduledStart,
       snapReason: `late_${Math.round(diffMin)}min_within_grace_paid_from_${fmtT(scheduledStart)}`,
     }
   }
 
-  // Late beyond grace — snap UP to next 15min interval
-  const paidTime = snapTime(rawTime, 'up')
+  // Late beyond grace — 15-min increments with grace against the marks
+  const paidTime = snapClockInTime(rawTime)
   return {
     paidTime,
-    snapReason: `late_${Math.round(diffMin)}min_rounded_up_to_${fmtT(paidTime)}`,
+    snapReason: `late_${Math.round(diffMin)}min_paid_from_${fmtT(paidTime)}`,
   }
 }
-// ✅ Replace the entire computeClockOut function
+
 export function computeClockOut(params: {
   rawTime:        Date
   scheduledEnd:   Date | null
@@ -87,55 +109,40 @@ export function computeClockOut(params: {
     return { paidTime: rawTime, snapReason: 'salary_presence_only' }
   }
 
-  // Fixed staff: always paid to scheduled end regardless of when they leave
-  if (employmentType === 'fixed' && scheduledEnd) {
+  // Fixed-start staff: paid to scheduled end regardless of departure time
+  if ((employmentType === 'fixed_start' || employmentType === 'fixed') && scheduledEnd) {
     return {
       paidTime:   scheduledEnd,
       snapReason: `fixed_staff_paid_to_scheduled_end_${fmtT(scheduledEnd)}`,
     }
   }
 
-  // 2-minute grace on clock-out: if within 2 mins of next 15min mark, snap UP
-const msTo15 = (15 - (rawTime.getMinutes() % 15)) % 15
-const graceUp = msTo15 <= 2 && msTo15 > 0
-const paidTime = graceUp ? snapTime(rawTime, 'up') : snapTime(rawTime, 'down')
+  const paidTime = snapClockOutTime(rawTime)
 
-  // Safety: never go before paid start — use snapped raw, not paidStart
-  // This handles early clock-out where paidStart was snapped forward
+  // Safety: never end before paid start
   if (paidTime.getTime() <= paidStart.getTime()) {
-    const snappedRaw = snapTime(rawTime, 'down')
-    // If raw itself is before paidStart, give zero hours (snap to paidStart)
-    // but only if they've actually worked some time
     const rawDiffMin = (rawTime.getTime() - paidStart.getTime()) / 60000
     if (rawDiffMin < 0) {
-      // Clocked out before shift paid start — zero hours
-      return {
-        paidTime:   paidStart,
-        snapReason: 'clock_out_before_shift_start_zero_hours',
-      }
+      return { paidTime: paidStart, snapReason: 'clock_out_before_shift_start_zero_hours' }
     }
-    // Worked less than 15min — pay from paidStart to snapped raw (or paidStart if same)
-    return {
-      paidTime:   paidStart,
-      snapReason: `clock_out_under_15min_paid_from_${fmtT(paidStart)}`,
-    }
+    return { paidTime: paidStart, snapReason: `clock_out_under_15min_paid_from_${fmtT(paidStart)}` }
   }
 
-  return {
-    paidTime,
-    snapReason: `snapped_down_to_${fmtT(paidTime)}`,
-  }
+  return { paidTime, snapReason: `paid_to_${fmtT(paidTime)}` }
 }
 
+// Format in PORTAL timezone (was UTC — caused labels like "snapped_down_to_23:00")
 function fmtT(d: Date): string {
-  return d.toTimeString().slice(0, 5)
+  return d.toLocaleTimeString('en-AU', {
+    timeZone: PORTAL_TZ, hour: '2-digit', minute: '2-digit', hour12: false,
+  })
 }
 
 export function haversineDistanceM(
   lat1: number, lng1: number,
   lat2: number, lng2: number
 ): number {
-  const R    = 6371000  // Earth radius in metres
+  const R    = 6371000
   const dLat = (lat2 - lat1) * Math.PI / 180
   const dLng = (lng2 - lng1) * Math.PI / 180
   const a    = Math.sin(dLat / 2) ** 2
@@ -146,21 +153,23 @@ export function haversineDistanceM(
 }
 
 export function computeTrustScore(params: {
-  gpsValid:     boolean
-  distanceM:    number | null
-  radiusM:      number
+  gpsValid:      boolean
+  distanceM:     number | null
+  radiusM:       number
   ipMatchesSite: boolean
 }): { score: number; flags: string[] } {
-  let score         = 100
+  let score = 100
   const flags: string[] = []
-  const { gpsValid, distanceM, radiusM, ipMatchesSite } = params
+  const { distanceM, radiusM, ipMatchesSite } = params
 
-  if (!gpsValid || distanceM === null) {
+  if (distanceM === null) {
+    // GPS genuinely missing
     score -= 40
     flags.push('no_gps')
   } else if (distanceM > radiusM) {
+    // GPS present but outside the zone (was mislabelled no_gps before)
     score -= 50
-    flags.push(`gps_${Math.round(distanceM)}m_from_site`)
+    flags.push(`outside_zone_${Math.round(distanceM)}m_from_site`)
   }
 
   if (!ipMatchesSite) {
