@@ -186,7 +186,7 @@ export async function POST(request: NextRequest) {
   }
 
   // FIX: always use calendar day for sat/sun — never let roster override
-  const dayOfWeek = new Date(today + 'T00:00:00+10:00').getDay()
+const dayOfWeek = new Date(today + 'T00:00:00Z').getUTCDay()
   const calendarDayType = dayOfWeek === 0 ? 'sunday' : dayOfWeek === 6 ? 'saturday' : 'normal'
   const dayType = calendarDayType !== 'normal'
     ? calendarDayType
