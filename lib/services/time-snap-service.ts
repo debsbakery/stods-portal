@@ -109,12 +109,17 @@ export function computeClockOut(params: {
     return { paidTime: rawTime, snapReason: 'salary_presence_only' }
   }
 
-  // Fixed-start staff: paid to scheduled end regardless of departure time
-  if ((employmentType === 'fixed_start' || employmentType === 'fixed') && scheduledEnd) {
-    return {
-      paidTime:   scheduledEnd,
-      snapReason: `fixed_staff_paid_to_scheduled_end_${fmtT(scheduledEnd)}`,
+    // Set-hours staff ('set_hours', legacy 'fixed'): schedule bounds pay both ends.
+  // Scheduled end is a CAP, never a floor. Leave early → normal snap below.
+  if ((employmentType === 'set_hours' || employmentType === 'fixed') && scheduledEnd) {
+    const graceMs = CLOCK_OUT_GRACE_MIN * 60000
+    if (rawTime.getTime() >= scheduledEnd.getTime() - graceMs) {
+      return {
+        paidTime:   scheduledEnd,
+        snapReason: `set_hours_capped_at_scheduled_end_${fmtT(scheduledEnd)}`,
+      }
     }
+    // Early departure — fall through to normal snap
   }
 
   const paidTime = snapClockOutTime(rawTime)
