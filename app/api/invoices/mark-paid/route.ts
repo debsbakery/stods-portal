@@ -1,4 +1,4 @@
-﻿export const dynamic = 'force-dynamic'
+export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
   const { order_ids, action } = await request.json()
 
   if (!order_ids?.length || !['mark_paid', 'mark_unpaid'].includes(action)) {
-    return NextResponse.json({ error: 'order_ids and action required' }, { status: 400 })
+    return NextResponse.json({ error: 'order_ids and action (mark_paid|mark_unpaid) required' }, { status: 400 })
   }
 
   const supabase = createAdminClient()
@@ -26,7 +26,8 @@ export async function POST(request: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const customerIds = [...new Set((data ?? []).map((o: any) => o.customer_id))]
+  // Recalculate balance for affected customers
+  const customerIds = [...new Set(data.map((o: any) => o.customer_id))]
 
     for (const custId of customerIds) {
     // Canonical: Σ(invoice outstanding) − Σ(credit unapplied). Payments live in amount_paid.
@@ -47,5 +48,5 @@ export async function POST(request: NextRequest) {
     await supabase.from('customers').update({ balance }).eq('id', custId)
   }
 
-  return NextResponse.json({ success: true, updated: (data ?? []).length, customerIds })
+  return NextResponse.json({ success: true, updated: data.length, customerIds })
 }
