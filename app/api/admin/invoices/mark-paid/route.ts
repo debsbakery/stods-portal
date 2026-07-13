@@ -16,9 +16,12 @@ export async function POST(request: NextRequest) {
   }
 
   const supabase = createAdminClient()
-  const newStatus = action === 'mark_paid' ? 'paid' : 'invoiced'
+  const isPaid = action === 'mark_paid'
+  const newStatus = isPaid ? 'paid' : 'invoiced'
+  const today = new Date().toISOString().split('T')[0]
 
-  const { data, error } = await supabase
+  // 1. Flip order status
+  const { data: orders, error } = await supabase
     .from('orders')
     .update({ status: newStatus })
     .in('id', order_ids)
@@ -26,10 +29,32 @@ export async function POST(request: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const customerIds = [...new Set((data ?? []).map((o: any) => o.customer_id))]
+  // 2. Settle / un-settle the linked AR invoices
+  //    mark_paid   → amount_paid = amount, paid_date = today
+  //    mark_unpaid → amount_paid = 0,      paid_date = null
+  for (const o of orders ?? []) {
+    const { data: arTx } = await supabase
+      .from('ar_transactions')
+      .select('id, amount')
+      .eq('invoice_id', o.id)
+      .eq('type', 'invoice')
+      .maybeSingle()
 
-    for (const custId of customerIds) {
-    // Canonical: Σ(invoice outstanding) − Σ(credit unapplied). Payments live in amount_paid.
+    if (arTx) {
+      await supabase
+        .from('ar_transactions')
+        .update({
+          amount_paid: isPaid ? Number(arTx.amount) : 0,
+          paid_date:   isPaid ? today : null,
+        })
+        .eq('id', arTx.id)
+    }
+  }
+
+  // 3. Canonical balance recalc per affected customer
+  const customerIds = [...new Set((orders ?? []).map((o: any) => o.customer_id))]
+
+  for (const custId of customerIds) {
     const { data: allTx } = await supabase
       .from('ar_transactions')
       .select('type, amount, amount_paid')
@@ -47,5 +72,5 @@ export async function POST(request: NextRequest) {
     await supabase.from('customers').update({ balance }).eq('id', custId)
   }
 
-  return NextResponse.json({ success: true, updated: (data ?? []).length, customerIds })
+  return NextResponse.json({ success: true, updated: (orders ?? []).length, customerIds })
 }
