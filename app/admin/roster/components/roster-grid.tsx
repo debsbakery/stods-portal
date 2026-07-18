@@ -119,7 +119,7 @@ export default function RosterGrid({ staff, entries, shifts, weekStart, weekDate
 const router = useRouter()
   const [localEntries, setLocalEntries] = useState<RosterEntry[]>(entries)
   const [activeDay, setActiveDay] = useState<number>(() => {
-    const today = new Date(new Date().toLocaleString('en-US', { timeZone: 'Australia/Brisbane' })).toISOString().split('T')[0]
+const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/Brisbane' })
     const idx = weekDates.indexOf(today)
     return idx >= 0 ? idx : 1
   })
@@ -328,7 +328,8 @@ const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/B
   }
 
   function openEditModal(sm: StaffMember, entry: RosterEntry | null) {
-    const dow = new Date(currentDate + 'T00:00:00').getDay()
+const [ry, rm, rd] = currentDate.split('-').map(Number)
+const dow = new Date(Date.UTC(ry, rm - 1, rd)).getUTCDay()
     setEditEntry({ entry, staffId: sm.id, date: currentDate })
     setEditForm({ scheduled_start: entry?.scheduled_start ?? '06:00', scheduled_end: entry?.scheduled_end ?? '14:00', department: entry?.department ?? sm.primary_department, day_type: entry?.day_type ?? (dow === 0 ? 'sunday' : dow === 6 ? 'saturday' : 'normal'), public_holiday_name: entry?.public_holiday_name ?? '', manager_note: entry?.manager_note ?? '' })
   }

@@ -6,14 +6,24 @@ import { checkAdmin } from '@/lib/auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import RosterGrid from './components/roster-grid'
 
+// ── UTC-safe date helpers (no local timezone can shift these) ──────────────
+// Add days to a YYYY-MM-DD string and return YYYY-MM-DD
+function addDays(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  dt.setUTCDate(dt.getUTCDate() + days)
+  return dt.toISOString().split('T')[0]
+}
+
 function getPreviousSunday(offset = 0): string {
-  const brisbane = new Date(
-    new Date().toLocaleString('en-US', { timeZone: 'Australia/Perth' })
-  )
-  brisbane.setHours(0, 0, 0, 0)
-  const day = brisbane.getDay()
-  brisbane.setDate(brisbane.getDate() - day + (offset * 7))
-  return brisbane.toISOString().split('T')[0]
+  // Today's date in Brisbane as a plain YYYY-MM-DD
+  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/Brisbane' })
+  const [y, m, d] = todayStr.split('-').map(Number)
+  // Build as UTC so getUTCDay() is deterministic
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  const day = dt.getUTCDay()  // 0 = Sunday
+  dt.setUTCDate(dt.getUTCDate() - day + (offset * 7))
+  return dt.toISOString().split('T')[0]
 }
 
 export default async function RosterPage({
@@ -26,12 +36,10 @@ export default async function RosterPage({
   const weekStart = searchParams.week ?? getPreviousSunday()
   const supabase  = createAdminClient()
 
-  // Build week dates
+  // Build week dates — UTC-safe, Monday can never become Sunday
   const weekDates: string[] = []
   for (let i = 0; i < 7; i++) {
-    const d = new Date(weekStart + 'T00:00:00')
-    d.setDate(d.getDate() + i)
-    weekDates.push(d.toISOString().split('T')[0])
+    weekDates.push(addDays(weekStart, i))
   }
 
   // Fetch staff
@@ -51,17 +59,9 @@ export default async function RosterPage({
     .from('shifts')
     .select('id, staff_id, work_date, section, effective_start, effective_end, arrived_late_min, left_early_min, status, paid_hours, gross_pay')
     .in('work_date', weekDates)
-  // Prev/next week
-  const prevSunday = (() => {
-    const d = new Date(weekStart + 'T00:00:00')
-    d.setDate(d.getDate() - 7)
-    return d.toISOString().split('T')[0]
-  })()
-  const nextSunday = (() => {
-    const d = new Date(weekStart + 'T00:00:00')
-    d.setDate(d.getDate() + 7)
-    return d.toISOString().split('T')[0]
-  })()
+  // Prev/next week — UTC-safe
+  const prevSunday = addDays(weekStart, -7)
+  const nextSunday = addDays(weekStart, 7)
 
     return (
     <RosterGrid
@@ -73,5 +73,5 @@ export default async function RosterPage({
       prevWeek={prevSunday}
       nextWeek={nextSunday}
     />
-  )
-}
+    )
+  }
