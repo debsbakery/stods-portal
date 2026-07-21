@@ -1,230 +1,255 @@
-// app/admin/temperature/[weekStart]/page.tsx
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { format, addDays } from 'date-fns'
+import { format } from 'date-fns'
 import {
-  parseWeekStart, formatWeekStart,
+  parseWeekStart, getWeekDays, formatWeekStart,
   formatWeekLabel, prevWeek, nextWeek
 } from '@/lib/week-utils'
 
-/* ─── Equipment config ───────────────────────────────────────────────── */
-interface Equipment {
-  name: string
-  minTemp: number
-  maxTemp: number
-  type: 'cold' | 'hot' | 'freezer'
+interface TempRow {
+  shop_id: string
+  log_date: string
+    drink_fridge_1: number | null
+  drink_fridge_2: number | null
+  shop_fridge: number | null
+  milk_fridge: number | null
+  display_fridge: number | null
+  pie_warmer: number | null
+  coldroom: number | null
+  big_freezer: number | null
+  action_taken: string              // ← ADDED
 }
 
-const EQUIPMENT: Equipment[] = [
-  { name: 'Cold Display',       minTemp: 0,   maxTemp: 5,   type: 'cold'    },
-  { name: 'Drink Fridge 1',     minTemp: 0,   maxTemp: 5,   type: 'cold'    },
-  { name: 'Drink Fridge 2',     minTemp: 0,   maxTemp: 5,   type: 'cold'    },
-  { name: 'Bain Marie',         minTemp: 60,  maxTemp: 85,  type: 'hot'     },
-  { name: 'Pie Warmer',         minTemp: 60,  maxTemp: 85,  type: 'hot'     },
-  { name: 'Cold Room 1',        minTemp: 0,   maxTemp: 5,   type: 'cold'    },
-  { name: 'Small Freezer 1',    minTemp: -25, maxTemp: -12, type: 'freezer' },
-  { name: 'Small Freezer 2',    minTemp: -25, maxTemp: -12, type: 'freezer' },
-  { name: 'Small Fridge',       minTemp: 0,   maxTemp: 5,   type: 'cold'    },
-  { name: 'Large Freezer',      minTemp: -25, maxTemp: -12, type: 'freezer' },
-  { name: 'Upstairs Cold Room', minTemp: 0,   maxTemp: 5,   type: 'cold'    },
-]
-
-/* ── Mon–Fri: weekStart is Sunday so +1 to +5 ── */
-function getWeekDaysMF(weekStart: Date): Date[] {
-  return Array.from({ length: 5 }, (_, i) => addDays(weekStart, i + 1))
+interface CashReconRow {
+  shop_id: string
+  recon_date: string
+  cash_in: number
+  carried_forward: number
 }
 
-function isOutOfRange(temp: number | null, eq: Equipment): boolean {
-  if (temp === null) return false
-  return temp < eq.minTemp || temp > eq.maxTemp
+interface PaidOutRow {
+  shop_id: string
+  paid_date: string
+  amount: number
+  reason: string
+  sort_order: number
 }
 
-function equipmentBadge(type: Equipment['type']) {
-  if (type === 'cold')    return 'bg-blue-100 text-blue-700'
-  if (type === 'hot')     return 'bg-orange-100 text-orange-700'
-  if (type === 'freezer') return 'bg-indigo-100 text-indigo-700'
-  return ''
-}
+const TEMP_FIELDS = [
+  { key: 'drink_fridge_1', label: 'Drink Fridge 1', target: 4, warn: 5 },
+  { key: 'drink_fridge_2', label: 'Drink Fridge 2', target: 4, warn: 5 },
+  { key: 'shop_fridge',    label: 'Shop Fridge',    target: 4, warn: 5 },
+  { key: 'milk_fridge',    label: 'Milk Fridge',    target: 4, warn: 5 },
+  { key: 'display_fridge', label: 'Display Fridge', target: 4, warn: 5 },
+  { key: 'pie_warmer',     label: 'Pie Warmer',     target: 65, warn: 60 },
+  { key: 'coldroom',       label: 'Coldroom',       target: 4, warn: 5 },
+  { key: 'big_freezer',    label: 'Big Freezer',    target: -18, warn: -15 },
+] as const
 
-function equipmentIcon(type: Equipment['type']) {
-  if (type === 'cold')    return '❄️'
-  if (type === 'hot')     return '🔥'
-  if (type === 'freezer') return '🧊'
-  return '🌡️'
-}
+function fmtMoney(n: number) { return `$${n.toFixed(2)}` }
 
-type LogKey = string
-
-interface LogRow {
-  week_start:     string
-  equipment_name: string
-  log_date:       string
-  temperature:    number | null
-  checked_by:     string
-  notes:          string
-}
-
-function logKey(name: string, date: string) {
-  return `${name}__${date}`
-}
-
-export default function TemperatureLog() {
+export default function TemperatureCashPage() {
   const { weekStart: param } = useParams<{ weekStart: string }>()
   const router = useRouter()
 
-  const weekStart  = parseWeekStart(param)
-  const weekDays   = getWeekDaysMF(weekStart)
-  const weekLabel  = formatWeekLabel(weekStart)
+  const weekStart = parseWeekStart(param)
+  const weekDays = getWeekDays(weekStart)
+  const weekLabel = formatWeekLabel(weekStart)
   const dayHeaders = weekDays.map(d => format(d, 'EEE d/M'))
-  const dateStrs   = weekDays.map(d => format(d, 'yyyy-MM-dd'))
+  const dayDates = weekDays.map(d => format(d, 'yyyy-MM-dd'))
 
-  const [logs,      setLogs]      = useState<Record<LogKey, LogRow>>({})
-  const [checkedBy, setCheckedBy] = useState<Record<string, string>>({})
-  const [saving,    setSaving]    = useState(false)
-  const [isDirty,   setIsDirty]   = useState(false)
-  const [loaded,    setLoaded]    = useState(false)
-  const [printDate, setPrintDate] = useState('')
-  const [toast,     setToast]     = useState<{ msg: string; ok: boolean } | null>(null)
+  const [temps, setTemps] = useState<Record<string, TempRow>>({})
+  const [cashRecon, setCashRecon] = useState<Record<string, CashReconRow>>({})
+  const [paidOuts, setPaidOuts] = useState<Record<string, PaidOutRow[]>>({})
+  const [prevCarriedForward, setPrevCarriedForward] = useState(0)
+  const [saving, setSaving] = useState(false)
+  const [isDirty, setIsDirty] = useState(false)
+  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
 
   const saveTimer = useRef<NodeJS.Timeout | null>(null)
-
-  /* ── Fix hydration — only set print date client-side ── */
-  useEffect(() => {
-    setPrintDate(format(new Date(), 'dd/MM/yyyy HH:mm'))
-  }, [])
 
   function showToast(msg: string, ok = true) {
     setToast({ msg, ok })
     setTimeout(() => setToast(null), 3500)
   }
 
-  /* ── Load ── */
   const loadData = useCallback(async () => {
-    setLoaded(false)
     const res = await fetch(`/api/admin/temperature/${param}`)
-    const { logs: data } = await res.json()
+    const data = await res.json()
 
-    const logMap: Record<LogKey, LogRow> = {}
-    const cbMap:  Record<string, string> = {}
-
-    dateStrs.forEach(date => { cbMap[date] = '' })
-
-    EQUIPMENT.forEach(eq => {
-      dateStrs.forEach(date => {
-        const key      = logKey(eq.name, date)
-        const existing = (data ?? []).find(
-          (r: LogRow) => r.equipment_name === eq.name && r.log_date === date
-        )
-        logMap[key] = existing ?? {
-          week_start:     param,
-          equipment_name: eq.name,
-          log_date:       date,
-          temperature:    null,
-          checked_by:     '',
-          notes:          '',
-        }
-        if (existing?.checked_by) cbMap[date] = existing.checked_by
-      })
+    const tempMap: Record<string, TempRow> = {}
+    dayDates.forEach(date => {
+      const key = `markets_${date}`
+      const found = data.temps?.find((t: TempRow) => t.shop_id === 'markets' && t.log_date === date)
+      tempMap[key] = found ?? {
+        shop_id: 'markets',
+        log_date: date,
+                drink_fridge_1: null,
+        drink_fridge_2: null,
+        shop_fridge: null,
+        milk_fridge: null,
+        display_fridge: null,
+        pie_warmer: null,
+        coldroom: null,
+        big_freezer: null,
+        action_taken: '',               // ← ADDED
+      }
     })
+    setTemps(tempMap)
 
-    setLogs(logMap)
-    setCheckedBy(cbMap)
+    const reconMap: Record<string, CashReconRow> = {}
+    dayDates.forEach(date => {
+      const key = `markets_${date}`
+      const found = data.cashRecon?.find((c: CashReconRow) => c.shop_id === 'markets' && c.recon_date === date)
+      reconMap[key] = found ?? {
+        shop_id: 'markets',
+        recon_date: date,
+        cash_in: 0,
+        carried_forward: 0,
+      }
+    })
+    setCashRecon(reconMap)
+
+    const paidMap: Record<string, PaidOutRow[]> = {}
+    dayDates.forEach(date => {
+      paidMap[date] = data.paidOuts?.filter((p: PaidOutRow) => p.paid_date === date) ?? []
+    })
+    setPaidOuts(paidMap)
+
+    setPrevCarriedForward(data.previousCarriedForward ?? 0)
     setIsDirty(false)
-    setLoaded(true)
   }, [param])
 
   useEffect(() => { loadData() }, [loadData])
-
-  /* ── Auto-save ── */
+// Add this useEffect in temperature page after the existing useEffects:
+useEffect(() => {
+  const handler = (e: BeforeUnloadEvent) => {
+    if (isDirty) { e.preventDefault(); e.returnValue = '' }
+  }
+  window.addEventListener('beforeunload', handler)
+  return () => window.removeEventListener('beforeunload', handler)
+}, [isDirty])
   function triggerAutoSave() {
     if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => handleSave(), 1500)
+    saveTimer.current = setTimeout(() => { handleSave() }, 2000)
   }
 
-  /* ── Update temperature ── */
-  function updateTemp(name: string, date: string, val: string) {
-    const key  = logKey(name, date)
-    const temp = val === '' ? null : parseFloat(val)
-    setLogs(prev => ({
+  // ← UPDATED — handles both text and number fields
+  function updateTemp(date: string, field: string, val: string) {
+    const key = `markets_${date}`
+    setTemps(prev => ({
       ...prev,
-      [key]: { ...prev[key], temperature: temp }
+      [key]: {
+        ...prev[key],
+        [field]: field === 'action_taken' ? val : (val === '' ? null : parseFloat(val))
+      }
     }))
     setIsDirty(true)
     triggerAutoSave()
   }
 
-  /* ── Update checked_by — applies to all equipment on that day ── */
-  function updateCheckedBy(date: string, val: string) {
-    setCheckedBy(prev => ({ ...prev, [date]: val }))
-    setLogs(prev => {
-      const updated = { ...prev }
-      EQUIPMENT.forEach(eq => {
-        const key = logKey(eq.name, date)
-        if (updated[key]) {
-          updated[key] = { ...updated[key], checked_by: val }
-        }
-      })
-      return updated
+  function updateCashIn(date: string, val: string) {
+    const key = `markets_${date}`
+    setCashRecon(prev => ({
+      ...prev,
+      [key]: { ...prev[key], cash_in: parseFloat(val) || 0 }
+    }))
+    setIsDirty(true)
+    triggerAutoSave()
+  }
+
+  function addPaidOut(date: string) {
+    setPaidOuts(prev => ({
+      ...prev,
+      [date]: [...(prev[date] ?? []), {
+        shop_id: 'markets',
+        paid_date: date,
+        amount: 0,
+        reason: '',
+        sort_order: (prev[date]?.length ?? 0),
+      }]
+    }))
+    setIsDirty(true)
+  }
+
+  function updatePaidOut(date: string, idx: number, field: 'amount' | 'reason', val: string) {
+    setPaidOuts(prev => {
+      const list = [...(prev[date] ?? [])]
+      list[idx] = {
+        ...list[idx],
+        [field]: field === 'amount' ? (parseFloat(val) || 0) : val
+      }
+      return { ...prev, [date]: list }
     })
     setIsDirty(true)
     triggerAutoSave()
   }
 
-  /* ── Update daily notes ── */
-  function updateDayNotes(date: string, val: string) {
-    setLogs(prev => {
-      const updated = { ...prev }
-      EQUIPMENT.forEach(eq => {
-        const key = logKey(eq.name, date)
-        if (updated[key]) {
-          updated[key] = { ...updated[key], notes: val }
-        }
-      })
-      return updated
+  function removePaidOut(date: string, idx: number) {
+    setPaidOuts(prev => {
+      const list = (prev[date] ?? []).filter((_, i) => i !== idx)
+      return { ...prev, [date]: list }
     })
     setIsDirty(true)
     triggerAutoSave()
   }
 
-  /* ── Save ── */
+  function getCarriedForward(dayIndex: number): number {
+    let cf = prevCarriedForward
+    for (let i = 0; i <= dayIndex; i++) {
+      const date = dayDates[i]
+      const key = `markets_${date}`
+      const cashIn = cashRecon[key]?.cash_in ?? 0
+      const totalPaidOut = (paidOuts[date] ?? []).reduce((a, p) => a + p.amount, 0)
+      if (i < dayIndex) {
+        cf = cf + cashIn - totalPaidOut
+      } else {
+        return cf + cashIn - totalPaidOut
+      }
+    }
+    return cf
+  }
+
   async function handleSave() {
     setSaving(true)
-    const rows = Object.values(logs)
-    const res  = await fetch(`/api/admin/temperature/${param}`, {
-      method:  'POST',
+
+    const tempRows = Object.values(temps)
+    const reconRows = dayDates.map((date, i) => ({
+      shop_id: 'markets',
+      recon_date: date,
+      cash_in: cashRecon[`markets_${date}`]?.cash_in ?? 0,
+      carried_forward: getCarriedForward(i),
+    }))
+    const allPaidOuts = dayDates.flatMap(date =>
+      (paidOuts[date] ?? []).map((p, idx) => ({
+        shop_id: 'markets',
+        paid_date: date,
+        amount: p.amount,
+        reason: p.reason,
+        sort_order: idx,
+      }))
+    )
+
+    const res = await fetch(`/api/admin/temperature/${param}`, {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ rows }),
+      body: JSON.stringify({
+        temps: tempRows,
+        cashRecon: reconRows,
+        paidOuts: allPaidOuts,
+      })
     })
+
     setSaving(false)
     if (res.ok) { showToast('✅ Saved'); setIsDirty(false) }
     else showToast('❌ Save failed', false)
   }
 
-  /* ── Alert count ── */
-  const alertCount = !loaded ? 0 : Object.values(logs).filter(r => {
-    const eq = EQUIPMENT.find(e => e.name === r.equipment_name)
-    return eq !== undefined && r.temperature !== null && isOutOfRange(r.temperature, eq)
-  }).length
-
-  const hasAnyTemp = loaded && Object.values(logs).some(r => r.temperature !== null)
-
-  /* ════════════════════════════════════════════════════════════════════
-     RENDER
-  ════════════════════════════════════════════════════════════════════ */
   return (
     <div className="p-4 md:p-6 max-w-full">
 
-      <style>{`
-        @media print {
-          .no-print { display: none !important; }
-          body { font-size: 10px; }
-          table { page-break-inside: avoid; }
-        }
-      `}</style>
-
-      {/* Toast */}
       {toast && (
         <div className={`fixed top-4 right-4 px-4 py-2 rounded shadow-lg z-50 text-white text-sm
           ${toast.ok ? 'bg-green-600' : 'bg-red-600'}`}>
@@ -233,17 +258,9 @@ export default function TemperatureLog() {
       )}
 
       {/* Header */}
-      <div className="flex flex-wrap items-center gap-3 mb-6 no-print">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => router.push('/admin/shop-reports/' + param)}
-            className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm text-gray-600">
-            ← Shop Reports
-          </button>
-          <h1 className="text-2xl font-bold text-gray-900">🌡️ Temperature Log</h1>
-        </div>
-
-        <div className="flex items-center gap-2 ml-2">
+      <div className="flex flex-wrap items-center gap-3 mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">🌡️ Temp Log &amp; 💵 Cash Recon</h1>
+        <div className="flex items-center gap-2 ml-4">
           <button
             onClick={() => router.push(`/admin/temperature/${formatWeekStart(prevWeek(weekStart))}`)}
             className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm">◀ Prev</button>
@@ -252,228 +269,221 @@ export default function TemperatureLog() {
             onClick={() => router.push(`/admin/temperature/${formatWeekStart(nextWeek(weekStart))}`)}
             className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm">Next ▶</button>
         </div>
-
-        <div className="flex gap-2 ml-auto items-center">
-          {loaded && alertCount > 0 && (
-            <span className="px-3 py-1.5 bg-red-100 text-red-700 rounded text-sm font-medium">
-              ⚠️ {alertCount} alert{alertCount > 1 ? 's' : ''}
-            </span>
-          )}
-          {loaded && alertCount === 0 && hasAnyTemp && (
-            <span className="px-3 py-1.5 bg-green-100 text-green-700 rounded text-sm font-medium">
-              ✅ All in range
-            </span>
-          )}
-          <button onClick={() => window.print()}
-            className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm text-gray-600 no-print">
-            🖨️ Print
+        <div className="flex gap-2 ml-auto">
+          <button
+            onClick={() => router.push(`/admin/shop-reports/${param}`)}
+            className="px-3 py-1.5 border rounded hover:bg-gray-50 text-sm text-gray-600">
+            📊 Shop Reports
           </button>
           <button onClick={handleSave} disabled={saving}
             className={`px-4 py-1.5 rounded text-sm font-medium transition-colors
-              ${saving  ? 'bg-blue-400 text-white cursor-wait'
-              : isDirty ? 'bg-blue-600 text-white hover:bg-blue-700'
-              : 'bg-green-600 text-white'}`}>
+              ${saving ? 'bg-blue-400 text-white cursor-wait'
+                : isDirty ? 'bg-blue-600 text-white hover:bg-blue-700'
+                : 'bg-green-600 text-white'}`}>
             {saving ? '💾 Saving...' : isDirty ? '💾 Save *' : '✅ Saved'}
           </button>
         </div>
       </div>
 
-      {/* Print header — no new Date() in render, uses state */}
-      <div className="hidden print:block mb-4">
-        <h2 className="text-xl font-bold">🌡️ Temperature Control Log — {weekLabel}</h2>
-        <p className="text-sm text-gray-500">Stods Bakery — Food Safety Records</p>
-        {printDate && (
-          <p className="text-xs text-gray-400 mt-1">Printed: {printDate}</p>
-        )}
-      </div>
+      <div className="space-y-6">
 
-      {/* Loading */}
-      {!loaded ? (
-        <div className="text-center py-16 text-gray-400">
-          <div className="text-4xl mb-3">🌡️</div>
-          <p>Loading temperature log...</p>
-        </div>
-      ) : (
-        <>
-          {/* Legend */}
-          <div className="flex flex-wrap gap-4 mb-4 text-xs no-print">
-            <span className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded bg-green-200 inline-block"/>
-              In range
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded bg-red-200 inline-block"/>
-              Out of range ⚠️
-            </span>
-            <span className="flex items-center gap-1.5">❄️ Cold (0–5°C)</span>
-            <span className="flex items-center gap-1.5">🔥 Hot (60–85°C)</span>
-            <span className="flex items-center gap-1.5">🧊 Freezer (−25 to −12°C)</span>
+        {/* ═══ TEMPERATURE LOG — Markets ═══ */}
+        <div className="bg-white rounded-xl shadow border overflow-x-auto">
+          <div className="bg-indigo-700 text-white px-4 py-2.5 font-semibold rounded-t-xl">
+            🌡️ Temperature Log 
           </div>
-
-          {/* Main table */}
-          <div className="bg-white rounded-xl shadow border overflow-x-auto">
-            <table className="w-full text-sm min-w-[750px]">
-              <thead>
-                <tr className="bg-gray-800 text-white text-xs">
-                  <th className="text-left px-3 py-2.5 w-44">Equipment</th>
-                  <th className="text-left px-2 py-2.5 w-20">Type</th>
-                  <th className="text-left px-2 py-2.5 w-28">Safe Range</th>
-                  {dayHeaders.map(h => (
-                    <th key={h} className="text-center px-1 py-2.5 w-[100px]">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {EQUIPMENT.map((eq, idx) => (
-                  <tr key={eq.name}
-                    className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50`}>
-
-                    <td className="px-3 py-1.5 font-medium text-gray-700 text-xs">
-                      {equipmentIcon(eq.type)} {eq.name}
-                    </td>
-
-                    <td className="px-2 py-1.5">
-                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium
-                        ${equipmentBadge(eq.type)}`}>
-                        {eq.type}
-                      </span>
-                    </td>
-
-                    <td className="px-2 py-1.5 text-xs text-gray-400">
-                      {eq.minTemp}° to {eq.maxTemp}°C
-                    </td>
-
-                    {dateStrs.map(date => {
-                      const row  = logs[logKey(eq.name, date)]
-                      const temp = row?.temperature ?? null
-                      const oor  = isOutOfRange(temp, eq)
-                      return (
-                        <td key={date}
-                          className={`px-1 py-1
-                            ${oor ? 'bg-red-50' : temp !== null ? 'bg-green-50' : ''}`}>
-                          <div className="relative">
-                            <input
-                              type="number"
-                              step="0.1"
-                              value={temp === null ? '' : temp}
-                              onChange={e => updateTemp(eq.name, date, e.target.value)}
-                              placeholder="—"
-                              className={`w-full border rounded px-1.5 py-1 text-right text-sm
-                                focus:outline-none focus:ring-1
-                                ${oor
-                                  ? 'border-red-300 focus:ring-red-400 bg-red-50 text-red-700 font-bold'
-                                  : temp !== null
-                                    ? 'border-green-300 focus:ring-green-400 bg-green-50 text-green-700'
-                                    : 'focus:ring-blue-400 bg-white'
-                                }`}
-                            />
-                            {oor && (
-                              <span className="absolute -top-1.5 -right-1 text-xs">⚠️</span>
-                            )}
-                          </div>
-                        </td>
-                      )
-                    })}
-                  </tr>
+          <table className="w-full text-sm min-w-[700px]">
+            <thead>
+              <tr className="bg-gray-50 border-b text-gray-600 text-xs">
+                <th className="text-left px-3 py-2 w-32">Reading</th>
+                {dayHeaders.map(h => (
+                  <th key={h} className="text-center px-1 py-2 w-[90px]">{h}</th>
                 ))}
-
-                {/* Checked by row */}
-                <tr className="border-t-2 border-gray-300 bg-gray-100">
-                  <td colSpan={3} className="px-3 py-2 font-semibold text-gray-600 text-xs">
-                    ✍️ Checked by
+              </tr>
+            </thead>
+            <tbody>
+              {TEMP_FIELDS.map(({ key, label, target, warn }) => (
+                <tr key={key} className="border-b hover:bg-gray-50">
+                  <td className="px-3 py-1.5 font-medium text-gray-600 text-xs">
+                    {label}
+                    <br />
+                    <span className="text-gray-400 text-[10px]">Target: {target}°C</span>
                   </td>
-                  {dateStrs.map(date => (
+                  {dayDates.map(date => {
+                    const val = temps[`markets_${date}`]?.[key]
+                    const numVal = val !== null && val !== undefined ? Number(val) : null
+                    const isWarn = numVal !== null && (
+                      key === 'pie_warmer' ? numVal < warn : numVal > warn
+                    )
+                    return (
+                      <td key={date} className="px-1 py-1">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={val === null || val === undefined ? '' : val}
+                          onChange={e => updateTemp(date, key, e.target.value)}
+                          placeholder="—"
+                          className={`w-full border rounded px-1.5 py-1 text-right text-sm
+                            focus:outline-none focus:ring-1 focus:ring-indigo-400
+                            ${isWarn ? 'border-red-300 bg-red-50 text-red-700' : ''}`}
+                        />
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
+
+              {/* ═══ ACTION TAKEN ROW ═══ */}
+              <tr className="border-b hover:bg-gray-50 bg-orange-50">
+                <td className="px-3 py-1.5 font-medium text-orange-700 text-xs">
+                  Action Taken
+                  <br />
+                  <span className="text-orange-400 text-[10px]">If out of range</span>
+                </td>
+                {dayDates.map(date => {
+                  const val = temps[`markets_${date}`]?.action_taken ?? ''
+                  return (
                     <td key={date} className="px-1 py-1">
-                      <input
-                        type="text"
-                        value={checkedBy[date] ?? ''}
-                        onChange={e => updateCheckedBy(date, e.target.value)}
-                        placeholder="Name"
-                        className="w-full border rounded px-1.5 py-1 text-sm text-center
-                          focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+                      <textarea
+                        value={val}
+                        onChange={e => updateTemp(date, 'action_taken', e.target.value)}
+                        placeholder="—"
+                        rows={2}
+                        className="w-full border rounded px-1.5 py-1 text-left text-xs
+                          focus:outline-none focus:ring-1 focus:ring-orange-400 resize-none"
                       />
                     </td>
-                  ))}
-                </tr>
-
-              </tbody>
-            </table>
+                  )
+                })}
+              </tr>
+            </tbody>
+          </table>
+          <div className="px-4 py-2 bg-gray-50 text-xs text-gray-400 border-t">
+            ⚠️ Fridges/Coldroom: red above 5°C · Big Freezer: red above -15°C · Pie Warmer: red below 60°C
           </div>
+        </div>
 
-          {/* Notes section */}
-          <div className="mt-6 bg-white rounded-xl shadow border p-4">
-            <h2 className="font-semibold text-gray-700 mb-3 text-sm">
-              📝 Daily Notes / Corrective Actions
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
-              {dateStrs.map((date, i) => {
-                const oorItems = EQUIPMENT.filter(eq => {
-                  const row = logs[logKey(eq.name, date)]
-                  return row !== undefined
-                    && row.temperature !== null
-                    && isOutOfRange(row.temperature, eq)
-                })
-                const dayNote = EQUIPMENT.reduce((found, eq) => {
-                  if (found) return found
-                  return logs[logKey(eq.name, date)]?.notes ?? ''
-                }, '')
-
-                return (
-                  <div key={date}>
-                    <label className="text-xs font-medium text-gray-500 block mb-1">
-                      {dayHeaders[i]}
-                    </label>
-                    {oorItems.map(eq => (
-                      <div key={eq.name} className="text-xs text-red-600 mb-1">
-                        ⚠️ {eq.name}: {logs[logKey(eq.name, date)]?.temperature}°C
+        {/* ═══ CASH RECONCILIATION — Markets ═══ */}
+        <div className="bg-white rounded-xl shadow border overflow-x-auto">
+          <div className="bg-emerald-700 text-white px-4 py-2.5 font-semibold rounded-t-xl flex items-center justify-between">
+            <span>💵 Cash Reconciliation </span>
+            <span className="text-emerald-200 text-sm font-normal">
+              Previous C/F: {fmtMoney(prevCarriedForward)}
+            </span>
+          </div>
+          <table className="w-full text-sm min-w-[700px]">
+            <thead>
+              <tr className="bg-gray-50 border-b text-gray-600 text-xs">
+                <th className="text-left px-3 py-2 w-32">Item</th>
+                {dayHeaders.map(h => (
+                  <th key={h} className="text-center px-1 py-2 w-[130px]">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {/* Cash In */}
+              <tr className="border-b hover:bg-gray-50">
+                <td className="px-3 py-1.5 font-medium text-gray-600 text-xs">Cash In</td>
+                {dayDates.map(date => {
+                  const val = cashRecon[`markets_${date}`]?.cash_in ?? 0
+                  return (
+                    <td key={date} className="px-1 py-1">
+                      <div className="flex items-center gap-1">
+                        <span className="text-gray-400 text-xs">$</span>
+                        <input
+                          type="number" min="0" step="0.01"
+                          value={val === 0 ? '' : val}
+onChange={e => updateCashIn(date, e.target.value)}
+onBlur={handleSave}
+                          placeholder="0.00"
+                          className="w-full border rounded px-1.5 py-1 text-right text-sm
+                            focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                        />
                       </div>
-                    ))}
-                    <textarea
-                      rows={3}
-                      placeholder="Notes / corrective action..."
-                      className="w-full border rounded px-2 py-1 text-xs
-                        focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
-                      value={dayNote}
-                      onChange={e => updateDayNotes(date, e.target.value)}
-                    />
-                  </div>
-                )
-              })}
-            </div>
+                    </td>
+                  )
+                })}
+              </tr>
+
+              {/* Paid Out Lines */}
+              <tr className="border-b bg-amber-50">
+                <td className="px-3 py-1.5 font-semibold text-amber-800 text-xs">Paid Out</td>
+                {dayDates.map(date => {
+                  const items = paidOuts[date] ?? []
+                  const total = items.reduce((a, p) => a + p.amount, 0)
+                  return (
+                    <td key={date} className="px-1 py-1 align-top">
+                      <div className="space-y-1">
+                        {items.map((item, idx) => (
+                          <div key={idx} className="flex gap-1 items-start">
+                            <div className="flex-1 space-y-0.5">
+                              <input
+                                type="number" min="0" step="0.01"
+                                value={item.amount === 0 ? '' : item.amount}
+onChange={e => updatePaidOut(date, idx, 'amount', e.target.value)}
+onBlur={handleSave}
+
+                                placeholder="$0.00"
+                                className="w-full border rounded px-1 py-0.5 text-right text-xs
+                                  focus:outline-none focus:ring-1 focus:ring-amber-400"
+                              />
+                              <input
+                                type="text"
+                                value={item.reason}
+onChange={e => updatePaidOut(date, idx, 'reason', e.target.value)}
+onBlur={handleSave}
+                                placeholder="Reason..."
+                                className="w-full border rounded px-1 py-0.5 text-xs text-gray-600
+                                  focus:outline-none focus:ring-1 focus:ring-amber-400"
+                              />
+                            </div>
+                            <button
+                              onClick={() => removePaidOut(date, idx)}
+                              className="text-red-400 hover:text-red-600 text-sm leading-none mt-1"
+                            >×</button>
+                          </div>
+                        ))}
+                        <button
+                          onClick={() => addPaidOut(date)}
+                          className="text-xs text-amber-600 hover:text-amber-800 font-medium"
+                        >
+                          + Add
+                        </button>
+                        {total > 0 && (
+                          <div className="text-xs font-bold text-amber-800 text-right border-t pt-0.5">
+                            {fmtMoney(total)}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  )
+                })}
+              </tr>
+
+              {/* Carried Forward */}
+              <tr className="border-b bg-emerald-50">
+                <td className="px-3 py-2 font-bold text-emerald-800 text-xs">Carried Forward</td>
+                {dayDates.map((date, i) => {
+                  const cf = getCarriedForward(i)
+                  return (
+                    <td key={date} className="px-2 py-2 text-right">
+                      <span className={`font-bold text-sm ${
+                        cf < 0 ? 'text-red-600' : 'text-emerald-700'
+                      }`}>
+                        {fmtMoney(cf)}
+                      </span>
+                    </td>
+                  )
+                })}
+              </tr>
+            </tbody>
+          </table>
+          <div className="px-4 py-2 bg-gray-50 text-xs text-gray-400 border-t">
+            💡 Carried Forward = Previous C/F + Cash In − Paid Out. Auto-calculates across the week.
           </div>
+        </div>
 
-          {/* Out of range summary */}
-          {alertCount > 0 && (
-            <div className="mt-4 bg-red-50 border border-red-200 rounded-xl p-4">
-              <h2 className="font-semibold text-red-800 mb-2 text-sm">
-                ⚠️ Out of Range This Week
-              </h2>
-              <div className="space-y-1">
-                {Object.values(logs)
-                  .filter(r => {
-                    const eq = EQUIPMENT.find(e => e.name === r.equipment_name)
-                    return eq !== undefined
-                      && r.temperature !== null
-                      && isOutOfRange(r.temperature, eq)
-                  })
-                  .map(r => (
-                    <div key={`${r.equipment_name}${r.log_date}`}
-                      className="text-sm text-red-700 flex gap-3 flex-wrap">
-                      <span className="font-medium">{r.equipment_name}</span>
-                      <span>{format(new Date(r.log_date + 'T00:00:00'), 'EEE d/M')}</span>
-                      <span className="font-bold">{r.temperature}°C</span>
-                      {r.checked_by && (
-                        <span className="text-red-500">— {r.checked_by}</span>
-                      )}
-                    </div>
-                  ))
-                }
-              </div>
-            </div>
-          )}
-
-        </>
-      )}
+      </div>
     </div>
   )
 }
