@@ -1,7 +1,7 @@
 'use client'
 
 import RegularsPanel from './regulars-panel'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
   Plus, Trash2, FileText, DollarSign, ArrowLeft,
@@ -365,8 +365,8 @@ export default function CreateOrderPage() {
     }])
   }
 
-  function updateLineItem(id: string, field: string, value: any) {
-    setLineItems(prev => prev.map(item => {
+const updateLineItem = useCallback((id: string, field: string, value: any) => {
+  setLineItems(prev => prev.map(item => {
       if (item.id !== id) return item
       if (field === 'productId') {
         if (!value) return {
@@ -394,7 +394,7 @@ export default function CreateOrderPage() {
       }
       return { ...item, [field]: value }
     }))
-  }
+}, [contractPricing, products])
 
   function removeLineItem(id: string) {
     setLineItems(prev => prev.filter(item => item.id !== id))
