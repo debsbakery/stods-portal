@@ -283,19 +283,23 @@ if (isWeekly) {
       }
     }
 
-    // Consume credits
-    let creditToConsume = creditAppliedToInvoices
-    for (const credit of availableCredits) {
-      if (creditToConsume <= 0.005) break
-      const consumeFromThis = Math.min(credit.remaining, creditToConsume)
-      if (consumeFromThis > 0) {
-        await supabase
-          .from('ar_transactions')
-          .update({ amount_paid: Math.round((credit.amount_paid + consumeFromThis) * 100) / 100 })
-          .eq('id', credit.id)
-        creditToConsume -= consumeFromThis
-      }
-    }
+   // Consume credits — only consume verified applied amounts
+let creditToConsume = creditAppliedToInvoices
+for (const credit of availableCredits) {
+  if (creditToConsume <= 0.005) break
+  const consumeFromThis = Math.min(credit.remaining, creditToConsume)
+  if (consumeFromThis <= 0) continue
+
+  const { error: creditUpdateError } = await supabase
+    .from('ar_transactions')
+    .update({ amount_paid: Math.round((credit.amount_paid + consumeFromThis) * 100) / 100 })
+    .eq('id', credit.id)
+
+  if (!creditUpdateError) {
+    creditToConsume = Math.round((creditToConsume - consumeFromThis) * 100) / 100
+  }
+  // If update fails, we skip consuming this credit — balance recalc at end will still be correct
+}
 
     // Overpayment → credit
     const cashUnallocated = Math.max(0, cashAmount - cashAppliedToInvoices)
