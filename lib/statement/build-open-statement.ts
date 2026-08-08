@@ -114,20 +114,58 @@ export async function buildOpenStatement(customerId: string): Promise<OpenStatem
     }
   }
 
+    // Weekly invoice number lookup
+  const weeklyDescMap: Record<string, string> = {}
+  for (const t of unpaid) {
+    const desc = t.description ?? ''
+    if (desc.startsWith('weekly:')) {
+      const wid = desc.replace('weekly:', '')
+      if (wid) weeklyDescMap[wid] = ''
+    }
+  }
+  const weeklyIds = Object.keys(weeklyDescMap)
+  if (weeklyIds.length > 0) {
+    const { data: weeklyInvs } = await supabase
+      .from('weekly_invoices')
+      .select('id, invoice_number')
+      .in('id', weeklyIds)
+    for (const wi of weeklyInvs ?? []) {
+      if (wi.invoice_number) weeklyDescMap[wi.id] = String(wi.invoice_number)
+    }
+  }
+
   const invoices: OpenInvoice[] = unpaid.map((t) => {
     const amount = Number(t.amount)
     const paid = Number(t.amount_paid ?? 0)
-    const invoiceNum = t.invoice_id ? invoiceMap[t.invoice_id] ?? null : null
-    const reference = invoiceNum
-      ? `INV-${String(invoiceNum).padStart(4, '0')}`
-      : 'INVOICE'
+    const desc = t.description ?? ''
+
+    let invoiceNum: string | null = null
+    let reference: string
+    let description: string
+
+    if (desc.startsWith('weekly:')) {
+      const wid = desc.replace('weekly:', '')
+      invoiceNum = weeklyDescMap[wid] || null
+      reference = invoiceNum
+        ? `INV-${String(invoiceNum).padStart(4, '0')}`
+        : 'WEEKLY'
+      description = invoiceNum
+        ? `Weekly Invoice #${String(invoiceNum).padStart(6, '0')}`
+        : `Weekly Invoice (${wid.slice(0, 8).toUpperCase()})`
+    } else {
+      invoiceNum = t.invoice_id ? invoiceMap[t.invoice_id] ?? null : null
+      reference = invoiceNum
+        ? `INV-${String(invoiceNum).padStart(4, '0')}`
+        : 'INVOICE'
+      description = t.description || reference
+    }
 
     return {
       date: t.created_at,
       due_date: t.due_date ?? null,
       reference,
       invoice_number: invoiceNum ? Number(invoiceNum) : null,
-      description: t.description || reference,
+      description,
       amount: round2(amount),
       amount_paid: round2(paid),
       outstanding: round2(Math.max(amount - paid, 0)),

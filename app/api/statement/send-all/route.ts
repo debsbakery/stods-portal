@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
       periodTx.filter(t => t.invoice_id).map(t => t.invoice_id as string)
     )]
 
-    let invoiceMap: Record<string, string> = {}
+       let invoiceMap: Record<string, string> = {}
     if (allInvoiceIds.length > 0) {
       const { data: invNums } = await supabase
         .from('invoice_numbers')
@@ -113,6 +113,26 @@ export async function POST(request: NextRequest) {
         .in('id', allInvoiceIds)
       for (const inv of invNums ?? []) {
         invoiceMap[inv.id] = inv.invoice_number
+      }
+    }
+
+    // Weekly invoice number lookup across all period transactions
+    const weeklyDescMap: Record<string, string> = {}
+    for (const tx of periodTx) {
+      const desc = tx.description ?? ''
+      if (desc.startsWith('weekly:')) {
+        const wid = desc.replace('weekly:', '')
+        if (wid) weeklyDescMap[wid] = ''
+      }
+    }
+    const allWeeklyIds = Object.keys(weeklyDescMap)
+    if (allWeeklyIds.length > 0) {
+      const { data: weeklyInvs } = await supabase
+        .from('weekly_invoices')
+        .select('id, invoice_number')
+        .in('id', allWeeklyIds)
+      for (const wi of weeklyInvs ?? []) {
+        if (wi.invoice_number) weeklyDescMap[wi.id] = String(wi.invoice_number)
       }
     }
 
@@ -156,21 +176,33 @@ export async function POST(request: NextRequest) {
 
             const rawLines: RawLine[] = []
 
-            for (const tx of transactions) {
-              const isCredit   = tx.type === 'credit'
-              const invoiceNum = tx.invoice_id ? invoiceMap[tx.invoice_id] : null
-              const reference  = invoiceNum
-                ? `INV-${String(invoiceNum).padStart(4, '0')}`
-                : String(tx.type ?? '').toUpperCase()
+              for (const tx of transactions) {
+              const isCredit = tx.type === 'credit'
+              const rawDesc  = tx.description ?? ''
+              let reference: string
+              let description: string
+
+              if (rawDesc.startsWith('weekly:')) {
+                const wid = rawDesc.replace('weekly:', '')
+                const weeklyNum = weeklyDescMap[wid]
+                reference   = weeklyNum ? `INV-${String(weeklyNum).padStart(4, '0')}` : 'WEEKLY'
+                description = weeklyNum
+                  ? `Weekly Invoice #${String(weeklyNum).padStart(6, '0')}`
+                  : `Weekly Invoice (${wid.slice(0, 8).toUpperCase()})`
+              } else {
+                const invoiceNum = tx.invoice_id ? invoiceMap[tx.invoice_id] : null
+                reference   = invoiceNum
+                  ? `INV-${String(invoiceNum).padStart(4, '0')}`
+                  : String(tx.type ?? '').toUpperCase()
+                description = isCredit ? (rawDesc || 'Credit note') : (rawDesc || reference)
+              }
 
               rawLines.push({
                 date:        tx.created_at,
                 type:        isCredit ? 'credit' : 'invoice',
                 amount:      Number(tx.amount),
-                description: isCredit
-                  ? (tx.description || 'Credit note')
-                  : (tx.description || reference),
-                reference:   isCredit ? 'CREDIT' : reference,
+                description,
+                reference:   isCredit && !rawDesc.startsWith('weekly:') ? 'CREDIT' : reference,
               })
             }
 
@@ -219,15 +251,15 @@ export async function POST(request: NextRequest) {
               ? [0.584, 0.306, 0.129]
               : [0, 0.416, 0.306]
 
-            const displayName  = bakeryName  || (isStods ? 'Stods Bakery' : "Deb's Bakery")
-            const displayFrom  = `${fromName || displayName} <${fromEmail || 'noreply@debsbakery.store'}>`
+            const displayName  = bakeryName  || (isStods ? 'Stods Bakery' : (process.env.BAKERY_NAME ?? "Kimbercrust Bakery"))
+            const displayFrom  = `${fromName || displayName} <${fromEmail || (process.env.RESEND_FROM_EMAIL ?? 'orders@kimbercrust.com')}>`
             const headerHex    = isStods ? '#955E30' : '#006A4E'
             const subHex       = isStods ? '#f5dcc8' : '#a7f3d0'
 
             const closingBalance = Math.round(runningBalance * 100) / 100
 
             // ── Generate PDF ─────────────────────────────────────────
-            const pdfBuffer = await generateStatementPDF({
+                const pdfBuffer = await generateStatementPDF({
               customer,
               lines,
               openingBalance: Math.round(openingBalance * 100) / 100,
@@ -237,7 +269,6 @@ export async function POST(request: NextRequest) {
               bakeryName:  displayName,
               headerColor,
             })
-
             const customerName =
               customer.business_name ||
               customer.contact_name  ||

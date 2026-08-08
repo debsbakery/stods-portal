@@ -58,7 +58,7 @@ async function getCustomerLedger(customerId: string) {
     }
   }
 
-  // ✅ Also fetch invoice_number from orders table as backup
+    // Also fetch invoice_number from orders table as backup
   if (invoiceIds.length > 0) {
     const { data: ordersWithInv } = await supabase
       .from('orders')
@@ -68,6 +68,26 @@ async function getCustomerLedger(customerId: string) {
       if (o.invoice_number && !invoiceMap[o.id]) {
         invoiceMap[o.id] = o.invoice_number
       }
+    }
+  }
+
+  // Weekly invoice number lookup
+  const weeklyDescMap: Record<string, number> = {}
+  for (const tx of arTxRaw ?? []) {
+    const desc = tx.description ?? ''
+    if (desc.startsWith('weekly:')) {
+      const wid = desc.replace('weekly:', '')
+      if (wid) weeklyDescMap[wid] = 0
+    }
+  }
+  const weeklyIds = Object.keys(weeklyDescMap)
+  if (weeklyIds.length > 0) {
+    const { data: weeklyInvs } = await supabase
+      .from('weekly_invoices')
+      .select('id, invoice_number')
+      .in('id', weeklyIds)
+    for (const wi of weeklyInvs ?? []) {
+      if (wi.invoice_number) weeklyDescMap[wi.id] = wi.invoice_number
     }
   }
 
@@ -109,8 +129,14 @@ async function getCustomerLedger(customerId: string) {
       rawDesc.toLowerCase().startsWith('credit invoice') ||
       !rawDesc.match(/#\s*\d+/)
 
-    let finalDescription: string
-    if (invoiceNum) {
+     let finalDescription: string
+    if (rawDesc.startsWith('weekly:')) {
+      const wid = rawDesc.replace('weekly:', '')
+      const weeklyNum = weeklyDescMap[wid]
+      finalDescription = weeklyNum
+        ? `Weekly Invoice #${String(weeklyNum).padStart(6, '0')}`
+        : `Weekly Invoice (${wid.slice(0, 8).toUpperCase()})`
+    } else if (invoiceNum) {
       const invStr  = `Invoice #${String(invoiceNum).padStart(6, '0')}`
       const suffix  = rawDesc.toLowerCase().includes('edited')
                         ? ' (edited)'
@@ -120,9 +146,7 @@ async function getCustomerLedger(customerId: string) {
       const customer = rawDesc.includes(' - ')
                         ? ' - ' + rawDesc.split(' - ').slice(1).join(' - ')
                         : ''
-      finalDescription = isGeneric
-        ? invStr + suffix + customer
-        : rawDesc
+      finalDescription = isGeneric ? invStr + suffix + customer : rawDesc
     } else {
       finalDescription = rawDesc || (isCredit ? 'Credit' : 'Invoice')
     }
