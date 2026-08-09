@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { resolveProductIdsForIngredient } from '@/lib/recalls/ingredient-trace'
 
 async function createAdminClient() {
   return createClient(
@@ -39,50 +40,72 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Create new recall and identify affected customers
+// POST - Create new recall (by product OR by ingredient) and identify affected customers
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createAdminClient()
     const body = await request.json()
 
-    const {
-      product_id,
-      product_name,
+    const recall_type = body.recall_type === 'ingredient' ? 'ingredient' : 'product'
+    const { reason, severity, date_from, date_to, initiated_by, notes } = body
+
+    if (!reason || !severity || !date_from || !date_to) {
+      return NextResponse.json(
+        { error: 'reason, severity, date_from, and date_to are required' },
+        { status: 400 }
+      )
+    }
+
+    // Resolve the product ids this recall covers, and build the insert payload
+    let productIds: string[] = []
+    const insertData: any = {
       reason,
       severity,
       date_from,
       date_to,
       initiated_by,
       notes,
-    } = body
+      status: 'initiated',
+      recall_type,
+    }
 
-    if (!product_id || !product_name || !reason || !severity || !date_from || !date_to) {
-      return NextResponse.json(
-        { error: 'product_id, product_name, reason, severity, date_from, and date_to are required' },
-        { status: 400 }
-      )
+    if (recall_type === 'ingredient') {
+      const { ingredient_id, ingredient_name } = body
+      if (!ingredient_id || !ingredient_name) {
+        return NextResponse.json(
+          { error: 'ingredient_id and ingredient_name are required for an ingredient recall' },
+          { status: 400 }
+        )
+      }
+      productIds = await resolveProductIdsForIngredient(supabase, ingredient_id)
+      insertData.ingredient_id = ingredient_id
+      insertData.ingredient_name = ingredient_name
+      insertData.product_name = ingredient_name // shown on list/detail as the recall subject
+      insertData.affected_product_ids = productIds
+    } else {
+      const { product_id, product_name } = body
+      if (!product_id || !product_name) {
+        return NextResponse.json(
+          { error: 'product_id and product_name are required for a product recall' },
+          { status: 400 }
+        )
+      }
+      productIds = [product_id]
+      insertData.product_id = product_id
+      insertData.product_name = product_name
+      insertData.affected_product_ids = productIds
     }
 
     // Create recall record
     const { data: recall, error: recallError } = await supabase
       .from('product_recalls')
-      .insert({
-        product_id,
-        product_name,
-        reason,
-        severity,
-        date_from,
-        date_to,
-        initiated_by,
-        notes,
-        status: 'initiated',
-      })
+      .insert(insertData)
       .select()
       .single()
 
     if (recallError) throw recallError
 
-    // Query affected orders
+    // Query affected orders in the recall window
     const { data: orders, error: ordersError } = await supabase
       .from('orders')
       .select(`
@@ -103,16 +126,21 @@ export async function POST(request: NextRequest) {
 
     if (ordersError) throw ordersError
 
+    const productIdSet = new Set(productIds)
+
     // Group by customer and calculate affected value
     const affectedMap = new Map<string, { orderIds: string[]; totalValue: number }>()
 
     for (const order of orders || []) {
       const affectedItems = (order.order_items || []).filter(
-        (item: any) => item.product_id === product_id
+        (item: any) => productIdSet.has(item.product_id)
       )
 
       if (affectedItems.length > 0) {
-        const orderValue = affectedItems.reduce((sum: number, item: any) => sum + (item.subtotal || 0), 0)
+        const orderValue = affectedItems.reduce(
+          (sum: number, item: any) => sum + (item.subtotal || 0),
+          0
+        )
 
         const existing = affectedMap.get(order.customer_id)
         if (existing) {
@@ -145,6 +173,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       recall,
+      resolved_product_count: productIds.length,
       affected_count: affectedCustomers.length,
     }, { status: 201 })
   } catch (error: any) {
