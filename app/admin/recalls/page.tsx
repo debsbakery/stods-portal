@@ -66,12 +66,16 @@ export default function RecallsPage() {
       <div className="max-w-7xl mx-auto">
         
         {/* Header */}
-        <div className="mb-8 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Product Recalls</h1>
-            <p className="text-gray-600 mt-2">Track and manage product recall notifications</p>
+               <div className="mb-8 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Link href="/admin" className="text-sm text-gray-500 hover:text-gray-800">← Admin</Link>
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Product Recalls</h1>
+              <p className="text-gray-600 mt-2">Track and manage product recall notifications</p>
+            </div>
           </div>
-          <Link 
+          <Link
+
             href="/admin/recalls/new"
             className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors"
           >
