@@ -5,11 +5,11 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, Save, DollarSign, Search, FileText, CheckCircle, MinusCircle, AlertTriangle } from 'lucide-react';
 
 const PAYMENT_METHODS = [
-  { value: 'cash',          label: '💵 Cash' },
-  { value: 'check',         label: '📝 Check' },
-  { value: 'bank_transfer', label: '🏦 Bank Transfer' },
-  { value: 'card',          label: '💳 Card' },
-  { value: 'eft',           label: '🔄 EFT' },
+  { value: 'cash',          label: 'ðŸ’µ Cash' },
+  { value: 'check',         label: 'ðŸ“ Check' },
+  { value: 'bank_transfer', label: 'ðŸ¦ Bank Transfer' },
+  { value: 'card',          label: 'ðŸ’³ Card' },
+  { value: 'eft',           label: 'ðŸ”„ EFT' },
 ];
 
 const money = (n: number | string | null | undefined): number => {
@@ -67,6 +67,7 @@ export default function RecordPaymentWithAllocation({
 }: RecordPaymentWithAllocationProps) {
   const router = useRouter();
   const allocationPanelRef = useRef<HTMLDivElement>(null);
+  const submittingRef = useRef(false);
 
   const [formData, setFormData] = useState({
     customer_id:      '',
@@ -106,7 +107,7 @@ export default function RecordPaymentWithAllocation({
     ? credits.filter((c) => c?.customer_id === formData.customer_id)
     : [];
 
-  // Unapplied credits — any credit with remaining balance not yet ticked
+  // Unapplied credits â€” any credit with remaining balance not yet ticked
   const unappliedCredits = customerCredits.filter(c => {
     const remaining = money(money(c.amount) - money(c.amount_paid))
     const isTicked  = allocations.some(a => a.invoice_id === c.id && a.is_credit)
@@ -245,14 +246,15 @@ export default function RecordPaymentWithAllocation({
     setError(null);
     setSuccess(null);
 
-    if (!formData.customer_id) { setError('⚠️ Please select a customer'); return; }
+    if (!formData.customer_id) { setError('âš ï¸ Please select a customer'); return; }
     if (cashAmount === 0 && tickedCredits.length === 0) {
-      setError('⚠️ Enter a cash amount or tick at least one credit to apply'); return;
+      setError('âš ï¸ Enter a cash amount or tick at least one credit to apply'); return;
     }
     if (cashAmount === 0 && allocatedToInvoices === 0 && tickedCredits.length > 0) {
-      setError('⚠️ Tick credit(s) AND allocate them to invoice(s)'); return;
+      setError('âš ï¸ Tick credit(s) AND allocate them to invoice(s)'); return;
     }
-    if (saving) return;
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSaving(true);
 
     try {
@@ -276,8 +278,8 @@ export default function RecordPaymentWithAllocation({
         const creditUsed     = money(data?.payment?.credit_used);
         const allocatedMsg   = (data?.payment?.allocations || 0) > 0 ? ` | Allocated to ${data.payment.allocations} invoice(s)` : '';
         const creditMsg      = creditUsed > 0 ? ` | $${creditUsed.toFixed(2)} credit applied` : '';
-        const overpaymentMsg = data?.payment?.overpayment > 0 ? ` | ⚠️ $${money(data.payment.overpayment).toFixed(2)} overpayment credit created` : '';
-        setSuccess(`✅ Payment recorded for ${customerName} — Cash $${cash.toFixed(2)}${creditMsg}${allocatedMsg}${overpaymentMsg} | New balance: $${newBalance.toFixed(2)}`);
+        const overpaymentMsg = data?.payment?.overpayment > 0 ? ` | âš ï¸ $${money(data.payment.overpayment).toFixed(2)} overpayment credit created` : '';
+        setSuccess(`âœ… Payment recorded for ${customerName} â€” Cash $${cash.toFixed(2)}${creditMsg}${allocatedMsg}${overpaymentMsg} | New balance: $${newBalance.toFixed(2)}`);
         setFormData({ customer_id: '', amount: '', payment_date: new Date().toISOString().split('T')[0], payment_method: 'bank_transfer', reference_number: '', notes: '' });
         setAllocations([]);
         setSearchTerm('');
@@ -285,9 +287,10 @@ export default function RecordPaymentWithAllocation({
         setError(data?.error || 'Failed to record payment');
       }
     } catch (err) {
-      setError('❌ Error recording payment');
+      setError('âŒ Error recording payment');
       console.error(err);
     } finally {
+      submittingRef.current = false;
       setSaving(false);
     }
   }
@@ -316,7 +319,7 @@ export default function RecordPaymentWithAllocation({
               <CheckCircle className="h-5 w-5 text-green-600 shrink-0" />
               {success}
             </span>
-            <button onClick={() => setSuccess(null)} className="text-green-600 hover:text-green-800 font-bold ml-4 text-lg">✕</button>
+            <button onClick={() => setSuccess(null)} className="text-green-600 hover:text-green-800 font-bold ml-4 text-lg">âœ•</button>
           </div>
         )}
 
@@ -344,13 +347,13 @@ export default function RecordPaymentWithAllocation({
                 const name    = customer?.business_name || customer?.contact_name || 'Unknown';
                 return (
                   <option key={customer.id} value={customer.id}>
-                    {name} — Balance: ${balance.toFixed(2)}
+                    {name} â€” Balance: ${balance.toFixed(2)}
                   </option>
                 );
               })}
             </select>
 
-            {/* ── Unapplied credit banner ── */}
+            {/* â”€â”€ Unapplied credit banner â”€â”€ */}
             {selectedCustomer && unappliedTotal > 0 && (
               <div className="mt-3 p-4 bg-amber-50 border-2 border-amber-400 rounded-lg flex items-center justify-between gap-4">
                 <div className="flex items-start gap-3">
@@ -370,7 +373,7 @@ export default function RecordPaymentWithAllocation({
                   onClick={handleApplyNow}
                   className="shrink-0 px-4 py-2 bg-amber-600 text-white text-sm font-semibold rounded-lg hover:bg-amber-700 whitespace-nowrap"
                 >
-                  Apply Now →
+                  Apply Now â†’
                 </button>
               </div>
             )}
@@ -413,7 +416,7 @@ export default function RecordPaymentWithAllocation({
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Cash Amount Received{' '}
               <span className="text-gray-400 font-normal">
-                (enter $0 if paying with credit only • use negative to reverse)
+                (enter $0 if paying with credit only â€¢ use negative to reverse)
               </span>
             </label>
             <div className="relative">
@@ -443,7 +446,7 @@ export default function RecordPaymentWithAllocation({
             </div>
             {cashAmount < 0 && (
               <div className="mt-2 p-3 bg-red-50 border border-red-300 rounded-lg text-sm text-red-800 flex items-start gap-2">
-                <span className="text-base leading-none">↩️</span>
+                <span className="text-base leading-none">â†©ï¸</span>
                 <div>
                   <p className="font-semibold">Payment Reversal</p>
                   <p className="mt-0.5">This will <strong>add ${Math.abs(cashAmount).toFixed(2)}</strong> back to the customer&apos;s balance.</p>
@@ -471,7 +474,7 @@ export default function RecordPaymentWithAllocation({
                 {customerCredits.length > 0 && (
                   <div className="mb-1">
                     <p className="text-xs font-semibold text-orange-700 uppercase tracking-wide mb-1.5 flex items-center gap-1">
-                      <MinusCircle className="h-3 w-3" /> Available Credits — tick to add to allocatable pool
+                      <MinusCircle className="h-3 w-3" /> Available Credits â€” tick to add to allocatable pool
                     </p>
                     {customerCredits.map((credit) => {
                       const remaining  = money(money(credit.amount) - money(credit.amount_paid));
@@ -531,8 +534,8 @@ export default function RecordPaymentWithAllocation({
                             </p>
                             <p className="text-xs text-gray-500">
                               {new Date(invoice.delivery_date + 'T00:00:00').toLocaleDateString('en-AU')}
-                              {' • '}Total: ${total.toFixed(2)}
-                              {' • '}
+                              {' â€¢ '}Total: ${total.toFixed(2)}
+                              {' â€¢ '}
                               <span className={due > 0 ? 'text-red-600 font-medium' : ''}>Due: ${due.toFixed(2)}</span>
                             </p>
                           </div>
@@ -582,7 +585,7 @@ export default function RecordPaymentWithAllocation({
                     <p className={unallocatedAmount > 0 ? 'text-yellow-700' : 'text-red-600'}>
                       {unallocatedAmount > 0
                         ? `Unallocated: $${unallocatedAmount.toFixed(2)} (will reduce overall balance / create credit)`
-                        : `⚠️ Over-allocated by $${Math.abs(unallocatedAmount).toFixed(2)}`}
+                        : `âš ï¸ Over-allocated by $${Math.abs(unallocatedAmount).toFixed(2)}`}
                     </p>
                   )}
                 </div>
@@ -590,7 +593,7 @@ export default function RecordPaymentWithAllocation({
 
               {totalAvailable > totalOutstanding + 0.01 && (
                 <div className="mt-3 p-3 rounded text-sm bg-amber-50 border border-amber-400 text-amber-900 flex items-start gap-2">
-                  <span className="text-lg leading-none">⚠️</span>
+                  <span className="text-lg leading-none">âš ï¸</span>
                   <div>
                     <p className="font-semibold">Funds exceed outstanding invoices</p>
                     <p className="mt-0.5">
