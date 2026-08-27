@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
   const nowUtc   = new Date()
   const today    = nowUtc.toLocaleDateString('en-CA', { timeZone: PORTAL_TZ })
 
-  // Yesterday (portal-local) — needed for split shifts clocking out after midnight
+  // Yesterday (portal-local) â€” needed for split shifts clocking out after midnight
   const yesterdayDate = new Date(nowUtc)
   yesterdayDate.setDate(yesterdayDate.getDate() - 1)
   const yesterday = yesterdayDate.toLocaleDateString('en-CA', { timeZone: PORTAL_TZ })
@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
     rosterEntry = data
   }
 
-  // Fallback — search today AND yesterday to catch split shifts clocking out after midnight
+  // Fallback â€” search today AND yesterday to catch split shifts clocking out after midnight
   if (!rosterEntry) {
     const { data: entries } = await supabase
       .from('roster_entries')
@@ -197,7 +197,7 @@ export async function POST(request: NextRequest) {
 
   if (evtErr) return NextResponse.json({ error: evtErr.message }, { status: 500 })
 
-  // ? Resolve correct section — don't default to 1 and overwrite an existing shift
+  // ? Resolve correct section â€” don't default to 1 and overwrite an existing shift
   async function resolveSection(staffId: string, workDate: string, rosterSection: number | null): Promise<number> {
     if (rosterSection != null) return rosterSection
     const { data: existing } = await supabase
@@ -276,12 +276,12 @@ export async function POST(request: NextRequest) {
     await supabase.from('roster_entries').update({ status: 'completed' }).eq('id', rosterEntry.id)
 
   } else {
-    // Fallback — no roster entry found
+    // Fallback â€” no roster entry found
     const grossMins = Math.round((paidTime.getTime() - paidStart.getTime()) / 60000)
     const breakMins = effectiveBreakMinutes
     const paidMins  = Math.max(0, grossMins - breakMins)
 
-    // ? Resolve section — don't hardcode 1
+    // ? Resolve section â€” don't hardcode 1
     const resolvedSection = await resolveSection(staff.id, today, null)
 
     const { error: fallbackErr } = await supabase.from('shifts').upsert({

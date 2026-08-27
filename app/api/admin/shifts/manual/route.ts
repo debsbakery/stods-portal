@@ -34,11 +34,11 @@ export async function POST(request: NextRequest) {
 
     const grossMins = Math.round((effectiveEnd.getTime() - effectiveStart.getTime()) / 60000)
 
-    // ? Break default is 0 not 30 — only deduct on section 1 shifts >= 5 hours
+    // ? Break default is 0 not 30 â€” only deduct on section 1 shifts >= 5 hours
     const staffBreakMins = Number(openShift.staff?.break_minutes ?? 0)
     const breakMins = (openShift.section === 1 && grossMins >= 300) ? staffBreakMins : 0
 
-    // ? Calendar-first day_type — only trust roster for public_holiday
+    // ? Calendar-first day_type â€” only trust roster for public_holiday
     const dow = new Date(openShift.work_date + 'T00:00:00Z').getUTCDay()
     const calendarDayType = dow === 0 ? 'sunday' : dow === 6 ? 'saturday' : 'normal'
     const dayType = openShift.day_type === 'public_holiday' ? 'public_holiday' : calendarDayType
@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
 
   const dept = department ?? rosterEntry?.department ?? staff.primary_department
 
-  // ? Calendar-first day_type — only trust roster for public_holiday (matches clock-out route)
+  // ? Calendar-first day_type â€” only trust roster for public_holiday (matches clock-out route)
   const dayOfWeek = new Date(work_date + 'T00:00:00Z').getUTCDay()
   const calendarDayType = dayOfWeek === 0 ? 'sunday' : dayOfWeek === 6 ? 'saturday' : 'normal'
   const dayType = rosterEntry?.day_type === 'public_holiday' ? 'public_holiday' : calendarDayType
@@ -179,7 +179,7 @@ export async function POST(request: NextRequest) {
     return s
   }
 
-  // Clock-in only — create open shift
+  // Clock-in only â€” create open shift
   if (!effectiveEnd) {
     const section = await resolveSection()
 
@@ -209,7 +209,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, shift, clock_in_only: true })
   }
 
-  // Full shift — clock in + clock out
+  // Full shift â€” clock in + clock out
   const grossMins = Math.round((effectiveEnd.getTime() - effectiveStart.getTime()) / 60000)
 
   // ? Break default is 0 not 30
