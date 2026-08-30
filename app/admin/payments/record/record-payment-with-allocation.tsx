@@ -278,7 +278,7 @@ export default function RecordPaymentWithAllocation({
         const allocatedMsg   = (data?.payment?.allocations || 0) > 0 ? ` | Allocated to ${data.payment.allocations} invoice(s)` : '';
         const creditMsg      = creditUsed > 0 ? ` | $${creditUsed.toFixed(2)} credit applied` : '';
         const overpaymentMsg = data?.payment?.overpayment > 0 ? ` | (!)$${money(data.payment.overpayment).toFixed(2)} overpayment credit created` : '';
-        setSuccess(`├ó┼ôΓÇª Payment recorded for ${customerName} - Cash $${cash.toFixed(2)}${creditMsg}${allocatedMsg}${overpaymentMsg} | New balance: $${newBalance.toFixed(2)}`);
+        setSuccess(` Payment recorded for ${customerName} - Cash $${cash.toFixed(2)}${creditMsg}${allocatedMsg}${overpaymentMsg} | New balance: $${newBalance.toFixed(2)}`);
         setFormData({ customer_id: '', amount: '', payment_date: new Date().toISOString().split('T')[0], payment_method: 'bank_transfer', reference_number: '', notes: '' });
         setAllocations([]);
         setSearchTerm('');
@@ -318,7 +318,7 @@ export default function RecordPaymentWithAllocation({
               <CheckCircle className="h-5 w-5 text-green-600 shrink-0" />
               {success}
             </span>
-            <button onClick={() => setSuccess(null)} className="text-green-600 hover:text-green-800 font-bold ml-4 text-lg">├ó┼ôΓÇó</button>
+            <button onClick={() => setSuccess(null)} className="text-green-600 hover:text-green-800 font-bold ml-4 text-lg"></button>
           </div>
         )}
 
@@ -372,7 +372,7 @@ export default function RecordPaymentWithAllocation({
                   onClick={handleApplyNow}
                   className="shrink-0 px-4 py-2 bg-amber-600 text-white text-sm font-semibold rounded-lg hover:bg-amber-700 whitespace-nowrap"
                 >
-                  Apply Now ├óΓÇáΓÇÖ
+                  Apply Now 
                 </button>
               </div>
             )}
