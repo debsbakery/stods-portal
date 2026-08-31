@@ -118,6 +118,7 @@ function fmtTimeShort(t: string): string {
 export default function RosterGrid({ staff, entries, shifts, weekStart, weekDates, prevWeek, nextWeek }: Props) {
 const router = useRouter()
   const [localEntries, setLocalEntries] = useState<RosterEntry[]>(entries)
+  useEffect(() => { setLocalEntries(entries) }, [entries])
   const [activeDay, setActiveDay] = useState<number>(() => {
 const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/Brisbane' })
     const idx = weekDates.indexOf(today)
