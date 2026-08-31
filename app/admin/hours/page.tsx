@@ -105,7 +105,7 @@ export default function HoursPage() {
   }
 
   // ── Manual entry state ──
-  const [staffList, setStaffList] = useState<{ id: string; name: string; primary_department: string }[]>([])
+  const [staffList, setStaffList] = useState<{ id: string; name: string; primary_department: string; active?: boolean }[]>([])
   const [showManual, setShowManual] = useState(false)
   const [manualForm, setManualForm] = useState({
     staff_id: '',
@@ -121,7 +121,7 @@ export default function HoursPage() {
   useEffect(() => {
     fetch('/api/admin/staff')
       .then(r => r.json())
-      .then(d => setStaffList(d.staff ?? []))
+      .then(d => setStaffList((d.staff ?? []).filter((s: any) => s.active !== false)))
       .catch(() => {})
   }, [])
 
