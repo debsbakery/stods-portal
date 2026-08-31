@@ -294,7 +294,7 @@ function getWeekDeliveryDate(deliveryDay: string, weekOffset: number = 1): Date 
   }
 
   const ausNow = new Date(
-    new Date().toLocaleString('en-US', { timeZone: 'Australia/Perth' })
+    new Date().toLocaleString('en-US', { timeZone: 'Australia/Brisbane' })
   );
   const currentIndex = ausNow.getDay();
 

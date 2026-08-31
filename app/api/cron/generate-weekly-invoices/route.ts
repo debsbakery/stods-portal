@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
 
   // ── Perth-aware: is today actually Sunday? ────────────────────────────────
   const now       = new Date()
-  const perth     = new Date(now.toLocaleString('en-US', { timeZone: 'Australia/Perth' }))
+  const perth     = new Date(now.toLocaleString('en-US', { timeZone: 'Australia/Brisbane' }))
   const dayOfWeek = perth.getDay() // 0 = Sunday
 
   // Allow bypass via ?force=true for manual testing

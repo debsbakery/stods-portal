@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     if (!openShift) return NextResponse.json({ error: 'Shift not found' }, { status: 404 })
 
     const effectiveStart = new Date(openShift.effective_start)
-    const effectiveEnd   = new Date(`${openShift.work_date}T${clock_out_time}:00+08:00`)
+    const effectiveEnd   = new Date(`${openShift.work_date}T${clock_out_time}:00+10:00`)
 
     if (effectiveEnd <= effectiveStart) {
       return NextResponse.json({ error: 'Clock out must be after clock in' }, { status: 400 })
@@ -139,9 +139,9 @@ export async function POST(request: NextRequest) {
 
   if (!staff) return NextResponse.json({ error: 'Staff not found' }, { status: 404 })
 
-  const effectiveStart = new Date(`${work_date}T${clock_in_time}:00+08:00`)
+  const effectiveStart = new Date(`${work_date}T${clock_in_time}:00+10:00`)
   const effectiveEnd = clock_out_time
-    ? new Date(`${work_date}T${clock_out_time}:00+08:00`)
+    ? new Date(`${work_date}T${clock_out_time}:00+10:00`)
     : null
 
   if (effectiveEnd && effectiveEnd <= effectiveStart) {
