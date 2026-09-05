@@ -36,14 +36,16 @@ export async function POST(request: NextRequest) {
 
   const twentyFourHoursAgo = new Date(nowUtc.getTime() - 86400000)
 
-  const { data: existingIn } = await supabase
+  const { data: existingInRows } = await supabase
     .from('clock_events')
     .select('id, raw_time, paid_time')
     .eq('staff_id', staff.id)
     .eq('event_type', 'clock_in')
     .gte('raw_time', twentyFourHoursAgo.toISOString())
     .order('raw_time', { ascending: false })
-    .maybeSingle()
+    .limit(1)
+
+  const existingIn = existingInRows?.[0] ?? null
 
   if (existingIn) {
     const { data: existingOut } = await supabase
@@ -52,9 +54,9 @@ export async function POST(request: NextRequest) {
       .eq('staff_id', staff.id)
       .eq('event_type', 'clock_out')
       .gte('raw_time', existingIn.raw_time)
-      .maybeSingle()
+      .limit(1)
 
-    if (!existingOut) {
+    if (!existingOut?.length) {
       const clockInDate = new Date(existingIn.raw_time).toLocaleDateString('en-CA', { timeZone: 'Australia/Brisbane' })
       if (clockInDate < today) {
         const autoClockOut = new Date(`${clockInDate}T17:00:00+10:00`)
