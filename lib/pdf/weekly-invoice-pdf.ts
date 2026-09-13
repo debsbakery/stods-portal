@@ -157,7 +157,11 @@ export async function generateWeeklyInvoicePDF(data: WeeklyInvoiceData): Promise
   }
   doc.setFont('helvetica', 'normal')
   if (customer.email) { doc.text(customer.email, margin, yPos); yPos += 5 }
-  if (customer.address) { doc.text(customer.address, margin, yPos); yPos += 5 }
+  if (customer.address) {
+    const addrLines = doc.splitTextToSize(customer.address, 95)
+    doc.text(addrLines, margin, yPos)
+    yPos += 5 * addrLines.length
+  }
   if (customer.phone) { doc.text(customer.phone, margin, yPos); yPos += 5 }
   if (customer.abn) {
     doc.setFont('helvetica', 'bold')
@@ -294,9 +298,9 @@ function drawBankDetails(
 ) {
   doc.setTextColor(...textColor)
   if (bakery.bankName || bakery.bankBSB || bakery.bankAccount) {
-    if (bankY > 255) { doc.addPage(); bankY = 30 }
+    if (bankY > 249) { doc.addPage(); bankY = 30 }
     doc.setFillColor(240, 253, 244)
-    doc.rect(margin, bankY, 170, 32, 'F')
+    doc.rect(margin, bankY, 170, 38, 'F')
     doc.setFontSize(10)
     doc.setFont('helvetica', 'bold')
     doc.setTextColor(22, 101, 52)
@@ -309,5 +313,7 @@ function drawBankDetails(
     if (bakery.bankBSB) { doc.text('BSB: ' + bakery.bankBSB, margin + 5, y); y += 5 }
     if (bakery.bankAccount) { doc.text('Account: ' + bakery.bankAccount, margin + 5, y); y += 5 }
     doc.text('Reference: ' + invoiceNum, margin + 5, y)
+    y += 5
+    doc.text('Please email remittance advice to: stodsbakery@outlook.com', margin + 5, y)
   }
 }
