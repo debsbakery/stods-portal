@@ -1,4 +1,4 @@
-﻿export const dynamic = 'force-dynamic'
+export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -201,6 +201,7 @@ if (isWeekly) {
     const wiTotal     = Number(wi.total_amount) || 0
     if (isAcceptedFull) newAmountPaid = wiTotal
     const isFullyPaid = newAmountPaid >= wiTotal - 0.01
+    if (isFullyPaid) newAmountPaid = wiTotal
     await supabase
       .from('weekly_invoices')
       .update({
@@ -231,6 +232,7 @@ if (isWeekly) {
     if (arTx) {
       let newArPaid = Number(arTx.amount_paid || 0) + allocAmount
       if (isAcceptedFull) newArPaid = Number(arTx.amount)
+      if (newArPaid >= Number(arTx.amount) - 0.01) newArPaid = Number(arTx.amount)
       await supabase
         .from('ar_transactions')
         .update({ amount_paid: Math.round(newArPaid * 100) / 100 })
@@ -248,7 +250,8 @@ if (isWeekly) {
           let newAmountPaid = Number(arTx.amount_paid || 0) + allocAmount
           const arTotal     = Number(arTx.amount)
           if (isAcceptedFull) newAmountPaid = arTotal
-          const isFullyPaid = newAmountPaid >= arTotal - 0.005
+          const isFullyPaid = newAmountPaid >= arTotal - 0.01
+          if (isFullyPaid) newAmountPaid = arTotal
           const updateData: any = { amount_paid: Math.round(newAmountPaid * 100) / 100 }
           if (isFullyPaid) {
             updateData.paid_date = payment_date || new Date().toISOString().split('T')[0]
@@ -267,6 +270,7 @@ if (isWeekly) {
           const orderTotal  = Number(order.total_amount) || 0
           if (isAcceptedFull) newAmountPaid = orderTotal
           const isOrderFullyPaid = newAmountPaid >= orderTotal - 0.01
+          if (isOrderFullyPaid) newAmountPaid = orderTotal
           const orderUpdate: any = { amount_paid: newAmountPaid }
           if (isOrderFullyPaid) orderUpdate.status = 'paid'
           await supabase.from('orders').update(orderUpdate).eq('id', allocation.invoice_id)
