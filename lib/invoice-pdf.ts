@@ -298,7 +298,7 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<jsPDF> {
     }
     doc.text('Reference: ' + invoiceNum, margin + 5, bankLineY)
     bankLineY += 5
-    doc.text('Please email remittance advice to: stodsbakery@outlook.com', margin + 5, bankLineY)
+    doc.text('Please email remittance advice to: ' + (bakery.email || ''), margin + 5, bankLineY)
   }
 
   // Payment Terms

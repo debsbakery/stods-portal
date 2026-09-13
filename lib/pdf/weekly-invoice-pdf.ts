@@ -314,6 +314,6 @@ function drawBankDetails(
     if (bakery.bankAccount) { doc.text('Account: ' + bakery.bankAccount, margin + 5, y); y += 5 }
     doc.text('Reference: ' + invoiceNum, margin + 5, y)
     y += 5
-    doc.text('Please email remittance advice to: stodsbakery@outlook.com', margin + 5, y)
+    doc.text('Please email remittance advice to: ' + (bakery.email || ''), margin + 5, y)
   }
 }
