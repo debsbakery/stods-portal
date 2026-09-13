@@ -79,7 +79,7 @@ export function LoginForm() {
         {/* Logo and Header */}
         <div className="text-center mb-6">
           <img 
-            src="/logo.svg"
+            src="/logo.png"
             alt="Stods Bakery" 
             className="h-40 w-auto mx-auto mb-4"
           />
