@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useState, useMemo } from 'react'
 import { ArrowLeft, Search, CheckCircle, XCircle, Clock, Undo2, AlertCircle } from 'lucide-react'
@@ -24,11 +24,11 @@ interface Invoice {
   ar_amount: number
   ar_amount_paid: number
   balance: number
-  payment_status: 'paid' | 'part_paid' | 'unpaid'
+  payment_status: 'paid' | 'part_paid' | 'unpaid' | 'pending'
   allocations: Allocation[]
 }
 
-type Tab = 'all' | 'unpaid' | 'part_paid' | 'paid'
+type Tab = 'all' | 'unpaid' | 'part_paid' | 'paid' | 'pending'
 
 export default function InvoiceStatusPage() {
   const router = useRouter()
@@ -59,9 +59,13 @@ export default function InvoiceStatusPage() {
   const fetchInvoices = async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/admin/invoices/list-ar?from=${dateFrom}&to=${dateTo}`)
-      const data = await res.json()
-      if (data.invoices) setInvoices(data.invoices)
+      const [arRes, pendRes] = await Promise.all([
+        fetch(`/api/admin/invoices/list-ar?from=${dateFrom}&to=${dateTo}`),
+        fetch('/api/admin/invoices/list-pending'),
+      ])
+      const data = await arRes.json()
+      const pend = await pendRes.json()
+      setInvoices([...(pend.invoices ?? []), ...(data.invoices ?? [])])
     } catch (err) {
       console.error('Failed to fetch invoices:', err)
     } finally {
@@ -104,6 +108,26 @@ export default function InvoiceStatusPage() {
     }
   }
 
+  const handleCancelOrder = async (orderId: string) => {
+    if (!confirm('Cancel this order? It was never invoiced, so nothing is sent to the customer.')) return
+    setActionLoading(orderId)
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ status: 'cancelled' }),
+      })
+      if (res.ok) {
+        fetchInvoices()
+      } else {
+        const d = await res.json().catch(() => ({}))
+        alert('Error: ' + (d.error || 'Failed to cancel'))
+      }
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
   useEffect(() => {
     if (search.length > 0) setTab('all')
   }, [search])
@@ -128,6 +152,7 @@ export default function InvoiceStatusPage() {
     unpaid: invoices.filter(i => i.payment_status === 'unpaid').length,
     part_paid: invoices.filter(i => i.payment_status === 'part_paid').length,
     paid: invoices.filter(i => i.payment_status === 'paid').length,
+    pending: invoices.filter(i => i.payment_status === 'pending').length,
   }), [invoices])
 
   const totals = useMemo(() => ({
@@ -141,6 +166,7 @@ export default function InvoiceStatusPage() {
       paid:      { bg: 'bg-green-100 text-green-800', icon: <CheckCircle className="w-3.5 h-3.5" />, label: 'Paid' },
       part_paid: { bg: 'bg-amber-100 text-amber-800', icon: <Clock className="w-3.5 h-3.5" />, label: 'Part Paid' },
       unpaid:    { bg: 'bg-red-100 text-red-800', icon: <XCircle className="w-3.5 h-3.5" />, label: 'Unpaid' },
+      pending:   { bg: 'bg-gray-200 text-gray-800', icon: <AlertCircle className="w-3.5 h-3.5" />, label: 'Not Invoiced' },
     }
     const c = config[status] || config.unpaid
     return (
@@ -204,6 +230,7 @@ export default function InvoiceStatusPage() {
           { key: 'unpaid' as Tab, label: 'Unpaid' },
           { key: 'part_paid' as Tab, label: 'Part Paid' },
           { key: 'paid' as Tab, label: 'Paid' },
+          { key: 'pending' as Tab, label: 'Not Invoiced' },
         ]).map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
             className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
@@ -274,7 +301,16 @@ export default function InvoiceStatusPage() {
                         ))}
 
                         {/* Manual overrides */}
-                        {inv.payment_status !== 'paid' && (
+                        {inv.payment_status === 'pending' && (
+                          <button
+                            onClick={() => handleCancelOrder(inv.id)}
+                            disabled={actionLoading === inv.id}
+                            className="text-xs px-2 py-1 bg-red-50 text-red-700 hover:bg-red-100 rounded font-medium">
+                            Cancel Order
+                          </button>
+                        )}
+
+                        {inv.payment_status !== 'paid' && inv.payment_status !== 'pending' && (
                           <button
                             onClick={() => handleManualMark(inv.id, 'paid')}
                             disabled={actionLoading === inv.id}
