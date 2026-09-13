@@ -3,12 +3,18 @@ export const dynamic = 'force-dynamic'
 // app/api/ar/reminders/route.ts
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { checkAdmin } from '@/lib/auth'
 import { Resend } from 'resend'
 
 
 const resend = new Resend(process.env.RESEND_API_KEY || "re_placeholder")
 
 export async function POST() {
+  const isAdmin = await checkAdmin()
+  if (!isAdmin) {
+    return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  }
+
   const supabase = await createClient()
   try {
     console.log('📧 Processing overdue reminders...')
