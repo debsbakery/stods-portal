@@ -199,6 +199,14 @@ export async function POST(request: NextRequest) {
 
   // ? Resolve correct section — don't default to 1 and overwrite an existing shift
   async function resolveSection(staffId: string, workDate: string, rosterSection: number | null): Promise<number> {
+    const { data: openShift } = await supabase
+      .from('shifts')
+      .select('section')
+      .eq('staff_id', staffId)
+      .eq('clock_in_id', clockInEvent.id)
+      .maybeSingle()
+    if (openShift?.section != null) return openShift.section
+
     if (rosterSection != null) return rosterSection
     const { data: existing } = await supabase
       .from('shifts')
