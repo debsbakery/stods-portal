@@ -109,7 +109,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         if (settledBeforePeriod) return sum
 
         if (tx.type === 'credit') {
-          return sum - Math.max(amount - paid, 0)
+          // Counted at full value for consistency with invoices, which are also
+          // counted gross - so an applied credit is reflected once, not zero times.
+          return sum - amount
         }
 
         return sum + amount
