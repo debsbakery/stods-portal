@@ -59,7 +59,7 @@ export default function PackingGridPage() {
         : order.customer?.business_name ?? 'Unknown'
 
       if (!custMap.has(custId)) {
-        const short = custName
+        const short = custName.length > 26 ? custName.slice(0, 25).trimEnd() + '\u2026' : custName
         custMap.set(custId, { id: custId, name: custName, shortName: short })
       }
 
@@ -161,9 +161,9 @@ export default function PackingGridPage() {
                     <th className="border border-gray-400 bg-gray-100 px-2 py-1 text-left sticky left-0 z-10 min-w-[40px]">Code</th>
 
                     <th className="border border-gray-400 bg-gray-100 px-1 py-1 text-left sticky left-[40px] z-10" style={{ maxWidth: '120px' }}>Product</th>                    {customers.map(c => (
-                      <th key={c.id} className="border border-gray-400 bg-gray-100 px-1 py-1 text-center min-w-[28px] max-w-[28px]"
+                      <th key={c.id} title={c.name} className="border border-gray-400 bg-gray-100 px-1 py-1 text-center min-w-[28px] max-w-[28px]"
                         style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', height: '160px', fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                        {c.name}
+                        {c.shortName}
                       </th>
                     ))}
                     {[1, 2, 3].map(n => (
