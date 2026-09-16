@@ -85,30 +85,35 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    // Opening balance BEFORE period
+    // Opening balance BEFORE period.
+    //
+    // Derived from invoice settlement state, NOT from the payments table.
+    // Settlements recorded before the payments table existed set amount_paid
+    // and paid_date without creating a payments row, so subtracting payment
+    // rows alone leaves those invoices inflating the opening balance forever.
     let openingBalance = 0
     if (startDate) {
       const { data: priorTxRaw } = await supabase
         .from('ar_transactions')
-        .select('amount, type')
+        .select('type, amount, amount_paid, paid_date')
         .eq('customer_id', customerId)
         .lt('created_at', startDate)
 
-      const priorInvoiceTotal = (priorTxRaw ?? []).reduce((sum, tx) => {
-        return sum + (tx.type === 'credit' ? -Number(tx.amount) : Number(tx.amount))
+      openingBalance = (priorTxRaw ?? []).reduce((sum, tx) => {
+        const amount = Number(tx.amount || 0)
+        const paid   = Number(tx.amount_paid || 0)
+
+        const settledBeforePeriod =
+          tx.paid_date != null && String(tx.paid_date) < startDate
+
+        if (settledBeforePeriod) return sum
+
+        if (tx.type === 'credit') {
+          return sum - Math.max(amount - paid, 0)
+        }
+
+        return sum + amount
       }, 0)
-
-      const { data: priorPmtRaw } = await supabase
-        .from('payments')
-        .select('amount')
-        .eq('customer_id', customerId)
-        .lt('payment_date', startDate)
-
-      const priorPaymentTotal = (priorPmtRaw ?? []).reduce(
-        (sum, p) => sum + Number(p.amount), 0
-      )
-
-      openingBalance = priorInvoiceTotal - priorPaymentTotal
     }
 
     // Merge lines
@@ -123,12 +128,32 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       due_date: string | null
     }
 
+    // Weekly invoice number lookup - descriptions are stored as 'weekly:{uuid}'
+    const weeklyDescMap: Record<string, string> = {}
+    for (const tx of transactions) {
+      const d = tx.description ?? ''
+      if (d.startsWith('weekly:')) {
+        const wid = d.replace('weekly:', '')
+        if (wid) weeklyDescMap[wid] = ''
+      }
+    }
+    const weeklyIds = Object.keys(weeklyDescMap)
+    if (weeklyIds.length > 0) {
+      const { data: weeklyInvs } = await supabase
+        .from('weekly_invoices')
+        .select('id, invoice_number')
+        .in('id', weeklyIds)
+      for (const wi of weeklyInvs ?? []) {
+        if (wi.invoice_number) weeklyDescMap[wi.id] = String(wi.invoice_number)
+      }
+    }
+
     const rawLines: RawLine[] = []
 
     for (const tx of transactions) {
       const isCredit   = tx.type === 'credit'
       const invoiceNum = tx.invoice_id ? invoiceMap[tx.invoice_id] : null
-      const reference  = invoiceNum
+      let reference    = invoiceNum
         ? 'INV-' + String(invoiceNum).padStart(4, '0')
         : String(tx.type ?? '').toUpperCase()
 
@@ -162,6 +187,18 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         finalDescription = isGeneric ? invStr + suffix + custPart : rawDesc
       } else {
         finalDescription = rawDesc || (isCredit ? 'Credit' : 'Invoice')
+      }
+
+      // Weekly invoices carry no invoice_id - resolve from the description
+      if (rawDesc.startsWith('weekly:')) {
+        const wid       = rawDesc.replace('weekly:', '')
+        const weeklyNum = weeklyDescMap[wid]
+        finalDescription = weeklyNum
+          ? `Weekly Invoice #${String(weeklyNum).padStart(6, '0')}`
+          : `Weekly Invoice (${wid.slice(0, 8).toUpperCase()})`
+        reference = weeklyNum
+          ? `INV-${String(weeklyNum).padStart(4, '0')}`
+          : 'WEEKLY'
       }
 
       rawLines.push({
@@ -226,7 +263,7 @@ let ageQuery = supabase
   .eq('type', 'invoice')
   .lte('created_at', endDate + 'T23:59:59')
 
-if (startDate) ageQuery = ageQuery.gte('created_at', startDate)
+
 
 const { data: allInvoices } = await ageQuery
 
