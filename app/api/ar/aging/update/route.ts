@@ -1,13 +1,13 @@
 export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function POST() {
   try {
     console.log('📊 Updating AR aging report...')
 
-    const supabase = await createClient()
+    const supabase = createAdminClient()
 
     const { data: customers, error: custError } = await supabase
       .from('customers')
