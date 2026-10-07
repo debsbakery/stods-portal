@@ -295,8 +295,8 @@ export default function RecordPaymentWithAllocation({
   }
 
   const hasAllocation    = customerInvoices.length > 0 || customerCredits.length > 0;
-  const balanceImpact    = money(allocatedToInvoices + Math.max(0, money(cashAmount - allocatedToInvoices)));
-  const projectedBalance = money(currentBalance - balanceImpact);
+  // Credits are balance-neutral: currentBalance already nets off unapplied credits.
+  const projectedBalance = money(currentBalance - cashAmount);
   const isReversal       = cashAmount < 0;
 
   return (
