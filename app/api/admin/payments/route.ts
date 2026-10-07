@@ -1,9 +1,13 @@
 export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAdminOrCron } from '@/lib/auth-guard'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function POST(request: NextRequest) {
+  const denied = await requireAdminOrCron(request)
+  if (denied) return denied
+
   try {
     const supabase = createAdminClient()
     const body = await request.json()
